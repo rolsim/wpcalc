@@ -227,3 +227,22 @@ starts empty, so a `0.00` placeholder in every cell was a wall of grey text
 that reads as data. As a focus-time format hint it is useful; at rest it is
 noise.
 *Reverse:* drop the two `::placeholder` rules.
+
+**The manuals are embedded and shown through `glow`, with a raw fallback.**
+`wpcalc manual [user|admin]` reads from an `embed.FS` rather than from disk, so
+the guides travel with the binary — the WordPress sidecar and a
+copied-to-a-server binary have no source tree beside them. glow is used when it
+is on PATH *and* stdout is a terminal; otherwise the markdown is printed as-is.
+Gating on the terminal matters: piping into a file or another program would
+otherwise fill it with ANSI escapes, which is corruption rather than
+formatting. glow being absent is a note on stderr, not an error — markdown is
+readable on its own.
+*Reverse:* the alternative is `charmbracelet/glamour` as a library, which
+always renders but adds a substantial dependency to a binary that otherwise
+needs none.
+
+**`manuals.go` sits at the module root purely so `//go:embed` can reach
+`docs/`.** An embed directive cannot use "..", and moving the manuals under
+`internal/` would put them somewhere no reader looks and GitHub does not
+present as documentation. One file is a fair price.
+*Reverse:* move `docs/` into the package that embeds it.

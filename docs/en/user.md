@@ -117,6 +117,11 @@ English are available; anything else falls back to German. There is no
 in-page language switcher — change your browser's preferred language to
 switch.
 
+## Reading this offline
+
+If you have the `wpcalc` command available, `wpcalc manual` shows this guide in
+your terminal, and `wpcalc manual --lang en` forces the language.
+
 ## If something looks wrong
 
 - **A cell will not accept anything.** It is grey with a `·`: the date is

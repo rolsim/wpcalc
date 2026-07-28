@@ -48,9 +48,29 @@ Laufzeitabhängigkeiten: auf den Host kopieren und starten.
 | `migrate [up\|down\|status]` | Migrationen anwenden, eine zurückrollen, Status zeigen |
 | `user add\|passwd\|list` | Konten verwalten |
 | `sample-employees [--month YYYY-MM]` | Platzhalter-Mitarbeitende anlegen; erfasst **keine Stunden** |
+| `manual [user\|admin]` | eingebettetes Handbuch anzeigen |
 | `version` | Version ausgeben |
 
 Flags funktionieren vor oder nach den Positionsargumenten.
+
+### Handbücher lesen
+
+Beide Handbücher sind in die Binärdatei eingebettet und reisen mit ihr — auch
+auf einem Server ohne Quellcode daneben sind sie verfügbar:
+
+```sh
+wpcalc manual              # Benutzerhandbuch, in der Sprache Ihrer Shell
+wpcalc manual admin        # dieses Dokument
+wpcalc manual admin --lang en
+wpcalc manual --list       # was verfügbar ist
+wpcalc manual admin --raw  # Markdown, zum Weiterleiten
+```
+
+Für eine gerenderte, seitenweise Darstellung installieren Sie
+[glow](https://github.com/charmbracelet/glow). Ohne glow wird das rohe Markdown
+ausgegeben, das ebenfalls lesbar ist. Die Rohform wird auch automatisch
+verwendet, wenn die Ausgabe kein Terminal ist — `wpcalc manual admin >
+admin.md` füllt die Datei also nicht mit Steuerzeichen.
 
 ### Umgebungsvariablen
 

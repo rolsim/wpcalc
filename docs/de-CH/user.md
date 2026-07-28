@@ -119,6 +119,11 @@ sind Deutsch (Schweiz) und Englisch; alles andere fällt auf Deutsch zurück. Es
 gibt keine Sprachumschaltung in der Seite — stellen Sie die bevorzugte Sprache
 im Browser um.
 
+## Dieses Handbuch offline lesen
+
+Wenn Ihnen der Befehl `wpcalc` zur Verfügung steht, zeigt `wpcalc manual` diese
+Anleitung im Terminal an; `wpcalc manual --lang de-CH` erzwingt die Sprache.
+
 ## Wenn etwas nicht stimmt
 
 - **Eine Zelle nimmt nichts an.** Sie ist grau mit einem `·`: Das Datum liegt

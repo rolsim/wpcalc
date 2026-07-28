@@ -25,6 +25,19 @@ reload.
 The administrator guide covers both run modes, accounts, the WordPress plugin,
 backup and troubleshooting.
 
+Both are embedded in the binary and readable from a terminal:
+
+```sh
+wpcalc manual              # user guide, in your shell's language
+wpcalc manual admin        # administrator guide
+wpcalc manual --lang en    # force a language
+wpcalc manual --list       # what is available
+```
+
+Rendered with [glow](https://github.com/charmbracelet/glow) when it is
+installed and the output is a terminal; plain markdown otherwise, so piping to
+a file or another program stays clean.
+
 ---
 
 ## Build
@@ -97,6 +110,7 @@ see the note above.
 | `wpcalc migrate [up\|down\|status]` | apply, roll back one, or report migrations |
 | `wpcalc user add\|passwd\|list` | manage standalone accounts (`--allow-weak-password` for local testing only) |
 | `wpcalc sample-employees [--month YYYY-MM]` | create placeholder employees; records no hours |
+| `wpcalc manual [user\|admin] [--lang L] [--raw] [--list]` | show an embedded manual, via glow when available |
 | `wpcalc version` | print the version |
 
 Flags may appear before or after positional arguments.

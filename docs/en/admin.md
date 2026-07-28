@@ -47,9 +47,28 @@ dependencies — copy it to the host and run it.
 | `migrate [up\|down\|status]` | apply, roll back one, or report migrations |
 | `user add\|passwd\|list` | manage accounts |
 | `sample-employees [--month YYYY-MM]` | create placeholder employees; records **no hours** |
+| `manual [user\|admin]` | show an embedded manual |
 | `version` | print the version |
 
 Flags work before or after positional arguments.
+
+### Reading the manuals
+
+Both guides are embedded in the binary, so they travel with it — a server with
+no source tree beside it still has them:
+
+```sh
+wpcalc manual              # user guide, in your shell's language
+wpcalc manual admin        # this document
+wpcalc manual admin --lang en
+wpcalc manual --list       # what is available
+wpcalc manual admin --raw  # markdown, for piping
+```
+
+Install [glow](https://github.com/charmbracelet/glow) for a rendered, paged
+version. Without it the raw markdown is printed, which is still readable. The
+raw form is also used automatically when the output is not a terminal, so
+`wpcalc manual admin > admin.md` does not fill the file with escape codes.
 
 ### Environment
 
