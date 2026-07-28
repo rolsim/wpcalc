@@ -13,3 +13,6 @@
 
 # Test output
 /coverage.out
+
+# VS Code dev database and socket
+/.dev/

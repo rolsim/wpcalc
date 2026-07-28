@@ -26,6 +26,23 @@ make check          # build + vet + lint + unit tests — the gate every commit 
 
 Go 1.26+. No npm, no bundler, no build step for assets.
 
+## Run in VS Code
+
+Press **F5**. It seeds `.dev/wpcalc.db` on first run, starts the server under
+the debugger on <http://127.0.0.1:8123>, and opens a browser once the port is
+actually listening. Breakpoints work.
+
+Dev login: **`dev` / `devpassword123`** — created by the prelaunch task, in a
+gitignored database, for local use only.
+
+The first run seeds a demo month so there is something to look at. Re-running
+F5 never reseeds; use the **wpcalc: reset dev database** task if you want a
+clean one.
+
+Other configurations: *serve + open in editor* (Simple Browser instead of an
+external one), *serve (WordPress sidecar)* for stepping through the socket and
+signed-header paths, and *debug current test*.
+
 ## Run standalone
 
 ```sh

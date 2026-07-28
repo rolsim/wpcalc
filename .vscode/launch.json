@@ -1,0 +1,106 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // F5: build, seed a dev database if needed, serve, open the browser.
+      "name": "wpcalc: serve + open browser",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/wpcalc",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "wpcalc: prepare dev database",
+
+      // A concrete loopback address, not ":8123". A wildcard bind reports
+      // itself as "[::]:8123", which is what the browser would be handed
+      // verbatim, and it publishes the dev server on every interface.
+      //
+      // Port 8123 rather than the obvious 8080: 8080 was already taken on this
+      // machine, and the failure is quiet — the server exits, the browser
+      // opens anyway, and whatever else owns the port answers instead.
+      "args": [
+        "serve",
+        "--addr", "127.0.0.1:8123",
+        "--db", "${workspaceFolder}/.dev/wpcalc.db"
+      ],
+
+      "env": {
+        "CGO_ENABLED": "0",
+        "GOPRIVATE": "source.simonet.internal/*"
+      },
+
+      // Must be internalConsole: serverReadyAction watches the debug console
+      // and never sees output sent to an integrated terminal, so switching
+      // this to "integratedTerminal" silently stops the browser from opening.
+      "console": "internalConsole",
+
+      // The server logs `msg=serving listener=127.0.0.1:8123 mode=tcp ...`
+      // once it is actually accepting connections. Matching that rather than
+      // guessing a delay means the browser opens when the port is ready, not
+      // a hopeful two seconds later.
+      "serverReadyAction": {
+        "pattern": "listener=([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+:[0-9]+)",
+        "uriFormat": "http://%s",
+        "action": "openExternally"
+      }
+    },
+    {
+      // Same, but opens inside VS Code instead of an external browser.
+      "name": "wpcalc: serve + open in editor",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/wpcalc",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "wpcalc: prepare dev database",
+      "args": [
+        "serve",
+        "--addr", "127.0.0.1:8123",
+        "--db", "${workspaceFolder}/.dev/wpcalc.db"
+      ],
+      "env": {
+        "CGO_ENABLED": "0",
+        "GOPRIVATE": "source.simonet.internal/*"
+      },
+      "console": "internalConsole",
+      "serverReadyAction": {
+        "pattern": "listener=([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+:[0-9]+)",
+        "uriFormat": "http://%s",
+        "action": "debugWithEdge"
+      }
+    },
+    {
+      // The WordPress sidecar mode, for stepping through the socket and
+      // signed-header paths. No browser: requests arrive from the PHP shim,
+      // and the socket has to match what the plugin expects.
+      "name": "wpcalc: serve (WordPress sidecar)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/wpcalc",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "wpcalc: prepare dev database",
+      "args": [
+        "serve",
+        "--socket", "${workspaceFolder}/.dev/wpcalc.sock",
+        "--db", "${workspaceFolder}/.dev/wpcalc.db",
+        "--base-path", "/wp-admin/admin.php?page=wpcalc",
+        "--link-param", "wpcalc_path"
+      ],
+      "env": {
+        "CGO_ENABLED": "0",
+        "GOPRIVATE": "source.simonet.internal/*",
+        "WPCALC_SECRET": "dev-only-shared-secret-not-for-real-use"
+      },
+      "console": "internalConsole"
+    },
+    {
+      "name": "wpcalc: debug current test",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${fileDirname}",
+      "env": { "CGO_ENABLED": "0", "GOPRIVATE": "source.simonet.internal/*" }
+    }
+  ]
+}

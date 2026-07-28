@@ -1,0 +1,64 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // Prepares .dev/wpcalc.db so F5 has something to serve.
+      //
+      // `serve` refuses to start with an empty user table, so a bare F5 would
+      // otherwise exit immediately with "no accounts exist". This creates the
+      // account and seeds a demo month on first run only — the guard is the
+      // database file, so re-running F5 never duplicates the seed data or
+      // fails on an account that already exists.
+      "label": "wpcalc: prepare dev database",
+      "type": "shell",
+      "command": "mkdir -p .dev && if [ ! -f .dev/wpcalc.db ]; then go run ./cmd/wpcalc demo-seed --db .dev/wpcalc.db --month \"$(date +%Y-%m)\" && printf 'devpassword123\\n' | go run ./cmd/wpcalc user add dev -role admin --db .dev/wpcalc.db && echo '--- dev login: dev / devpassword123 ---'; else echo 'dev database already present'; fi",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "CGO_ENABLED": "0",
+          "GOPRIVATE": "source.simonet.internal/*"
+        }
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      // Deletes the dev database so the next F5 reseeds from scratch.
+      "label": "wpcalc: reset dev database",
+      "type": "shell",
+      "command": "rm -f .dev/wpcalc.db .dev/wpcalc.db-shm .dev/wpcalc.db-wal && echo 'dev database removed; next F5 will reseed'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "wpcalc: check",
+      "type": "shell",
+      "command": "make check",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": ["$go"]
+    },
+    {
+      "label": "wpcalc: e2e (browser)",
+      "type": "shell",
+      "command": "make e2e",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": ["$go"]
+    },
+    {
+      "label": "wpcalc: e2e (WordPress)",
+      "type": "shell",
+      "command": "make e2e-wp",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": ["$go"]
+    }
+  ]
+}
