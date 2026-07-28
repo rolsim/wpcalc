@@ -351,7 +351,15 @@ final class WPCalc_Plugin
         if ($fragment) {
             $headers['X-Wpcalc-Fragment'] = '1';
         }
-        if (isset($_SERVER['HTTP_ACCEPT_LANGUAGE'])) {
+        // WordPress keeps a per-user locale of its own, and it is the more
+        // specific statement than the browser's header. Sending it as
+        // Accept-Language lets the sidecar honour it through the negotiation it
+        // already does, with no second preference stored on this side to
+        // disagree with WordPress about.
+        $locale = function_exists('get_user_locale') ? get_user_locale() : '';
+        if ($locale !== '') {
+            $headers['Accept-Language'] = str_replace('_', '-', $locale);
+        } elseif (isset($_SERVER['HTTP_ACCEPT_LANGUAGE'])) {
             $headers['Accept-Language'] = sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT_LANGUAGE']));
         }
 

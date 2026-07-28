@@ -23,8 +23,8 @@ DB="${2:-.dev/wpcalc.db}"
 # Throwaway credentials for a local, gitignored database. They are below the
 # password minimum on purpose, which is why the commands below pass
 # --allow-weak-password explicitly rather than the minimum being lowered.
-ADMIN_NAME="admin"; ADMIN_PASS="admin"
-USER_NAME="user";  USER_PASS="user"
+ADMIN_NAME="admin"; ADMIN_PASS="admin"; ADMIN_LANG="en"
+USER_NAME="user";  USER_PASS="user";  USER_LANG="de-CH"
 
 # ---- 1. port ------------------------------------------------------------
 
@@ -83,8 +83,8 @@ go run ./cmd/wpcalc sample-employees --db "${DB}" --month "$(date +%Y-%m)"
 # serve refuses to start with an empty user table, so these are required, not a
 # convenience. One of each role, so both permission paths can be exercised.
 printf '%s\n' "${ADMIN_PASS}" |
-	go run ./cmd/wpcalc user add "${ADMIN_NAME}" -role admin --allow-weak-password --db "${DB}" 2>/dev/null
+	go run ./cmd/wpcalc user add "${ADMIN_NAME}" -role admin -lang "${ADMIN_LANG}" --allow-weak-password --db "${DB}" 2>/dev/null
 printf '%s\n' "${USER_PASS}" |
-	go run ./cmd/wpcalc user add "${USER_NAME}" -role user --allow-weak-password --db "${DB}" 2>/dev/null
+	go run ./cmd/wpcalc user add "${USER_NAME}" -role user -lang "${USER_LANG}" --allow-weak-password --db "${DB}" 2>/dev/null
 
-echo "--- dev logins: ${ADMIN_NAME}/${ADMIN_PASS} (admin), ${USER_NAME}/${USER_PASS} (user) ---"
+echo "--- dev logins: ${ADMIN_NAME}/${ADMIN_PASS} (admin, ${ADMIN_LANG}), ${USER_NAME}/${USER_PASS} (user, ${USER_LANG}) ---"

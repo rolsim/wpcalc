@@ -188,13 +188,15 @@ func TestPluginServesTheGridInsideWPAdmin(t *testing.T) {
 	if n := strings.Count(strings.ToLower(body), "<html"); n != 1 {
 		t.Errorf("page contains %d <html> elements, want exactly 1 (WordPress's own)", n)
 	}
-	// German is the default catalog, and its presence proves the sidecar — not
-	// some cached PHP output — produced this.
-	if !strings.Contains(body, "Mitarbeitende") {
+	// The interface language follows WordPress's own per-user locale, which
+	// this install sets to en_US, so the chrome must be English here. Its
+	// presence also proves the sidecar produced this rather than some cached
+	// PHP output. The German case is covered by TestWordPressLocaleDrivesTheInterfaceLanguage.
+	if !strings.Contains(body, "Employees") {
 		t.Errorf("expected the localised app chrome:\n%s", excerpt(body))
 	}
 	// The index redirect must have been followed to a real month.
-	if !regexp.MustCompile(`(Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember) \d{4}`).MatchString(body) {
+	if !regexp.MustCompile(`(January|February|March|April|May|June|July|August|September|October|November|December) \d{4}`).MatchString(body) {
 		t.Errorf("no month heading rendered; the redirect was probably not followed:\n%s", excerpt(body))
 	}
 }
@@ -322,6 +324,45 @@ func TestSidecarIsReachableOnlyThroughTheSocket(t *testing.T) {
 	}
 	if mode := strings.TrimSpace(perms); mode != "660" {
 		t.Errorf("socket mode is %s, want 660", mode)
+	}
+}
+
+func TestWordPressLocaleDrivesTheInterfaceLanguage(t *testing.T) {
+	// Under WordPress there is no second language preference stored on our
+	// side: WordPress owns the user record, so its per-user locale decides.
+	// A duplicate preference here could disagree with the one the site admin
+	// set, and there would be no way to tell which was authoritative.
+	ctx := t.Context()
+
+	setLocale := func(locale string) {
+		t.Helper()
+		if out, err := wpCLI(ctx, "user", "meta", "update", wpUser, "locale", locale); err != nil {
+			t.Fatalf("set locale %s: %v\n%s", locale, err, out)
+		}
+	}
+	t.Cleanup(func() { _, _ = wpCLI(context.Background(), "user", "meta", "update", wpUser, "locale", "en_US") })
+
+	client := loginToWordPress(t)
+
+	setLocale("de_CH")
+	body := get(t, client, siteURL+"/wp-admin/admin.php?page=wpcalc")
+	if !strings.Contains(body, "Mitarbeitende") {
+		t.Errorf("locale de_CH did not produce the German interface:\n%s", excerpt(body))
+	}
+	if strings.Contains(body, ">Employees<") {
+		t.Error("English chrome present despite a German locale")
+	}
+
+	setLocale("en_US")
+	body = get(t, client, siteURL+"/wp-admin/admin.php?page=wpcalc")
+	if !strings.Contains(body, "Employees") {
+		t.Errorf("locale en_US did not produce the English interface:\n%s", excerpt(body))
+	}
+
+	// And the app must not offer its own language control here, because
+	// changing it would not change what WordPress thinks.
+	if strings.Contains(body, `name="lang"`) {
+		t.Error("the app offers a language selector under WordPress, where it cannot persist")
 	}
 }
 

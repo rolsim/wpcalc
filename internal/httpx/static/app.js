@@ -143,6 +143,14 @@
     }
   }
 
+  // The language selector submits on change; its button is hidden by the
+  // stylesheet only once this file has run, so the no-JS path keeps one.
+  document.querySelectorAll("select[data-autosubmit]").forEach(function (sel) {
+    sel.addEventListener("change", function () {
+      if (sel.form) sel.form.submit();
+    });
+  });
+
   // Confirm destructive submits that opted in.
   document.querySelectorAll("form[data-confirm]").forEach(function (form) {
     form.addEventListener("submit", function (e) {

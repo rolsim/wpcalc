@@ -22,7 +22,16 @@ type User struct {
 	Username     string
 	PasswordHash string
 	Role         string
+
+	// Language is the interface locale this account prefers, or "" to follow
+	// the browser. It is deliberately not validated against the shipped
+	// catalogs here: a locale can be removed later, and a stale preference
+	// should quietly fall back rather than make the account unusable.
+	Language string
 }
+
+// LanguageAuto is the stored value meaning "follow the browser".
+const LanguageAuto = ""
 
 // ErrInvalidUser is the sentinel for account validation failures.
 var ErrInvalidUser = errors.New("invalid user")

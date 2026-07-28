@@ -19,6 +19,8 @@ func cmdUser(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("user", flag.ContinueOnError)
 	dbPath := fs.String("db", defaultDBPath(), "path to the SQLite database")
 	role := fs.String("role", domain.RoleUser, "role for a new account: admin or user")
+	lang := fs.String("lang", "",
+		"interface language for the account: de-CH, en, or empty to follow the browser")
 	weak := fs.Bool("allow-weak-password", false,
 		"accept a password below the minimum length (local development only)")
 	positional, err := parseArgs(fs, args)
@@ -26,7 +28,7 @@ func cmdUser(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(positional) == 0 {
-		return errors.New("user: want one of add, passwd, list")
+		return errors.New("user: want one of add, passwd, lang, list")
 	}
 	arg := func(i int) string {
 		if i < len(positional) {
@@ -43,17 +45,19 @@ func cmdUser(ctx context.Context, args []string) error {
 
 	switch action := arg(0); action {
 	case "add":
-		return userAdd(ctx, db, arg(1), *role, *weak)
+		return userAdd(ctx, db, arg(1), *role, *lang, *weak)
+	case "lang":
+		return userLang(ctx, db, arg(1), arg(2))
 	case "passwd":
 		return userPasswd(ctx, db, arg(1), *weak)
 	case "list":
 		return userList(ctx, db)
 	default:
-		return fmt.Errorf("user: unknown action %q (want add, passwd, or list)", action)
+		return fmt.Errorf("user: unknown action %q (want add, passwd, lang, or list)", action)
 	}
 }
 
-func userAdd(ctx context.Context, db *store.DB, username, role string, weak bool) error {
+func userAdd(ctx context.Context, db *store.DB, username, role, lang string, weak bool) error {
 	if username == "" {
 		return errors.New("user add: username is required")
 	}
@@ -65,14 +69,53 @@ func userAdd(ctx context.Context, db *store.DB, username, role string, weak bool
 	if err != nil {
 		return err
 	}
-	if _, err := db.CreateUserWeak(ctx, username, pw, role, weak); err != nil {
+	id, err := db.CreateUserWeak(ctx, username, pw, role, weak)
+	if err != nil {
 		if errors.Is(err, store.ErrDuplicateUsername) {
 			return fmt.Errorf("user add: %q already exists", username)
 		}
 		return err
 	}
-	fmt.Printf("created %s (%s)\n", username, role)
+
+	shown := "automatic"
+	if lang = normaliseLang(lang); lang != "" {
+		if err := db.SetUserLanguage(ctx, id, lang); err != nil {
+			return err
+		}
+		shown = lang
+	}
+	fmt.Printf("created %s (%s, language: %s)\n", username, role, shown)
 	return nil
+}
+
+// userLang sets or clears an account's interface language.
+func userLang(ctx context.Context, db *store.DB, username, lang string) error {
+	if username == "" {
+		return errors.New("user lang: username is required")
+	}
+	u, err := db.UserByUsername(ctx, username)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("user lang: no such user %q", username)
+		}
+		return err
+	}
+	lang = normaliseLang(lang)
+	if err := db.SetUserLanguage(ctx, u.ID, lang); err != nil {
+		return err
+	}
+	if lang == "" {
+		fmt.Printf("%s now follows the browser language\n", u.Username)
+		return nil
+	}
+	fmt.Printf("%s now uses %s\n", u.Username, lang)
+	return nil
+}
+
+// normaliseLang accepts the POSIX spelling as well as BCP 47, because "de_CH"
+// is what a shell locale looks like and what people type.
+func normaliseLang(s string) string {
+	return strings.ReplaceAll(strings.TrimSpace(s), "_", "-")
 }
 
 func userPasswd(ctx context.Context, db *store.DB, username string, weak bool) error {
@@ -103,7 +146,11 @@ func userList(ctx context.Context, db *store.DB) error {
 		return nil
 	}
 	for _, u := range users {
-		fmt.Printf("%-24s %s\n", u.Username, u.Role)
+		lang := u.Language
+		if lang == "" {
+			lang = "auto"
+		}
+		fmt.Printf("%-24s %-8s %s\n", u.Username, u.Role, lang)
 	}
 	return nil
 }

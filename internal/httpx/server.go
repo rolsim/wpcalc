@@ -155,6 +155,8 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /employees/{id}", s.handleEmployeeUpdate)
 	mux.HandleFunc("POST /employees/{id}/delete", s.handleEmployeeDelete)
 
+	mux.HandleFunc("POST /language", s.handleSetLanguage)
+
 	mux.HandleFunc("GET /reports", s.handleReportIndex)
 	mux.HandleFunc("GET /report/month/{ym}", s.handleReportMonth)
 	mux.HandleFunc("GET /report/employee/{id}/month/{ym}", s.handleReportEmployeeMonth)

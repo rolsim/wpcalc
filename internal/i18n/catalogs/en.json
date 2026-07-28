@@ -1,13 +1,11 @@
 {
   "app.title": "Working hours",
-
   "nav.prev_month": "Previous month",
   "nav.next_month": "Next month",
   "nav.current_month": "Current month",
   "nav.grid": "Grid",
   "nav.employees": "Employees",
   "nav.reports": "Reports",
-
   "grid.date": "Date",
   "grid.weekday": "Day",
   "grid.comment": "Comment",
@@ -19,7 +17,6 @@
   "grid.locked_hint": "Outside the employment period",
   "grid.save": "Save",
   "grid.hours_placeholder": "0.00",
-
   "employee.heading": "Employees",
   "employee.add": "Add employee",
   "employee.new": "New employment",
@@ -35,14 +32,12 @@
   "employee.none": "No employees registered yet.",
   "employee.still_employed": "employed",
   "employee.period": "Employment",
-
   "auth.login": "Sign in",
   "auth.username": "Username",
   "auth.password": "Password",
   "auth.logout": "Sign out",
   "auth.failed": "Sign-in failed.",
   "auth.required": "Please sign in.",
-
   "report.heading": "Reports",
   "report.month_overview": "Monthly overview",
   "report.employee_month": "Employee, month",
@@ -58,7 +53,6 @@
   "report.total": "Total",
   "report.download": "Download PDF",
   "report.no_data": "No data for this period.",
-
   "error.not_found": "Not found.",
   "error.invalid_input": "Invalid input.",
   "error.invalid_hours": "Invalid hours value.",
@@ -70,7 +64,6 @@
   "error.end_before_start": "End date is before the start date.",
   "error.server": "Unexpected error.",
   "error.method_not_allowed": "Method not allowed.",
-
   "weekday.mon": "Mon",
   "weekday.tue": "Tue",
   "weekday.wed": "Wed",
@@ -78,7 +71,6 @@
   "weekday.fri": "Fri",
   "weekday.sat": "Sat",
   "weekday.sun": "Sun",
-
   "month.1": "January",
   "month.2": "February",
   "month.3": "March",
@@ -90,5 +82,10 @@
   "month.9": "September",
   "month.10": "October",
   "month.11": "November",
-  "month.12": "December"
+  "month.12": "December",
+  "lang.label": "Language",
+  "lang.auto": "Automatic (browser)",
+  "lang.de-CH": "German (Switzerland)",
+  "lang.en": "English",
+  "lang.save": "Apply"
 }

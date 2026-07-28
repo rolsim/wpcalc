@@ -61,7 +61,7 @@ func usage(w *os.File) {
 Usage:
   wpcalc serve [--addr :8080 | --socket PATH] [--db PATH]
   wpcalc migrate [up|down|status] [--db PATH]
-  wpcalc user add|passwd|list [--db PATH] [-role admin|user]
+  wpcalc user add|passwd|lang|list [--db PATH] [-role admin|user] [-lang de-CH|en]
   wpcalc sample-employees [--db PATH] [--month YYYY-MM]
   wpcalc manual [user|admin] [--lang de-CH|en] [--raw] [--list]
   wpcalc version

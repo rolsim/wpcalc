@@ -246,3 +246,31 @@ needs none.
 `internal/` would put them somewhere no reader looks and GitHub does not
 present as documentation. One file is a fair price.
 *Reverse:* move `docs/` into the package that embeds it.
+
+**A stored language preference beats `Accept-Language`.** It is the more
+specific statement: someone whose laptop is English but who wants the German
+interface has said so explicitly. An empty value means "follow the browser" and
+is the default, so existing accounts behave exactly as before the column
+existed. A preference naming a catalog that no longer ships falls through to
+negotiation instead of rendering `!!key!!` markers — which is why the read path
+checks `Has()` rather than trusting the stored value.
+*Reverse:* `printerFor` in `internal/httpx/views.go` is the only place that
+decides.
+
+**Under WordPress the app stores no language preference at all.** WordPress
+owns the user record there, so the shim sends that user's WordPress profile
+locale as `Accept-Language` and the sidecar honours it through the negotiation
+it already performs. A second preference on this side could disagree with the
+one the site administrator set, with nothing to say which was authoritative.
+The selector is hidden when the authenticator cannot persist, rather than
+offered and silently ineffective — `auth.LanguageWriter` is the seam, and
+`auth.WordPress` deliberately does not implement it.
+*Reverse:* implement LanguageWriter on the WordPress adapter and accept two
+sources of truth.
+
+**The language form validates against the loaded catalogs and checks its own
+redirect.** An unshipped locale is refused rather than stored, or the account
+would render in a language that does not exist and could only be fixed from the
+database. `return_to` comes from a form field, so it is an open redirect unless
+the target is confirmed local — "//evil.example" is scheme-relative and leaves
+the site while looking like a path.

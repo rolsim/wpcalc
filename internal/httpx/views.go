@@ -39,6 +39,21 @@ type view struct {
 	Identity  auth.Identity
 	Error     string
 	Flash     string
+
+	// Languages is empty when the authenticator cannot store a preference, so
+	// the layout hides a control that would otherwise appear to work and not.
+	Languages   []LanguageOption
+	LanguageURL string
+	// CurrentPath is where to return after changing the language, so the
+	// change does not also lose the month someone was looking at.
+	CurrentPath string
+}
+
+// LanguageOption is one entry in the language selector.
+type LanguageOption struct {
+	Tag      string
+	Label    string
+	Selected bool
 }
 
 // URL builds an absolute path, honouring the base path the WordPress admin
@@ -51,11 +66,25 @@ func (v view) URL(format string, args ...any) string {
 // logout control on the login page.
 func (v view) LoggedIn() bool { return !v.Identity.IsZero() }
 
+// printerFor resolves the locale for one request.
+//
+// A stored preference wins over the browser, because it is the more specific
+// statement: someone whose laptop is set to English but who wants the German
+// interface has said so explicitly. An unrecognised preference — a catalog
+// that has since been removed, say — falls through to negotiation rather than
+// rendering markers, which is why the check is Has() and not a bare read.
+func (s *Server) printerFor(r *http.Request) *i18n.Printer {
+	if id, ok := auth.IdentityFrom(r.Context()); ok && s.bundle.Has(id.Language) {
+		return s.bundle.For(id.Language)
+	}
+	return s.bundle.For(s.bundle.Match(r.Header.Get("Accept-Language")))
+}
+
 // newView assembles the shared part of every page's data.
 func (s *Server) newView(r *http.Request, titleKey string) view {
-	p := s.bundle.For(s.bundle.Match(r.Header.Get("Accept-Language")))
+	p := s.printerFor(r)
 	id, _ := auth.IdentityFrom(r.Context())
-	return view{
+	v := view{
 		Printer:   p,
 		Title:     p.T(titleKey),
 		Base:      s.basePath,
@@ -63,6 +92,30 @@ func (s *Server) newView(r *http.Request, titleKey string) view {
 		Fragment:  isFragment(r),
 		Identity:  id,
 	}
+	if _, ok := s.authn.(auth.LanguageWriter); ok && !id.IsZero() {
+		v.LanguageURL = s.url("/language")
+		v.CurrentPath = r.URL.RequestURI()
+		v.Languages = s.languageOptions(p.Lang(), id.Language)
+	}
+	return v
+}
+
+// languageOptions builds the selector, with an "automatic" entry first so a
+// preference can be cleared as well as set.
+func (s *Server) languageOptions(active, stored string) []LanguageOption {
+	opts := []LanguageOption{{
+		Tag:      domain.LanguageAuto,
+		Label:    s.bundle.T(active, "lang.auto"),
+		Selected: !s.bundle.Has(stored),
+	}}
+	for _, tag := range s.bundle.Languages() {
+		opts = append(opts, LanguageOption{
+			Tag:      tag,
+			Label:    s.bundle.T(active, "lang."+tag),
+			Selected: tag == stored,
+		})
+	}
+	return opts
 }
 
 // funcMap holds the helpers templates need that are not methods on the data.

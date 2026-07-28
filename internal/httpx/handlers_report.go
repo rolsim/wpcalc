@@ -118,7 +118,7 @@ func (s *Server) handleReportEmployeeYear(w http.ResponseWriter, r *http.Request
 // mid-render failure, leaving the browser to download a truncated file that
 // looks like a successful export.
 func (s *Server) writePDF(w http.ResponseWriter, r *http.Request, filename string, render func(*report.Renderer, *bytes.Buffer) error) {
-	printer := s.bundle.For(s.bundle.Match(r.Header.Get("Accept-Language")))
+	printer := s.printerFor(r)
 	rr := report.New(s.db, printer)
 
 	var buf bytes.Buffer

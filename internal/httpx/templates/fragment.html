@@ -15,6 +15,20 @@
       <a href="{{ .URL "/employees" }}">{{ .T "nav.employees" }}</a>
       <a href="{{ .URL "/reports" }}">{{ .T "nav.reports" }}</a>
     </span>
+    <span class="topbar-right">
+      {{ if .Languages }}
+        <form class="lang-form" method="post" action="{{ .LanguageURL }}">
+          <input type="hidden" name="return_to" value="{{ .CurrentPath }}">
+          <label class="visually-hidden" for="lang-select">{{ .T "lang.label" }}</label>
+          <select id="lang-select" name="lang" data-autosubmit>
+            {{ range .Languages }}
+              <option value="{{ .Tag }}"{{ if .Selected }} selected{{ end }}>{{ .Label }}</option>
+            {{ end }}
+          </select>
+          <button type="submit">{{ .T "lang.save" }}</button>
+        </form>
+      {{ end }}
+    </span>
   </nav>
 
   {{ if .Error }}<div class="alert alert-error" role="alert">{{ .Error }}</div>{{ end }}

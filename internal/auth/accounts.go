@@ -21,6 +21,19 @@ type UserStore interface {
 	SessionUser(ctx context.Context, token string) (domain.User, error)
 	CreateSession(ctx context.Context, token string, userID int64, expires time.Time) error
 	DeleteSession(ctx context.Context, token string) error
+	SetUserLanguage(ctx context.Context, userID int64, lang string) error
+}
+
+// LanguageWriter is implemented by authenticators whose identities can store a
+// language preference.
+//
+// The WordPress adapter does not implement it: WordPress owns the user record
+// there, and writing a second, divergent preference into this database would
+// mean two answers to the same question. The handler hides the control when
+// the authenticator cannot persist, rather than offering one that silently
+// does nothing.
+type LanguageWriter interface {
+	SetLanguage(r *http.Request, lang string) error
 }
 
 // CookieName is the standalone session cookie.
@@ -126,12 +139,25 @@ func (a *Accounts) LogoutRequest(r *http.Request) {
 	_ = a.store.DeleteSession(r.Context(), c.Value)
 }
 
+// SetLanguage stores the preference for whoever this request belongs to.
+func (a *Accounts) SetLanguage(r *http.Request, lang string) error {
+	c, err := r.Cookie(CookieName)
+	if err != nil || c.Value == "" {
+		return ErrUnauthenticated
+	}
+	u, err := a.store.SessionUser(r.Context(), c.Value)
+	if err != nil {
+		return ErrUnauthenticated
+	}
+	return a.store.SetUserLanguage(r.Context(), u.ID, lang)
+}
+
 func identityFor(u domain.User) Identity {
 	role := RoleUser
 	if u.IsAdmin() {
 		role = RoleAdmin
 	}
-	return Identity{Username: u.Username, Roles: []string{role}}
+	return Identity{Username: u.Username, Roles: []string{role}, Language: u.Language}
 }
 
 // newSessionToken produces an unguessable session identifier.
@@ -146,9 +172,10 @@ func newSessionToken() (string, error) {
 // Compile-time proof that both modes satisfy the same contract, so a drift
 // between them fails here rather than at a call site in a handler.
 var (
-	_ Authenticator = (*Accounts)(nil)
-	_ Authenticator = (*WordPress)(nil)
-	_ SessionWriter = (*Accounts)(nil)
+	_ Authenticator  = (*Accounts)(nil)
+	_ Authenticator  = (*WordPress)(nil)
+	_ SessionWriter  = (*Accounts)(nil)
+	_ LanguageWriter = (*Accounts)(nil)
 )
 
 // ErrNoAccounts signals an empty user table, so the operator is told to create

@@ -60,8 +60,9 @@ what is holding it. That check exists because the failure is otherwise
 misleading: the server exits, the browser opens anyway, and whatever owns the
 port answers instead — so the app looks broken rather than absent.
 
-Dev logins, created by the prelaunch task: **`admin` / `admin`** and
-**`user` / `user`**.
+Dev logins, created by the prelaunch task: **`admin` / `admin`** (English) and
+**`user` / `user`** (German) — different languages on purpose, so the stored
+preference is visible without changing anything.
 
 > These bypass the password-length requirement, via an explicit
 > `--allow-weak-password` flag, **for local testing only**. They exist in a
@@ -108,7 +109,7 @@ see the note above.
 |---|---|
 | `wpcalc serve --addr :8080 \| --socket PATH` | run the server; exactly one listener |
 | `wpcalc migrate [up\|down\|status]` | apply, roll back one, or report migrations |
-| `wpcalc user add\|passwd\|list` | manage standalone accounts (`--allow-weak-password` for local testing only) |
+| `wpcalc user add\|passwd\|lang\|list` | manage standalone accounts (`--allow-weak-password` for local testing only) |
 | `wpcalc sample-employees [--month YYYY-MM]` | create placeholder employees; records no hours |
 | `wpcalc manual [user\|admin] [--lang L] [--raw] [--list]` | show an embedded manual, via glow when available |
 | `wpcalc version` | print the version |

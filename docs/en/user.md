@@ -112,10 +112,15 @@ send a colleague a link to exactly the month you are looking at.
 
 ## Language
 
-The interface follows your browser's language setting. German (Swiss) and
-English are available; anything else falls back to German. There is no
-in-page language switcher — change your browser's preferred language to
-switch.
+Pick a language from the selector in the top bar. Your choice is stored
+against your account, so it follows you to any browser you sign in from.
+
+**Automatic (browser)** is the default and means the interface follows your
+browser's language setting. German (Swiss) and English are available; anything
+else falls back to German.
+
+Under WordPress the selector is not shown: the language follows the one set on
+your WordPress profile, so there is only ever one place to change it.
 
 ## Reading this offline
 

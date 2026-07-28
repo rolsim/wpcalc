@@ -114,10 +114,15 @@ Unter **Auswertungen** entstehen PDFs:
 
 ## Sprache
 
-Die Oberfläche richtet sich nach der Spracheinstellung Ihres Browsers. Verfügbar
-sind Deutsch (Schweiz) und Englisch; alles andere fällt auf Deutsch zurück. Es
-gibt keine Sprachumschaltung in der Seite — stellen Sie die bevorzugte Sprache
-im Browser um.
+Wählen Sie die Sprache in der Auswahl oben rechts. Ihre Wahl wird beim Konto
+gespeichert und gilt daher in jedem Browser, in dem Sie sich anmelden.
+
+**Automatisch (Browser)** ist die Vorgabe: Die Oberfläche richtet sich dann nach
+der Spracheinstellung Ihres Browsers. Verfügbar sind Deutsch (Schweiz) und
+Englisch; alles andere fällt auf Deutsch zurück.
+
+Unter WordPress wird die Auswahl nicht angezeigt: Dort gilt die Sprache aus
+Ihrem WordPress-Profil, damit es nur eine Stelle zum Ändern gibt.
 
 ## Dieses Handbuch offline lesen
 

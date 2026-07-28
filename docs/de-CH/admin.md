@@ -46,7 +46,7 @@ Laufzeitabhängigkeiten: auf den Host kopieren und starten.
 |---|---|
 | `serve --addr :8080 \| --socket PFAD` | Server starten; genau ein Listener |
 | `migrate [up\|down\|status]` | Migrationen anwenden, eine zurückrollen, Status zeigen |
-| `user add\|passwd\|list` | Konten verwalten |
+| `user add\|passwd\|lang\|list` | Konten verwalten |
 | `sample-employees [--month YYYY-MM]` | Platzhalter-Mitarbeitende anlegen; erfasst **keine Stunden** |
 | `manual [user\|admin]` | eingebettetes Handbuch anzeigen |
 | `version` | Version ausgeben |
@@ -106,6 +106,29 @@ gültig zu lassen.
 > lokale Entwicklungsdatenbank mit Wegwerf-Zugangsdaten wie `admin`/`admin`
 > bestückt werden kann, und gibt bei jeder Verwendung eine Warnung aus.
 > **Niemals auf einem erreichbaren System verwenden.**
+
+### Sprache der Oberfläche
+
+Jedes Konto speichert eine bevorzugte Sprache, oder einen leeren Wert für «der
+Browser entscheidet». Benutzer ändern sie selbst über die Auswahl oben rechts;
+Sie können sie beim Anlegen oder später setzen:
+
+```sh
+./bin/wpcalc user add alice -role admin -lang en --db DB
+./bin/wpcalc user lang alice de-CH --db DB    # de_CH wird ebenfalls akzeptiert
+./bin/wpcalc user lang alice "" --db DB       # wieder dem Browser folgen
+```
+
+Eine gespeicherte Einstellung hat Vorrang vor `Accept-Language` des Browsers,
+weil sie die genauere Aussage ist. Verweist eine Einstellung auf eine Sprache,
+die nicht mehr ausgeliefert wird, greift wieder die Aushandlung, statt dass das
+Konto unbrauchbar wird.
+
+**Unter WordPress gilt das nicht.** Dort gehört der Benutzerdatensatz
+WordPress, die Oberfläche folgt also dem Profil-Locale des jeweiligen
+WordPress-Benutzers, und die Anwendung blendet ihre eigene Auswahl aus. Eine
+zweite Einstellung hier könnte der vom Website-Administrator gesetzten
+widersprechen, ohne dass erkennbar wäre, welche massgeblich ist.
 
 Ein Konto lässt sich über die Kommandozeile noch nicht löschen; entfernen Sie
 die Zeile nötigenfalls direkt aus der Tabelle `users`. Die zugehörigen

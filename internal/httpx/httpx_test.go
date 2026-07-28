@@ -743,3 +743,153 @@ func TestEmployeeCreateAcceptsMultipartBodies(t *testing.T) {
 		t.Error("employee created via multipart is not listed")
 	}
 }
+
+func TestStoredLanguageOverridesAcceptLanguage(t *testing.T) {
+	// The stored preference is the more specific statement: someone whose
+	// laptop is set to English but who wants the German interface has said so.
+	ts := newTestServer(t, stubAuth{id: auth.Identity{
+		Username: "tester", Roles: []string{auth.RoleAdmin}, Language: "de-CH",
+	}})
+	ts.employee(t, "Muster A", "2026-01-01", "")
+
+	r := httptest.NewRequest(http.MethodGet, "/m/2026-07", nil)
+	r.Header.Set("Accept-Language", "en-GB,en;q=0.9")
+	w := httptest.NewRecorder()
+	ts.handler.ServeHTTP(w, r)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Juli 2026") {
+		t.Errorf("stored de-CH lost to Accept-Language: en; body has %q",
+			excerptAround(body, "2026"))
+	}
+	if strings.Contains(body, "July 2026") {
+		t.Error("rendered in English despite a stored German preference")
+	}
+	if !strings.Contains(body, `lang="de-CH"`) {
+		t.Error("the html lang attribute does not reflect the stored preference")
+	}
+}
+
+func TestAcceptLanguageUsedWhenNoPreferenceStored(t *testing.T) {
+	ts := newTestServer(t, stubAuth{id: auth.Identity{
+		Username: "tester", Roles: []string{auth.RoleAdmin}, // Language empty
+	}})
+	ts.employee(t, "Muster A", "2026-01-01", "")
+
+	r := httptest.NewRequest(http.MethodGet, "/m/2026-07", nil)
+	r.Header.Set("Accept-Language", "en-GB,en;q=0.9")
+	w := httptest.NewRecorder()
+	ts.handler.ServeHTTP(w, r)
+
+	if !strings.Contains(w.Body.String(), "July 2026") {
+		t.Error("with no stored preference, Accept-Language should decide")
+	}
+}
+
+func TestUnknownStoredLanguageFallsBackRatherThanBreaking(t *testing.T) {
+	// A catalog can be removed after someone has chosen it. That must degrade
+	// to negotiation, not render untranslated markers.
+	ts := newTestServer(t, stubAuth{id: auth.Identity{
+		Username: "tester", Roles: []string{auth.RoleAdmin}, Language: "fr-CH",
+	}})
+	ts.employee(t, "Muster A", "2026-01-01", "")
+
+	r := httptest.NewRequest(http.MethodGet, "/m/2026-07", nil)
+	r.Header.Set("Accept-Language", "en-GB,en;q=0.9")
+	w := httptest.NewRecorder()
+	ts.handler.ServeHTTP(w, r)
+
+	body := w.Body.String()
+	if strings.Contains(body, "!!") {
+		t.Errorf("unsupported preference produced untranslated keys: %s", excerptAround(body, "!!"))
+	}
+	if !strings.Contains(body, "July 2026") {
+		t.Error("did not fall back to Accept-Language")
+	}
+}
+
+// langWritingAuth is a stub that can persist a preference, so the selector
+// appears and the handler has something to write to.
+type langWritingAuth struct {
+	stubAuth
+	saved string
+}
+
+func (a *langWritingAuth) Identify(r *http.Request) (auth.Identity, error) {
+	id, err := a.stubAuth.Identify(r)
+	if err != nil {
+		return id, err
+	}
+	id.Language = a.saved
+	return id, nil
+}
+
+func (a *langWritingAuth) SetLanguage(_ *http.Request, lang string) error {
+	a.saved = lang
+	return nil
+}
+
+func TestLanguageSelectorAppearsOnlyWhenItCanPersist(t *testing.T) {
+	// Offering a control that silently does nothing is worse than not offering
+	// one, which is the WordPress case: WordPress owns the user record there.
+	withStore := newTestServer(t, &langWritingAuth{stubAuth: stubAuth{
+		id: auth.Identity{Username: "tester", Roles: []string{auth.RoleAdmin}}}})
+	if !strings.Contains(withStore.get(t, "/employees").Body.String(), `name="lang"`) {
+		t.Error("selector missing when the authenticator can persist")
+	}
+
+	withoutStore := newTestServer(t, nil) // plain stubAuth: no SetLanguage
+	if strings.Contains(withoutStore.get(t, "/employees").Body.String(), `name="lang"`) {
+		t.Error("selector shown when the authenticator cannot persist it")
+	}
+}
+
+func TestSetLanguagePersistsValidatesAndReturns(t *testing.T) {
+	a := &langWritingAuth{stubAuth: stubAuth{
+		id: auth.Identity{Username: "tester", Roles: []string{auth.RoleAdmin}}}}
+	ts := newTestServer(t, a)
+
+	// The POSIX spelling is accepted, because that is what a shell locale
+	// looks like and what people type.
+	w := ts.post(t, "/language", url.Values{"lang": {"de_CH"}, "return_to": {"/m/2026-07"}}, false)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status %d, want 303", w.Code)
+	}
+	if a.saved != "de-CH" {
+		t.Errorf("stored %q, want de-CH", a.saved)
+	}
+	if loc := w.Header().Get("Location"); loc != "/m/2026-07" {
+		t.Errorf("returned to %q, want the page we came from", loc)
+	}
+
+	// Empty clears the preference back to following the browser.
+	ts.post(t, "/language", url.Values{"lang": {""}}, false)
+	if a.saved != "" {
+		t.Errorf("clearing stored %q, want empty", a.saved)
+	}
+
+	// An unshipped locale is refused rather than stored, or the account would
+	// render in a language that does not exist.
+	a.saved = "en"
+	if w := ts.post(t, "/language", url.Values{"lang": {"fr-CH"}}, false); w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("unknown locale: status %d, want 422", w.Code)
+	}
+	if a.saved != "en" {
+		t.Errorf("unknown locale overwrote the preference: %q", a.saved)
+	}
+}
+
+func TestLanguageReturnToCannotLeaveTheSite(t *testing.T) {
+	// return_to comes from a form field, so it is an open redirect unless the
+	// target is checked.
+	a := &langWritingAuth{stubAuth: stubAuth{
+		id: auth.Identity{Username: "tester", Roles: []string{auth.RoleAdmin}}}}
+	ts := newTestServer(t, a)
+
+	for _, evil := range []string{"//evil.example/", "https://evil.example/", "javascript:alert(1)", ""} {
+		w := ts.post(t, "/language", url.Values{"lang": {"en"}, "return_to": {evil}}, false)
+		if loc := w.Header().Get("Location"); loc != "/" {
+			t.Errorf("return_to=%q redirected to %q; want the local root", evil, loc)
+		}
+	}
+}

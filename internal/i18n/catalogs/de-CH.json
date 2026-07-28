@@ -1,13 +1,11 @@
 {
   "app.title": "Arbeitszeiten",
-
   "nav.prev_month": "Vorheriger Monat",
   "nav.next_month": "Nächster Monat",
   "nav.current_month": "Aktueller Monat",
   "nav.grid": "Raster",
   "nav.employees": "Mitarbeitende",
   "nav.reports": "Auswertungen",
-
   "grid.date": "Datum",
   "grid.weekday": "Tag",
   "grid.comment": "Bemerkung",
@@ -19,7 +17,6 @@
   "grid.locked_hint": "Ausserhalb des Anstellungszeitraums",
   "grid.save": "Speichern",
   "grid.hours_placeholder": "0.00",
-
   "employee.heading": "Mitarbeitende",
   "employee.add": "Mitarbeiter erfassen",
   "employee.new": "Neue Anstellung",
@@ -35,14 +32,12 @@
   "employee.none": "Noch keine Mitarbeitenden erfasst.",
   "employee.still_employed": "angestellt",
   "employee.period": "Anstellung",
-
   "auth.login": "Anmelden",
   "auth.username": "Benutzername",
   "auth.password": "Passwort",
   "auth.logout": "Abmelden",
   "auth.failed": "Anmeldung fehlgeschlagen.",
   "auth.required": "Bitte melden Sie sich an.",
-
   "report.heading": "Auswertungen",
   "report.month_overview": "Monatsübersicht",
   "report.employee_month": "Mitarbeiter, Monat",
@@ -58,7 +53,6 @@
   "report.total": "Total",
   "report.download": "PDF herunterladen",
   "report.no_data": "Keine Daten für diesen Zeitraum.",
-
   "error.not_found": "Nicht gefunden.",
   "error.invalid_input": "Ungültige Eingabe.",
   "error.invalid_hours": "Ungültige Stundenangabe.",
@@ -70,7 +64,6 @@
   "error.end_before_start": "Austritt liegt vor dem Eintritt.",
   "error.server": "Unerwarteter Fehler.",
   "error.method_not_allowed": "Methode nicht erlaubt.",
-
   "weekday.mon": "Mo",
   "weekday.tue": "Di",
   "weekday.wed": "Mi",
@@ -78,7 +71,6 @@
   "weekday.fri": "Fr",
   "weekday.sat": "Sa",
   "weekday.sun": "So",
-
   "month.1": "Januar",
   "month.2": "Februar",
   "month.3": "März",
@@ -90,5 +82,10 @@
   "month.9": "September",
   "month.10": "Oktober",
   "month.11": "November",
-  "month.12": "Dezember"
+  "month.12": "Dezember",
+  "lang.label": "Sprache",
+  "lang.auto": "Automatisch (Browser)",
+  "lang.de-CH": "Deutsch (Schweiz)",
+  "lang.en": "Englisch",
+  "lang.save": "Übernehmen"
 }

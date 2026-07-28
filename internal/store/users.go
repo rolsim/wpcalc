@@ -113,6 +113,38 @@ func (db *DB) SetPasswordWeak(ctx context.Context, username, password string, al
 	return nil
 }
 
+// SetUserLanguage stores an interface language preference, or clears it back
+// to "follow the browser" when lang is domain.LanguageAuto.
+//
+// The value is not checked against the shipped catalogs: that belongs to the
+// caller, which knows which are loaded, and the read path falls back anyway.
+// What is checked is the shape, so a stray path or a whole HTTP header cannot
+// end up in the column.
+func (db *DB) SetUserLanguage(ctx context.Context, userID int64, lang string) error {
+	lang = strings.TrimSpace(lang)
+	if len(lang) > 35 { // BCP 47 tags are well under this
+		return fmt.Errorf("%w: language tag is too long", domain.ErrInvalidUser)
+	}
+	if strings.ContainsAny(lang, " \t\n\r/\\") {
+		return fmt.Errorf("%w: %q is not a language tag", domain.ErrInvalidUser, lang)
+	}
+
+	res, err := db.ExecContext(ctx,
+		`UPDATE users SET language = ?, updated_at = datetime('now') WHERE id = ?`,
+		lang, userID)
+	if err != nil {
+		return fmt.Errorf("store: set language: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("store: set language: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("store: set language for user %d: %w", userID, ErrNotFound)
+	}
+	return nil
+}
+
 // Authenticate verifies a username and password.
 //
 // It always runs a bcrypt comparison, even when the user does not exist, so
@@ -140,9 +172,10 @@ func (db *DB) Authenticate(ctx context.Context, username, password string) (doma
 func (db *DB) UserByUsername(ctx context.Context, username string) (domain.User, error) {
 	var u domain.User
 	err := db.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role FROM users WHERE username = ? COLLATE NOCASE`,
+		`SELECT id, username, password_hash, role, language
+		   FROM users WHERE username = ? COLLATE NOCASE`,
 		strings.TrimSpace(username)).
-		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role)
+		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Language)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.User{}, fmt.Errorf("store: user %q: %w", username, ErrNotFound)
 	}
@@ -154,7 +187,7 @@ func (db *DB) UserByUsername(ctx context.Context, username string) (domain.User,
 
 // Users lists every account, without password hashes.
 func (db *DB) Users(ctx context.Context) ([]domain.User, error) {
-	rows, err := db.QueryContext(ctx, `SELECT id, username, role FROM users ORDER BY username`)
+	rows, err := db.QueryContext(ctx, `SELECT id, username, role, language FROM users ORDER BY username`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list users: %w", err)
 	}
@@ -163,7 +196,7 @@ func (db *DB) Users(ctx context.Context) ([]domain.User, error) {
 	var out []domain.User
 	for rows.Next() {
 		var u domain.User
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.Language); err != nil {
 			return nil, fmt.Errorf("store: list users: %w", err)
 		}
 		out = append(out, u)
@@ -202,11 +235,11 @@ func (db *DB) SessionUser(ctx context.Context, token string) (domain.User, error
 		expires string
 	)
 	err := db.QueryRowContext(ctx,
-		`SELECT u.id, u.username, u.password_hash, u.role, s.expires_at
+		`SELECT u.id, u.username, u.password_hash, u.role, u.language, s.expires_at
 		   FROM sessions s
 		   JOIN users u ON u.id = s.user_id
 		  WHERE s.token = ?`, token).
-		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &expires)
+		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Language, &expires)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.User{}, ErrNotFound
 	}

@@ -22,6 +22,11 @@ var ErrUnauthenticated = errors.New("unauthenticated")
 type Identity struct {
 	Username string
 	Roles    []string
+
+	// Language is this caller's preferred interface locale, or "" to fall back
+	// to content negotiation. Carried on the identity so a handler never has
+	// to query for it: it is resolved once, where the identity is.
+	Language string
 }
 
 // IsZero reports the absence of an identity.

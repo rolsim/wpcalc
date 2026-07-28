@@ -14,6 +14,7 @@ import (
 // fakeUserStore lets the account authenticator be tested without a database.
 type fakeUserStore struct {
 	users    map[string]domain.User
+	langs    map[int64]string
 	password string
 	sessions map[string]int64
 	expiries map[string]time.Time
@@ -29,6 +30,7 @@ func newFakeStore() *fakeUserStore {
 		password: "correct-horse-battery",
 		sessions: map[string]int64{},
 		expiries: map[string]time.Time{},
+		langs:    map[int64]string{},
 	}
 }
 
@@ -65,6 +67,18 @@ func (f *fakeUserStore) CreateSession(_ context.Context, token string, userID in
 	f.sessions[token] = userID
 	f.expiries[token] = expires
 	return nil
+}
+
+func (f *fakeUserStore) SetUserLanguage(_ context.Context, userID int64, lang string) error {
+	for name, u := range f.users {
+		if u.ID == userID {
+			u.Language = lang
+			f.users[name] = u
+			f.langs[userID] = lang
+			return nil
+		}
+	}
+	return errors.New("no such user")
 }
 
 func (f *fakeUserStore) DeleteSession(_ context.Context, token string) error {
@@ -254,5 +268,68 @@ func TestAccountsLoginSurfacesStoreFailure(t *testing.T) {
 	}
 	if len(w.Result().Cookies()) != 0 {
 		t.Error("a cookie was issued for a session that was never recorded")
+	}
+}
+
+func TestIdentityCarriesTheStoredLanguage(t *testing.T) {
+	// The preference has to reach the identity, or every handler would need a
+	// second query to find out which language to render in.
+	store := newFakeStore()
+	store.users["alice"] = domain.User{ID: 1, Username: "alice", Role: domain.RoleAdmin, Language: "en"}
+	a := NewAccounts(store)
+
+	w := httptest.NewRecorder()
+	if err := a.Login(w, "alice", store.password); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.AddCookie(w.Result().Cookies()[0])
+
+	id, err := a.Identify(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id.Language != "en" {
+		t.Errorf("Identity.Language = %q, want %q", id.Language, "en")
+	}
+}
+
+func TestSetLanguagePersistsAndClears(t *testing.T) {
+	store := newFakeStore()
+	a := NewAccounts(store)
+
+	w := httptest.NewRecorder()
+	if err := a.Login(w, "alice", store.password); err != nil {
+		t.Fatal(err)
+	}
+	cookie := w.Result().Cookies()[0]
+
+	req := func() *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/language", nil)
+		r.AddCookie(cookie)
+		return r
+	}
+
+	if err := a.SetLanguage(req(), "de-CH"); err != nil {
+		t.Fatalf("SetLanguage: %v", err)
+	}
+	if id, _ := a.Identify(req()); id.Language != "de-CH" {
+		t.Errorf("after setting: %q, want de-CH", id.Language)
+	}
+
+	// The empty value clears it back to following the browser.
+	if err := a.SetLanguage(req(), domain.LanguageAuto); err != nil {
+		t.Fatalf("SetLanguage(auto): %v", err)
+	}
+	if id, _ := a.Identify(req()); id.Language != "" {
+		t.Errorf("after clearing: %q, want empty", id.Language)
+	}
+}
+
+func TestSetLanguageRequiresASession(t *testing.T) {
+	a := NewAccounts(newFakeStore())
+	r := httptest.NewRequest(http.MethodPost, "/language", nil)
+	if err := a.SetLanguage(r, "en"); !errors.Is(err, ErrUnauthenticated) {
+		t.Errorf("SetLanguage with no session: %v, want ErrUnauthenticated", err)
 	}
 }

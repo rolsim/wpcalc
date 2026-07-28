@@ -242,7 +242,7 @@ func (s *Server) writeSetResult(w http.ResponseWriter, r *http.Request, month do
 		return
 	}
 
-	v := s.bundle.For(s.bundle.Match(r.Header.Get("Accept-Language")))
+	v := s.printerFor(r)
 	res := setResult{OK: errKey == "", Value: value}
 	if errKey != "" {
 		res.Error = v.T(errKey)
@@ -273,5 +273,5 @@ func (s *Server) monthFromPath(w http.ResponseWriter, r *http.Request) (domain.Y
 }
 
 func (s *Server) sepFor(r *http.Request) string {
-	return s.bundle.For(s.bundle.Match(r.Header.Get("Accept-Language"))).DecimalSep()
+	return s.printerFor(r).DecimalSep()
 }

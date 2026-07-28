@@ -45,7 +45,7 @@ dependencies — copy it to the host and run it.
 |---|---|
 | `serve --addr :8080 \| --socket PATH` | run the server; exactly one listener |
 | `migrate [up\|down\|status]` | apply, roll back one, or report migrations |
-| `user add\|passwd\|list` | manage accounts |
+| `user add\|passwd\|lang\|list` | manage accounts |
 | `sample-employees [--month YYYY-MM]` | create placeholder employees; records **no hours** |
 | `manual [user\|admin]` | show an embedded manual |
 | `version` | print the version |
@@ -103,6 +103,27 @@ leaving a token valid until it expires.
 > development database can be primed with throwaway credentials such as
 > `admin`/`admin`, and it prints a warning whenever it is used. **Never use it
 > on anything reachable.**
+
+### Interface language
+
+Each account stores a preferred language, or an empty value meaning "follow the
+browser". Users change it themselves from the selector in the top bar; you can
+set it when creating an account or afterwards:
+
+```sh
+./bin/wpcalc user add alice -role admin -lang en --db DB
+./bin/wpcalc user lang alice de-CH --db DB    # de_CH is accepted too
+./bin/wpcalc user lang alice "" --db DB       # back to following the browser
+```
+
+A stored preference beats the browser's `Accept-Language`, because it is the
+more specific statement. A preference naming a locale that no longer ships
+falls back to negotiation rather than breaking the account.
+
+**Under WordPress this does not apply.** WordPress owns the user record, so the
+interface follows each user's WordPress profile locale and the app hides its
+own selector. Storing a second preference here could disagree with the one the
+site administrator set, with no way to tell which was authoritative.
 
 There is no way to delete an account from the CLI yet; remove the row from the
 `users` table directly if you need to. Its sessions go with it.
