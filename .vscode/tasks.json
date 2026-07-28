@@ -11,7 +11,7 @@
       // fails on an account that already exists.
       "label": "wpcalc: prepare dev database",
       "type": "shell",
-      "command": "./scripts/dev-setup.sh 8080 .dev/wpcalc.db",
+      "command": "./scripts/dev-setup.sh 8090 .dev/wpcalc.db",
       "options": { "cwd": "${workspaceFolder}" },
       "presentation": {
         "reveal": "silent",

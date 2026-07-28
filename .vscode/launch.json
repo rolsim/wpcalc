@@ -11,17 +11,18 @@
       "cwd": "${workspaceFolder}",
       "preLaunchTask": "wpcalc: prepare dev database",
 
-      // A concrete loopback address, not ":8080". A wildcard bind reports
-      // itself as "[::]:8080", which is what the browser would be handed
+      // A concrete loopback address, not ":8090". A wildcard bind reports
+      // itself as "[::]:8090", which is what the browser would be handed
       // verbatim, and it publishes the dev server on every interface.
       //
-      // 8080 is a contended port. If something else holds it the server exits
-      // with "address already in use" — and a container published on
-      // 0.0.0.0:8080 blocks 127.0.0.1:8080 too, so a loopback address is no
-      // protection. `ss -ltnp | grep :8080` names the holder.
+      // 8090 rather than 8080, which an Adminer container already publishes on
+      // this machine. Note a container on 0.0.0.0:PORT blocks 127.0.0.1:PORT
+      // as well, so binding loopback is no protection — the prelaunch task
+      // checks the port and names the holder before the debugger starts.
+      // Change the port here and in tasks.json together.
       "args": [
         "serve",
-        "--addr", "127.0.0.1:8080",
+        "--addr", "127.0.0.1:8090",
         "--db", "${workspaceFolder}/.dev/wpcalc.db"
       ],
 
@@ -35,7 +36,7 @@
       // this to "integratedTerminal" silently stops the browser from opening.
       "console": "internalConsole",
 
-      // The server logs `msg=serving listener=127.0.0.1:8080 mode=tcp ...`
+      // The server logs `msg=serving listener=127.0.0.1:8090 mode=tcp ...`
       // once it is actually accepting connections. Matching that rather than
       // guessing a delay means the browser opens when the port is ready, not
       // a hopeful two seconds later.
@@ -56,7 +57,7 @@
       "preLaunchTask": "wpcalc: prepare dev database",
       "args": [
         "serve",
-        "--addr", "127.0.0.1:8080",
+        "--addr", "127.0.0.1:8090",
         "--db", "${workspaceFolder}/.dev/wpcalc.db"
       ],
       "env": {
