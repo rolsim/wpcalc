@@ -1,0 +1,28 @@
+{{ define "content" }}
+<div class="page-head">
+  <h1>{{ if .IsNew }}{{ .T "employee.new" }}{{ else }}{{ .T "employee.edit" }}{{ end }}</h1>
+</div>
+
+<form class="form" method="post" action="{{ .ActionURL }}">
+  <label>
+    <span>{{ .T "employee.name" }}</span>
+    <input type="text" name="name" value="{{ .Name }}" required autofocus>
+  </label>
+
+  <label>
+    <span>{{ .T "employee.start_date" }}</span>
+    <input type="date" name="start_date" value="{{ .StartDate }}" required>
+  </label>
+
+  <label>
+    <span>{{ .T "employee.end_date" }}</span>
+    <input type="date" name="end_date" value="{{ .EndDate }}">
+    <small>{{ .T "employee.end_date_hint" }}</small>
+  </label>
+
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">{{ .T "employee.save" }}</button>
+    <a class="btn btn-quiet" href="{{ .CancelURL }}">{{ .T "employee.cancel" }}</a>
+  </div>
+</form>
+{{ end }}

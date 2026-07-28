@@ -71,6 +71,5 @@ Exactly one of --addr or --socket must be given to serve.
 `)
 }
 
-func cmdServe(_ context.Context, _ []string) error    { return errNotImplemented }
 func cmdUser(_ context.Context, _ []string) error     { return errNotImplemented }
 func cmdDemoSeed(_ context.Context, _ []string) error { return errNotImplemented }

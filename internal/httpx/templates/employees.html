@@ -1,0 +1,38 @@
+{{ define "content" }}
+<div class="page-head">
+  <h1>{{ .T "employee.heading" }}</h1>
+  <a class="btn btn-primary" href="{{ .NewURL }}">{{ .T "employee.add" }}</a>
+</div>
+
+{{ if not .Employees }}
+  <p class="empty">{{ .T "employee.none" }}</p>
+{{ else }}
+<table class="list">
+  <thead>
+    <tr>
+      <th scope="col">{{ .T "employee.name" }}</th>
+      <th scope="col">{{ .T "employee.start_date" }}</th>
+      <th scope="col">{{ .T "employee.end_date" }}</th>
+      <th scope="col"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {{ $root := . }}
+    {{ range .Employees }}
+      <tr class="{{ if not .Active }}is-inactive{{ end }}">
+        <th scope="row">{{ .DisplayName }}</th>
+        <td>{{ .StartDisplay }}</td>
+        <td>{{ .EndDisplay }}</td>
+        <td class="row-actions">
+          <a class="btn btn-quiet" href="{{ $root.URL "/employees/%d/edit" .ID }}">{{ $root.T "employee.edit" }}</a>
+          <form method="post" action="{{ $root.URL "/employees/%d/delete" .ID }}"
+                data-confirm="{{ $root.T "employee.delete_confirm" }}">
+            <button class="btn btn-danger" type="submit">{{ $root.T "employee.delete" }}</button>
+          </form>
+        </td>
+      </tr>
+    {{ end }}
+  </tbody>
+</table>
+{{ end }}
+{{ end }}

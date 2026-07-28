@@ -1,0 +1,85 @@
+{{ define "content" }}
+<div class="month-nav">
+  <a class="btn" href="{{ .PrevURL }}" rel="prev">&larr; {{ .T "nav.prev_month" }}</a>
+  <h1>{{ .MonthLabel }}</h1>
+  <a class="btn" href="{{ .NextURL }}" rel="next">{{ .T "nav.next_month" }} &rarr;</a>
+  <a class="btn btn-quiet" href="{{ .TodayURL }}">{{ .T "nav.current_month" }}</a>
+</div>
+
+{{ if not .HasEmployees }}
+  <p class="empty">{{ .T "grid.no_employees" }}
+    <a href="{{ .URL "/employees/new" }}">{{ .T "employee.add" }}</a>
+  </p>
+{{ else }}
+<div class="grid-scroll">
+  <table class="grid" data-month="{{ .Month }}">
+    <thead>
+      <tr>
+        <th class="col-date" scope="col">{{ .T "grid.date" }}</th>
+        <th class="col-weekday" scope="col">{{ .T "grid.weekday" }}</th>
+        {{ range .Employees }}
+          <th class="col-employee" scope="col" title="{{ .DisplayName }}">{{ .DisplayName }}</th>
+        {{ end }}
+        <th class="col-total" scope="col">{{ .T "grid.day_total" }}</th>
+        <th class="col-comment" scope="col">{{ .T "grid.comment" }}</th>
+      </tr>
+    </thead>
+
+    <tbody>
+      {{ $root := . }}
+      {{ range .Rows }}
+        <tr class="{{ if .IsWeekend }}is-weekend{{ end }}{{ if .IsToday }} is-today{{ end }}">
+          <th class="col-date" scope="row">{{ .Display }}</th>
+          <td class="col-weekday">{{ .Weekday }}</td>
+
+          {{ range .Cells }}
+            <td class="cell{{ if .Locked }} is-locked{{ end }}">
+              {{ if .Locked }}
+                <span class="locked" title="{{ $root.T "grid.locked_hint" }}" aria-label="{{ $root.T "grid.locked_hint" }}">&middot;</span>
+              {{ else }}
+                {{/* One form per cell so the grid works with JavaScript off;
+                     app.js submits these via fetch and hides the buttons. */}}
+                <form class="cell-form" method="post" action="{{ $root.URL "/m/%s/hours" $root.Month }}">
+                  <input type="hidden" name="employee_id" value="{{ .EmployeeID }}">
+                  <input type="hidden" name="date" value="{{ .DateISO }}">
+                  <input class="hours" type="text" inputmode="decimal" autocomplete="off"
+                         name="hours" value="{{ hoursOrBlank .Hours $root.Sep }}"
+                         placeholder="{{ $root.T "grid.hours_placeholder" }}"
+                         data-employee="{{ .EmployeeID }}" data-date="{{ .DateISO }}">
+                  <button class="cell-save" type="submit">{{ $root.T "grid.save" }}</button>
+                </form>
+              {{ end }}
+            </td>
+          {{ end }}
+
+          <td class="col-total total" data-day-total="{{ .DateISO }}">{{ hours .Total $root.Sep }}</td>
+
+          <td class="col-comment">
+            <form class="comment-form" method="post" action="{{ $root.URL "/m/%s/comment" $root.Month }}">
+              <input type="hidden" name="date" value="{{ .DateISO }}">
+              <input class="comment" type="text" name="comment" value="{{ .Comment }}"
+                     placeholder="{{ $root.T "grid.comment_placeholder" }}" autocomplete="off">
+              <button class="cell-save" type="submit">{{ $root.T "grid.save" }}</button>
+            </form>
+          </td>
+        </tr>
+      {{ end }}
+    </tbody>
+
+    <tfoot>
+      <tr>
+        <th class="col-date" scope="row">{{ .T "grid.employee_total" }}</th>
+        <td class="col-weekday"></td>
+        {{ range $i, $e := .Employees }}
+          <td class="total" data-employee-total="{{ $e.ID }}">
+            {{ hours (index $root.EmployeeTotals $i) $root.Sep }}
+          </td>
+        {{ end }}
+        <td class="total grand" data-grand-total>{{ hours .GrandTotal .Sep }}</td>
+        <td class="col-comment"></td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+{{ end }}
+{{ end }}

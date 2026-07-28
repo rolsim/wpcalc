@@ -1,0 +1,19 @@
+{{ define "content" }}
+<form class="form form-login" method="post" action="{{ .URL "/login" }}">
+  <h1>{{ .T "auth.login" }}</h1>
+
+  <label>
+    <span>{{ .T "auth.username" }}</span>
+    <input type="text" name="username" value="admin" autocomplete="username">
+  </label>
+
+  <label>
+    <span>{{ .T "auth.password" }}</span>
+    <input type="password" name="password" autocomplete="current-password" required autofocus>
+  </label>
+
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">{{ .T "auth.login" }}</button>
+  </div>
+</form>
+{{ end }}
