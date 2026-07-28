@@ -1,0 +1,36 @@
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - bodyclose
+    - errorlint
+    - gocritic
+    - goimports
+    - misspell
+    - nilerr
+    - noctx
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - unconvert
+    - unparam
+
+linters-settings:
+  goimports:
+    local-prefixes: source.simonet.internal/rolsim/wpcalc
+  errcheck:
+    check-type-assertions: true
+  revive:
+    rules:
+      - name: exported
+        disabled: true
+
+issues:
+  exclude-rules:
+    # Test helpers legitimately ignore errors and take unused params.
+    - path: _test\.go
+      linters:
+        - errcheck
+        - unparam
+        - noctx

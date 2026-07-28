@@ -1,0 +1,15 @@
+# Scratch files: anything with `.untracked.` in the name, at any depth.
+*.untracked.*
+
+# Build output
+/bin/
+
+# Local databases and runtime artifacts
+*.db
+*.db-shm
+*.db-wal
+*.sock
+*.pid
+
+# Test output
+/coverage.out
