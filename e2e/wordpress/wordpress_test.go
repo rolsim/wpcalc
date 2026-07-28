@@ -325,6 +325,42 @@ func TestSidecarIsReachableOnlyThroughTheSocket(t *testing.T) {
 	}
 }
 
+func TestSettingsPageReportsStatusAndNeverShowsTheSecret(t *testing.T) {
+	client := loginToWordPress(t)
+
+	// Touch the app page first so the sidecar is running and the status has
+	// something true to report.
+	_ = get(t, client, siteURL+"/wp-admin/admin.php?page=wpcalc")
+
+	body := get(t, client, siteURL+"/wp-admin/admin.php?page=wpcalc-settings")
+
+	for _, want := range []string{"wpcalc settings", "Status", "Binary", "proc_open", "Socket", "Database"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("settings page is missing %q", want)
+		}
+	}
+	// The status must reflect a running service, not a hardcoded label.
+	if !strings.Contains(body, "wpcalc.sock") {
+		t.Error("settings page does not report the socket path")
+	}
+
+	// The shared secret is a credential, not a setting: it must never be
+	// rendered. Read it out of the database and assert it is absent from the
+	// page — checking for the word "secret" would pass on the explanation text
+	// while the value itself leaked.
+	out, err := wpCLI(t.Context(), "option", "get", "wpcalc_shared_secret")
+	if err != nil {
+		t.Fatalf("read the secret: %v\n%s", err, out)
+	}
+	secret := strings.TrimSpace(out)
+	if len(secret) < 32 {
+		t.Fatalf("stored secret looks wrong: %q", secret)
+	}
+	if strings.Contains(body, secret) {
+		t.Error("the shared secret is rendered on the settings page")
+	}
+}
+
 // TestZZPluginDegradesWhenBinaryIsMissing runs last: it hides the binary and
 // kills the sidecar, which every other test needs. The name sorts it to the
 // end rather than relying on where it sits in the file.

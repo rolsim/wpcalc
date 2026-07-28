@@ -19,12 +19,12 @@ tens of milliseconds per keystroke-commit that a dedicated `admin-ajax`
 endpoint would avoid. It is a performance nicety, not a correctness gap — the
 no-JS path is unaffected either way.
 
-**Settings page is registered but not rendered.** `register_setting` declares
-the binary-path option and `binary_path()` reads it, so the option is usable
-via WP-CLI (`wp option update wpcalc_binary_path /path/to/wpcalc`). The form
-for editing it in the admin UI was not built. The default — `bin/wpcalc`
-inside the plugin directory — is what the install instructions use, so this
-only matters for someone running the sidecar from a system path.
+**The PHP shim is 690 lines, not the ~250 the brief asked for.** Roughly half
+is comments and the settings screen; the proxy and supervision logic is about
+200. It is still only plumbing — no business logic moved into PHP — but the
+brief's number was not met and the file is bigger than "thin" suggests.
+Splitting the settings screen into its own file would bring the main one back
+near target without changing behaviour.
 
 **No pagination or archiving on the employee list.** Every employee ever
 recorded appears on `/employees`, including long-departed ones. The *grid* is

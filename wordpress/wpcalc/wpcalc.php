@@ -191,21 +191,28 @@ final class WPCalc_Plugin
              . 'The last lines of ' . esc_html($this->log_path()) . ' will say why.';
     }
 
+    /**
+     * Stop the sidecar, if one is recorded.
+     *
+     * SIGTERM rather than SIGKILL so it closes the database cleanly; killing
+     * it outright leaves a WAL behind for the next start to recover.
+     */
+    private function stop_sidecar(): void
+    {
+        $pidFile = $this->pid_path();
+        if (is_file($pidFile)) {
+            $pid = (int) trim((string) @file_get_contents($pidFile));
+            if ($pid > 0 && function_exists('posix_kill')) {
+                @posix_kill($pid, defined('SIGTERM') ? SIGTERM : 15);
+            }
+            @unlink($pidFile);
+        }
+        @unlink($this->socket_path());
+    }
+
     public static function on_deactivate(): void
     {
-        $self = new self();
-        $pidFile = $self->pid_path();
-        if (!is_file($pidFile)) {
-            return;
-        }
-        $pid = (int) trim((string) @file_get_contents($pidFile));
-        // SIGTERM so the sidecar closes the database cleanly; killing it
-        // outright can leave a WAL behind for the next start to recover.
-        if ($pid > 0 && function_exists('posix_kill')) {
-            @posix_kill($pid, defined('SIGTERM') ? SIGTERM : 15);
-        }
-        @unlink($pidFile);
-        @unlink($self->socket_path());
+        (new self())->stop_sidecar();
     }
 
     // ---------------------------------------------------------------- proxy
@@ -467,6 +474,15 @@ final class WPCalc_Plugin
             'dashicons-calendar-alt',
             30
         );
+
+        add_submenu_page(
+            self::MENU_SLUG,
+            __('wpcalc settings', 'wpcalc'),
+            __('Settings', 'wpcalc'),
+            self::CAPABILITY,
+            self::MENU_SLUG . '-settings',
+            [$this, 'render_settings']
+        );
     }
 
     public function render_page(): void
@@ -525,6 +541,125 @@ final class WPCalc_Plugin
             'sanitize_callback' => 'sanitize_text_field',
             'default'           => '',
         ]);
+    }
+
+    public function render_settings(): void
+    {
+        if (!current_user_can(self::CAPABILITY)) {
+            wp_die(esc_html__('You do not have permission to use wpcalc.', 'wpcalc'), '', ['response' => 403]);
+        }
+
+        $notice = '';
+        if (!empty($_POST['wpcalc_action'])) {
+            $nonce = isset($_POST[self::NONCE_FIELD]) ? sanitize_text_field(wp_unslash($_POST[self::NONCE_FIELD])) : '';
+            if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) {
+                wp_die(esc_html__('Security check failed.', 'wpcalc'), '', ['response' => 403]);
+            }
+
+            switch (sanitize_text_field(wp_unslash($_POST['wpcalc_action']))) {
+                case 'save':
+                    $path = isset($_POST[self::OPT_BINARY]) ? sanitize_text_field(wp_unslash($_POST[self::OPT_BINARY])) : '';
+                    update_option(self::OPT_BINARY, $path, false);
+                    // The running sidecar was started from the old path, so it
+                    // has to go or the new setting silently does nothing.
+                    $this->stop_sidecar();
+                    $notice = __('Saved. The service will restart on the next page load.', 'wpcalc');
+                    break;
+
+                case 'restart':
+                    $this->stop_sidecar();
+                    $notice = __('The service was stopped and will restart on the next page load.', 'wpcalc');
+                    break;
+
+                case 'rotate':
+                    // The sidecar holds the old secret in its environment, so
+                    // rotating without restarting would make every request fail
+                    // to authenticate.
+                    delete_option(self::OPT_SECRET);
+                    $this->secret();
+                    $this->stop_sidecar();
+                    $notice = __('A new shared secret was generated and the service was restarted.', 'wpcalc');
+                    break;
+            }
+        }
+
+        $binary  = $this->binary_path();
+        $running = $this->is_healthy();
+
+        echo '<div class="wrap"><h1>' . esc_html__('wpcalc settings', 'wpcalc') . '</h1>';
+
+        if ($notice !== '') {
+            printf('<div class="notice notice-success is-dismissible"><p>%s</p></div>', esc_html($notice));
+        }
+
+        // Status first: when something is wrong this is the screen someone
+        // lands on, and the answer should be visible without reading a log.
+        echo '<h2>' . esc_html__('Status', 'wpcalc') . '</h2><table class="widefat striped" style="max-width:60rem"><tbody>';
+        $this->status_row(__('Service running', 'wpcalc'), $running ? __('yes', 'wpcalc') : __('no', 'wpcalc'), $running);
+        $this->status_row(__('Binary', 'wpcalc'), $binary, is_file($binary) && is_executable($binary));
+        $this->status_row(__('proc_open available', 'wpcalc'), function_exists('proc_open') ? __('yes', 'wpcalc') : __('no', 'wpcalc'), function_exists('proc_open'));
+        $this->status_row(__('curl available', 'wpcalc'), function_exists('curl_init') ? __('yes', 'wpcalc') : __('no', 'wpcalc'), function_exists('curl_init'));
+        $this->status_row(__('Socket', 'wpcalc'), $this->socket_path(), file_exists($this->socket_path()));
+        $this->status_row(__('Database', 'wpcalc'), $this->db_path(), file_exists($this->db_path()));
+        $this->status_row(__('Log', 'wpcalc'), $this->log_path(), file_exists($this->log_path()));
+        echo '</tbody></table>';
+
+        $log = @file_get_contents($this->log_path());
+        if (is_string($log) && $log !== '') {
+            $tail = array_slice(preg_split('/\r?\n/', trim($log)), -12);
+            echo '<h2>' . esc_html__('Recent log', 'wpcalc') . '</h2>';
+            printf('<pre style="max-width:60rem;overflow:auto;background:#fff;border:1px solid #ccd0d4;padding:.75rem">%s</pre>',
+                esc_html(implode("\n", $tail)));
+        }
+
+        echo '<h2>' . esc_html__('Configuration', 'wpcalc') . '</h2>';
+        echo '<form method="post"><table class="form-table"><tbody>';
+        printf(
+            '<tr><th scope="row"><label for="%1$s">%2$s</label></th><td>'
+            . '<input type="text" class="regular-text code" id="%1$s" name="%1$s" value="%3$s" placeholder="%4$s">'
+            . '<p class="description">%5$s</p></td></tr>',
+            esc_attr(self::OPT_BINARY),
+            esc_html__('Binary path', 'wpcalc'),
+            esc_attr((string) get_option(self::OPT_BINARY, '')),
+            esc_attr(plugin_dir_path(__FILE__) . 'bin/wpcalc'),
+            esc_html__('Leave empty to use the binary bundled with the plugin.', 'wpcalc')
+        );
+        printf(
+            '<tr><th scope="row">%s</th><td><p class="description">%s</p></td></tr>',
+            esc_html__('Shared secret', 'wpcalc'),
+            esc_html__('Generated automatically and never displayed. It is what lets the service trust the identity this plugin asserts, so it is treated as a credential rather than a setting.', 'wpcalc')
+        );
+        echo '</tbody></table>';
+
+        wp_nonce_field(self::NONCE_ACTION, self::NONCE_FIELD);
+        submit_button(__('Save', 'wpcalc'), 'primary', 'wpcalc_save', false, ['form' => '']);
+        echo '<input type="hidden" name="wpcalc_action" value="save">';
+        echo '</form>';
+
+        // Separate forms so each carries exactly one action.
+        foreach ([
+            'restart' => __('Restart service', 'wpcalc'),
+            'rotate'  => __('Regenerate shared secret', 'wpcalc'),
+        ] as $action => $label) {
+            echo '<form method="post" style="display:inline-block;margin-right:.5rem">';
+            wp_nonce_field(self::NONCE_ACTION, self::NONCE_FIELD);
+            printf('<input type="hidden" name="wpcalc_action" value="%s">', esc_attr($action));
+            printf('<button type="submit" class="button">%s</button>', esc_html($label));
+            echo '</form>';
+        }
+
+        echo '</div>';
+    }
+
+    private function status_row(string $label, string $value, bool $ok): void
+    {
+        printf(
+            '<tr><td style="width:14rem"><strong>%s</strong></td><td><code>%s</code> <span style="color:%s">%s</span></td></tr>',
+            esc_html($label),
+            esc_html($value),
+            $ok ? '#1c6b3f' : '#a4243b',
+            $ok ? '&#10003;' : '&#10007;'
+        );
     }
 
     // ---------------------------------------------------------------- utils
