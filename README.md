@@ -15,6 +15,16 @@ WordPress plugin.
 The grid works with JavaScript disabled. JavaScript only removes the page
 reload.
 
+## Documentation
+
+| | Deutsch (CH) | English |
+|---|---|---|
+| Recording hours | [docs/de-CH/user.md](docs/de-CH/user.md) | [docs/en/user.md](docs/en/user.md) |
+| Running it | [docs/de-CH/admin.md](docs/de-CH/admin.md) | [docs/en/admin.md](docs/en/admin.md) |
+
+The administrator guide covers both run modes, accounts, the WordPress plugin,
+backup and troubleshooting.
+
 ---
 
 ## Build
