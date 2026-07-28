@@ -83,7 +83,10 @@ func cmdServe(ctx context.Context, args []string) error {
 		IdleTimeout:       60 * time.Second,
 	}
 
+	// The build goes in the startup line so a log excerpt is attributable to a
+	// binary — the WordPress sidecar's log is often all there is to go on.
 	logger.Info("serving",
+		"version", currentBuild().String(),
 		"listener", ln.Addr().String(),
 		"mode", string(connKind),
 		"db", db.Path())

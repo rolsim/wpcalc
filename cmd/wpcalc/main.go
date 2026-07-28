@@ -13,9 +13,6 @@ import (
 	"syscall"
 )
 
-// version is overridden at build time via -ldflags "-X main.version=...".
-var version = "dev"
-
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "wpcalc: %v\n", err)
@@ -46,8 +43,7 @@ func run(args []string) error {
 	case "plugin":
 		return cmdPlugin(ctx, args[1:])
 	case "version":
-		fmt.Println(version)
-		return nil
+		return cmdVersion(ctx, args[1:])
 	case "help", "-h", "--help":
 		usage(os.Stdout)
 		return nil
@@ -67,7 +63,7 @@ Usage:
   wpcalc sample-employees [--db PATH] [--month YYYY-MM]
   wpcalc manual [user|admin|testing] [--lang de-CH|en] [--raw] [--list]
   wpcalc plugin export DIR [--force] [--php-only]
-  wpcalc version
+  wpcalc version [--short]
 
 Exactly one of --addr or --socket must be given to serve.
 `)

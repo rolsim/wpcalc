@@ -115,7 +115,7 @@ see the note above.
 | `wpcalc sample-employees [--month YYYY-MM]` | create placeholder employees; records no hours |
 | `wpcalc manual [user\|admin] [--lang L] [--raw] [--list]` | show an embedded manual, via glow when available |
 | `wpcalc plugin export DIR [--force] [--php-only]` | write the WordPress plugin out of the binary |
-| `wpcalc version` | print the version |
+| `wpcalc version [--short]` | print the build: version, commit, date, Go |
 
 Flags may appear before or after positional arguments.
 

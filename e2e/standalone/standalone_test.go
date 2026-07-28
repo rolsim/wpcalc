@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -244,6 +245,53 @@ func TestBrowserEntersHoursAndTotalsUpdate(t *testing.T) {
 	}
 	if reloaded != "3.25" {
 		t.Errorf("after reload the cell reads %q, want 3.25", reloaded)
+	}
+}
+
+func TestABuiltBinaryIdentifiesItself(t *testing.T) {
+	// Checked here rather than in a unit test because Go does not stamp VCS
+	// information into test binaries: only a real `go build` carries it, so
+	// only a real build can prove the version is derived rather than "unknown".
+	//
+	// It matters for the feedback loop this exists to serve — a tester's report
+	// has to be attributable to a commit, and a build from a dirty tree has to
+	// admit it, or someone reads code that was never built.
+	root := projectRoot(t)
+	bin := filepath.Join(t.TempDir(), "wpcalc")
+
+	build := exec.Command("go", "build", "-o", bin, "./cmd/wpcalc")
+	build.Dir = root
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+
+	short, err := exec.Command(bin, "version", "--short").Output()
+	if err != nil {
+		t.Fatalf("version --short: %v", err)
+	}
+	v := strings.TrimSpace(string(short))
+	if v == "" || v == "unknown" {
+		t.Fatalf("a built binary reports its version as %q; it cannot be tied to a commit", v)
+	}
+
+	full, err := exec.Command(bin, "version").Output()
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	details := string(full)
+	if !strings.Contains(details, v) {
+		t.Errorf("the detail block does not contain the version %q:\n%s", v, details)
+	}
+	for _, want := range []string{"wpcalc", "commit", "go "} {
+		if !strings.Contains(details, want) {
+			t.Errorf("version output omits %q:\n%s", want, details)
+		}
+	}
+	// The revision has to be in the version itself, not only the detail block:
+	// the version string is what gets pasted into a ticket.
+	if !regexp.MustCompile(`[0-9a-f]{12}|^v[0-9]`).MatchString(v) {
+		t.Errorf("version %q carries neither a revision nor a release tag", v)
 	}
 }
 

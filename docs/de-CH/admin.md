@@ -50,7 +50,7 @@ Laufzeitabhängigkeiten: auf den Host kopieren und starten.
 | `sample-employees [--month YYYY-MM]` | Platzhalter-Mitarbeitende anlegen; erfasst **keine Stunden** |
 | `manual [user\|admin]` | eingebettetes Handbuch anzeigen |
 | `plugin export VERZ` | WordPress-Plugin aus der Binärdatei schreiben |
-| `version` | Version ausgeben |
+| `version [--short]` | Build ausgeben: Version, Commit, Datum, Go |
 
 Flags funktionieren vor oder nach den Positionsargumenten.
 

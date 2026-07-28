@@ -22,6 +22,11 @@ chmod +x wpcalc
 ./wpcalc version
 ```
 
+`version` nennt Commit und Datum des Builds. Geben Sie diese Zeile bei einer
+Rückmeldung mit an — steht dort `dirty`, wurde die Datei aus einem
+Arbeitsstand mit ungespeicherten Änderungen gebaut und lässt sich nicht allein
+aus dem Commit rekonstruieren.
+
 Die Handbücher stecken mit drin, Sie müssen also nichts nachschlagen:
 
 ```sh

@@ -49,7 +49,7 @@ dependencies — copy it to the host and run it.
 | `sample-employees [--month YYYY-MM]` | create placeholder employees; records **no hours** |
 | `manual [user\|admin]` | show an embedded manual |
 | `plugin export DIR` | write the WordPress plugin out of the binary |
-| `version` | print the version |
+| `version [--short]` | print the build: version, commit, date, Go |
 
 Flags work before or after positional arguments.
 

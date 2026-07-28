@@ -10,12 +10,21 @@ export GOPRIVATE = source.simonet.internal/*
 BIN := bin/wpcalc
 PKGS := ./...
 
+# Stamped only for tagged builds. Untagged ones need nothing: the toolchain
+# embeds the revision, commit time and dirty flag, and the binary derives its
+# own identifier from those. Overriding with a bare short SHA here would just
+# restate what is already inside, less precisely.
+VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null || git describe --tags 2>/dev/null)
+ifneq ($(VERSION),)
+LDFLAGS := -ldflags "-X main.version=$(VERSION)"
+endif
+
 .PHONY: all build vet lint test check e2e e2e-wp fmt tidy clean
 
 all: check
 
 build:
-	go build -o $(BIN) ./cmd/wpcalc
+	go build $(LDFLAGS) -o $(BIN) ./cmd/wpcalc
 
 vet:
 	go vet $(PKGS)

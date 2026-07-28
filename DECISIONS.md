@@ -300,3 +300,23 @@ the directory the binary already occupies would otherwise truncate it to zero
 bytes — destroying the very binary running the command. The copy also goes to a
 temporary name and is renamed into place, so an interrupted export cannot leave
 a half-written binary for WordPress to try to run.
+
+**The version comes from the toolchain, and -ldflags only overrides it for
+tagged releases.** Since Go 1.18 a plain `go build` embeds the revision, the
+commit time and whether the tree was dirty, so a binary identifies itself even
+though nobody remembered to pass a flag — which is the case that actually
+happens when handing a build to a tester. Stamping a bare short SHA from the
+Makefile would only restate what is already inside, less precisely.
+
+The dirty marker is carried in the version string itself rather than only in
+the detail block, because the version string is what gets pasted into a
+ticket. A binary built from uncommitted changes cannot be reproduced from its
+revision, and a report naming only the commit sends someone to read code that
+was never built.
+
+The "a real build identifies itself" check lives in the standalone e2e, not in
+a unit test: Go does not stamp VCS information into test binaries, so
+currentBuild() reports "unknown" under `go test` while the shipped binary
+carries the revision. Asserting it in a unit test failed for a reason that had
+nothing to do with the code.
+*Reverse:* `cmd/wpcalc/version.go`.
