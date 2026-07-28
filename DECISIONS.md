@@ -195,3 +195,35 @@ used, and an *empty* password is refused even with it — "short" is a
 deliberate local choice, "absent" is always a mistake. Tests pin both halves.
 *Reverse:* drop the flag and the two Weak entry points; the dev script then
 needs real passwords.
+
+**`color-scheme` is declared, not implied.** Without it the browser renders
+form controls with its light-theme defaults regardless of the page around
+them. In dark mode that meant `input.hours` text computed to `rgb(0, 0, 0)` on
+a `rgb(21, 24, 28)` cell — about 1.2:1, effectively invisible — and the
+placeholder to `rgb(117, 117, 117)`, the reported dark-grey-on-black, repeated
+in every empty cell. Declaring it also fixes scrollbars, autofill and the
+caret. Confirmed by reading computed styles out of a real browser in both
+schemes rather than by eye.
+*Reverse:* nothing depends on it; removing it reintroduces the fault.
+
+**Every colour goes through a variable, with none hardcoded outside the two
+palettes.** A hardcoded colour is one that exists in exactly one theme. The
+first stylesheet left the focused-cell background as `#fff`, so focusing a
+cell in dark mode put near-white text in a white box; the save button, the
+save flash and the error state had the same problem.
+*Reverse:* would reintroduce per-theme drift.
+
+**Grid surface shading is scoped under `table.grid`, not marked `!important`.**
+`td.is-locked` is *less* specific than the `table.grid th, table.grid td` base
+rule and silently loses to it — which the original `!important` was papering
+over. Dropping the `!important` during the theme rewrite made the locked and
+total-row shading vanish, caught by reading computed backgrounds rather than
+by looking. Specificity, not urgency, is the right tool.
+*Reverse:* re-add `!important` and accept that the next base-rule change
+breaks silently again.
+
+**The cell placeholder shows on focus only.** With no invented hours the grid
+starts empty, so a `0.00` placeholder in every cell was a wall of grey text
+that reads as data. As a focus-time format hint it is useful; at rest it is
+noise.
+*Reverse:* drop the two `::placeholder` rules.

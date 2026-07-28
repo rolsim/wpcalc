@@ -1,16 +1,79 @@
+/* Palette.
+ *
+ * Every colour in this file comes from a variable. A hardcoded one is a colour
+ * that exists in exactly one theme: the first version of this stylesheet left
+ * the focused-cell background as #fff, which in dark mode meant typing into a
+ * white box with near-white text.
+ *
+ * color-scheme is declared, not implied. Without it the browser renders form
+ * controls with its light-theme defaults regardless of the page around them —
+ * black input text and a mid-grey placeholder on a near-black background,
+ * which is unreadable and was the actual reported fault. Declaring it also
+ * fixes scrollbars, autofill, and the caret for free.
+ */
+
 :root {
+  color-scheme: light;
+
   --bg: #ffffff;
   --fg: #1a1d21;
-  --muted: #6b7280;
+  --muted: #5c626c;
   --line: #d8dce2;
   --line-strong: #b6bcc6;
-  --weekend: #f2f4f7;
-  --today: #fff8e1;
-  --locked: #eceef1;
+
+  /* Row and cell surfaces. Kept close to --bg on purpose: this is shading, and
+     it must not compete with the numbers sitting on top of it. */
+  --weekend: #e6eaf0;
+  --today: #ffeaa8;
+  --locked: #e0e4e9;
+  --total-bg: #edf0f4;
+
+  /* Editable fields. */
+  --field-fg: var(--fg);
+  --field-bg: transparent;
+  --field-focus-bg: #ffffff;
+  --placeholder: #767c86;
+
   --accent: #1f5fa9;
+  --accent-fg: #ffffff;
   --danger: #a4243b;
+  --danger-bg: #fdecef;
   --ok: #1c6b3f;
-  --total-bg: #f7f8fa;
+  --ok-bg: #eaf6ee;
+  --flash-ok: #cdeedb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --bg: #15181c;
+    --fg: #e6e8ea;
+    --muted: #a7b0bc;
+    --line: #333a44;
+    --line-strong: #4a525e;
+
+    /* Lifted well clear of --bg. The first version sat ~1.1:1 above it, which
+       is invisible on a dark screen — the weekend shading that exists to make
+       the month scannable simply was not there. */
+    --weekend: #232830;
+    --today: #3a3418;
+    --locked: #272c34;
+    --total-bg: #1e232a;
+
+    --field-fg: var(--fg);
+    --field-bg: transparent;
+    --field-focus-bg: #0f1216;
+    --placeholder: #8b939f;
+
+    --accent: #7db4f0;
+    --accent-fg: #0d1117;
+    --danger: #f0a3b1;
+    --danger-bg: #34191f;
+    --ok: #8fd7ae;
+    --ok-bg: #16261c;
+    --flash-ok: #1e3d2b;
+  }
 }
 
 * { box-sizing: border-box; }
@@ -33,17 +96,17 @@ body {
   background: var(--total-bg);
 }
 .brand { font-weight: 600; text-decoration: none; color: var(--fg); }
-.topbar nav { display: flex; gap: 1rem; }
-.topbar nav a { color: var(--accent); text-decoration: none; }
-.topbar nav a:hover { text-decoration: underline; }
+.topbar nav, .topbar-links { display: flex; gap: 1rem; }
+.topbar nav a, .topbar-links a { color: var(--accent); text-decoration: none; }
+.topbar nav a:hover, .topbar-links a:hover { text-decoration: underline; }
 .logout { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
 .whoami { color: var(--muted); font-size: .875rem; }
 
 main { padding: 1rem; }
 
 .alert { padding: .6rem .8rem; border-radius: 4px; margin-bottom: 1rem; }
-.alert-error { background: #fdecef; border: 1px solid var(--danger); color: var(--danger); }
-.alert-ok { background: #eaf6ee; border: 1px solid var(--ok); color: var(--ok); }
+.alert-error { background: var(--danger-bg); border: 1px solid var(--danger); color: var(--danger); }
+.alert-ok { background: var(--ok-bg); border: 1px solid var(--ok); color: var(--ok); }
 
 .page-head, .month-nav {
   display: flex;
@@ -59,15 +122,15 @@ main { padding: 1rem; }
   padding: .35rem .7rem;
   border: 1px solid var(--line-strong);
   border-radius: 4px;
-  background: #fff;
+  background: var(--bg);
   color: var(--fg);
   text-decoration: none;
   font-size: .875rem;
   cursor: pointer;
 }
 .btn:hover { border-color: var(--accent); color: var(--accent); }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.btn-primary:hover { color: #fff; opacity: .9; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.btn-primary:hover { background: var(--accent); color: var(--accent-fg); opacity: .9; }
 .btn-danger { border-color: var(--danger); color: var(--danger); }
 .btn-quiet { color: var(--muted); }
 
@@ -98,7 +161,8 @@ table.grid th, table.grid td {
   padding: .2rem .4rem;
   text-align: right;
   font-weight: normal;
-  background: #fff;
+  background: var(--bg);
+  color: var(--fg);
 }
 
 table.grid thead th {
@@ -126,63 +190,82 @@ table.grid thead .col-date { z-index: 3; }
 .col-employee { max-width: 12ch; overflow: hidden; text-overflow: ellipsis; }
 .col-comment { text-align: left; }
 
-tr.is-weekend td, tr.is-weekend th { background: var(--weekend); }
-tr.is-today td, tr.is-today th { background: var(--today); }
-
-td.is-locked { background: var(--locked) !important; }
+/* Scoped under table.grid so they outrank the `table.grid th, table.grid td`
+   base rule above. Bare `td.is-locked` is *less* specific than that base rule
+   and silently loses — which is what the old `!important` was papering over.
+   Specificity, not urgency, is the right tool here. */
+table.grid tr.is-weekend td, table.grid tr.is-weekend th { background: var(--weekend); }
+table.grid tr.is-today td, table.grid tr.is-today th { background: var(--today); }
+table.grid td.is-locked { background: var(--locked); }
 .locked { color: var(--muted); display: block; text-align: center; }
 
 /* Cell forms: one <form> per cell keeps the grid usable with JS disabled.
    app.js hides the buttons and submits on blur instead. */
 .cell-form, .comment-form { display: flex; gap: .15rem; margin: 0; }
+
+input.hours, input.comment {
+  border: 1px solid transparent;
+  background: var(--field-bg);
+  /* Explicit, because a form control does not inherit colour from its
+     ancestors — leaving it out is how the text ends up UA-black on a dark
+     page even when everything around it is themed. */
+  color: var(--field-fg);
+  padding: .1rem .2rem;
+  font: inherit;
+}
 input.hours {
   width: 5.5ch;
   text-align: right;
-  border: 1px solid transparent;
-  background: transparent;
-  padding: .1rem .2rem;
-  font: inherit;
   font-variant-numeric: tabular-nums;
 }
-input.hours:hover { border-color: var(--line); }
-input.hours:focus { border-color: var(--accent); background: #fff; outline: none; }
-input.comment {
-  width: 22ch;
-  border: 1px solid transparent;
-  background: transparent;
-  padding: .1rem .2rem;
-  font: inherit;
+input.comment { width: 22ch; }
+
+input.hours:hover, input.comment:hover { border-color: var(--line-strong); }
+input.hours:focus, input.comment:focus {
+  border-color: var(--accent);
+  background: var(--field-focus-bg);
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
 }
-input.comment:hover { border-color: var(--line); }
-input.comment:focus { border-color: var(--accent); background: #fff; outline: none; }
+
+/* The format hint appears on focus only. Every empty cell showing "0.00"
+   turns a fresh month into a wall of grey placeholder text that reads as
+   data — and, before color-scheme was declared, did it in UA grey on black. */
+input.hours::placeholder, input.comment::placeholder { color: transparent; }
+input.hours:focus::placeholder, input.comment:focus::placeholder { color: var(--placeholder); }
 
 .cell-save {
   font-size: .7rem;
   padding: 0 .3rem;
   border: 1px solid var(--line-strong);
-  background: #fff;
+  background: var(--bg);
+  color: var(--fg);
   border-radius: 3px;
   cursor: pointer;
 }
 /* Hidden only once JS is confirmed working, so the no-JS path keeps them. */
 body.js .cell-save { display: none; }
 
-td.total, .grand { background: var(--total-bg) !important; font-weight: 600; }
-tfoot th, tfoot td {
+table.grid td.total, table.grid td.grand { background: var(--total-bg); font-weight: 600; }
+table.grid tfoot th, table.grid tfoot td {
   position: sticky;
   bottom: 0;
-  background: var(--total-bg) !important;
+  background: var(--total-bg);
   border-top: 2px solid var(--line-strong);
   font-weight: 600;
 }
-.grand { color: var(--accent); }
+table.grid .grand { color: var(--accent); }
 
 .cell-saved { animation: flash .8s ease-out; }
 @keyframes flash {
-  from { background: #d9f0e1; }
+  from { background: var(--flash-ok); }
   to { background: transparent; }
 }
-.cell-error input { border-color: var(--danger) !important; background: #fdecef !important; }
+.cell-error input {
+  border-color: var(--danger) !important;
+  background: var(--danger-bg) !important;
+  color: var(--danger) !important;
+}
 
 /* ---------- lists and forms ---------- */
 
@@ -204,31 +287,19 @@ tr.is-inactive { color: var(--muted); }
   padding: .4rem .5rem;
   border: 1px solid var(--line-strong);
   border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
   font: inherit;
 }
-.form small { color: var(--muted); font-size: .8rem; }
+.form input:focus {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.form small { color: var(--muted); }
 .form-actions { display: flex; gap: .5rem; align-items: center; }
 .form-login { margin: 3rem auto; }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #15181c;
-    --fg: #e6e8ea;
-    --muted: #9aa3af;
-    --line: #2b3038;
-    --line-strong: #3d444e;
-    --weekend: #1c2027;
-    --today: #2a2718;
-    --locked: #202429;
-    --accent: #6aa5e8;
-    --danger: #e8899a;
-    --ok: #7fc9a0;
-    --total-bg: #1a1e24;
-  }
-  table.grid th, table.grid td { background: var(--bg); }
-  .btn { background: var(--bg); color: var(--fg); }
-  .btn-primary { color: #10141a; }
-  .form input { background: var(--bg); color: var(--fg); }
-  .alert-error { background: #2a1b1f; }
-  .alert-ok { background: #16241c; }
-}
+/* WordPress renders the app inside its own admin page, which already sets a
+   light background. Scope the app's own surface so the two do not disagree. */
+.wpcalc-app { background: var(--bg); color: var(--fg); }
