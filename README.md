@@ -29,7 +29,7 @@ Go 1.26+. No npm, no bundler, no build step for assets.
 ## Run in VS Code
 
 Press **F5**. It seeds `.dev/wpcalc.db` on first run, starts the server under
-the debugger on <http://127.0.0.1:8123>, and opens a browser once the port is
+the debugger on <http://127.0.0.1:8080>, and opens a browser once the port is
 actually listening. Breakpoints work.
 
 Dev login: **`dev` / `devpassword123`** — created by the prelaunch task, in a
