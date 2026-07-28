@@ -18,6 +18,11 @@ type Employee struct {
 // ErrInvalidEmployee is the sentinel for validation failures.
 var ErrInvalidEmployee = errors.New("invalid employee")
 
+// ErrNotEmployed is returned when hours are booked on a day outside someone's
+// employment interval. The grid greys those cells, but greying is a hint to
+// the browser and not a control: the write path rejects them independently.
+var ErrNotEmployed = errors.New("outside employment period")
+
 // Employed reports whether d falls inside the employment interval, both ends
 // inclusive: someone who starts on the 14th can book hours on the 14th.
 //
