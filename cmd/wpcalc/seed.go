@@ -9,16 +9,24 @@ import (
 	"source.simonet.internal/rolsim/wpcalc/internal/store"
 )
 
-// cmdDemoSeed fills a database with a plausible month so the grid, the totals,
-// and all three PDFs can be looked at without an hour of typing first.
+// cmdSampleEmployees creates placeholder employment records so the grid has
+// columns to render.
 //
-// It is deterministic: the same database always comes out the same way, so a
-// screenshot or a PDF from it can be compared against a later one.
-func cmdDemoSeed(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("demo-seed", flag.ContinueOnError)
+// It deliberately records no hours and no day comments. This is a timesheet:
+// fabricated entries are indistinguishable from real ones once they are in the
+// database, and a demo database that has been copied, inherited, or pointed at
+// by mistake would then contain invented records of work people did not do.
+// The employment periods alone are enough to show the grid, the weekend
+// shading, the visibility rule, and the locked cells — and every cell starts
+// empty, which is the honest starting state anyway.
+//
+// The names are obvious placeholders for the same reason.
+func cmdSampleEmployees(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("sample-employees", flag.ContinueOnError)
 	dbPath := fs.String("db", defaultDBPath(), "path to the SQLite database")
-	monthFlag := fs.String("month", domain.CurrentYearMonth().String(), "month to fill, YYYY-MM")
-	if err := fs.Parse(args); err != nil {
+	monthFlag := fs.String("month", domain.CurrentYearMonth().String(),
+		"month the employment periods are arranged around, YYYY-MM")
+	if _, err := parseArgs(fs, args); err != nil {
 		return err
 	}
 
@@ -33,20 +41,17 @@ func cmdDemoSeed(ctx context.Context, args []string) error {
 	}
 	defer func() { _ = db.Close() }()
 
-	// A deliberate mix: two full-month people, one who joins mid-month, and
-	// one who left the month before. The last two are what make the locked
-	// cells and the visibility rule visible at a glance.
-	people := []struct {
-		name       string
-		start, end string
-		pattern    []domain.Centihours
-	}{
-		{"Anna Muster", month.First().String(), "", []domain.Centihours{800, 800, 800, 800, 750}},
-		{"Jürg Müller", month.First().String(), "", []domain.Centihours{850, 800, 775, 800, 600}},
-		{"Sofia Rossi", month.First().AddDays(14).String(), "", []domain.Centihours{400, 400, 800, 800, 425}},
-		{"Peter Vergangen", month.Prev().First().String(), month.Prev().Last().String(), nil},
+	// A deliberate mix, so the rules that are easy to get wrong are visible at
+	// a glance: two employed across the whole month, one joining midway (half
+	// the row locked), and one who left the month before (absent entirely).
+	people := []struct{ name, start, end string }{
+		{"Muster A", month.First().String(), ""},
+		{"Muster B", month.First().String(), ""},
+		{"Muster C", month.First().AddDays(14).String(), ""},
+		{"Muster D", month.Prev().First().String(), month.Prev().Last().String()},
 	}
 
+	created := 0
 	for _, p := range people {
 		e := domain.Employee{DisplayName: p.name}
 		if e.StartDate, err = domain.ParseDate(p.start); err != nil {
@@ -59,49 +64,13 @@ func cmdDemoSeed(ctx context.Context, args []string) error {
 			}
 			e.EndDate = &d
 		}
-
-		id, err := db.CreateEmployee(ctx, e)
-		if err != nil {
+		if _, err := db.CreateEmployee(ctx, e); err != nil {
 			return err
 		}
-		if p.pattern == nil {
-			continue
-		}
-
-		// Weekdays only, cycling the pattern — a timesheet with hours booked
-		// on every Sunday would not look like anything real.
-		i := 0
-		for _, day := range month.Days() {
-			if day.IsWeekend() || !e.Employed(day) {
-				continue
-			}
-			if err := db.SetHours(ctx, id, day, p.pattern[i%len(p.pattern)]); err != nil {
-				return err
-			}
-			i++
-		}
+		created++
 	}
 
-	comments := map[int]string{
-		1:  "Monatsbeginn",
-		14: "Betriebsausflug",
-		24: "Kundentermin Zürich",
-	}
-	for day, text := range comments {
-		if day > month.Len() {
-			continue
-		}
-		d := domain.NewDate(month.Year, month.Month, day)
-		if err := db.SetDayComment(ctx, d, text); err != nil {
-			return err
-		}
-	}
-
-	totals, err := db.Totals(ctx, month)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("seeded %s in %s: %d employees, %s total\n",
-		month, db.Path(), len(people), totals.Grand.Format("."))
+	fmt.Printf("created %d placeholder employees around %s in %s (no hours recorded)\n",
+		created, month, db.Path())
 	return nil
 }

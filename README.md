@@ -37,12 +37,21 @@ what is holding it. That check exists because the failure is otherwise
 misleading: the server exits, the browser opens anyway, and whatever owns the
 port answers instead — so the app looks broken rather than absent.
 
-Dev login: **`dev` / `devpassword123`** — created by the prelaunch task, in a
-gitignored database, for local use only.
+Dev logins, created by the prelaunch task: **`admin` / `admin`** and
+**`user` / `user`**.
 
-The first run seeds a demo month so there is something to look at. Re-running
-F5 never reseeds; use the **wpcalc: reset dev database** task if you want a
-clean one.
+> These bypass the password-length requirement, via an explicit
+> `--allow-weak-password` flag, **for local testing only**. They exist in a
+> gitignored database on your machine. Never create accounts this way on
+> anything reachable — `user add` refuses passwords this short unless the flag
+> is passed, and that is deliberate.
+
+The first run also creates four placeholder employees so the grid has columns.
+**No working hours are recorded.** This is a timesheet: invented entries are
+indistinguishable from real ones once they are in the database, so the sample
+data stops at the employment periods — which is enough to show the grid, the
+weekend shading, the visibility rule and the locked cells. Re-running F5
+changes nothing; use the **wpcalc: reset dev database** task for a clean one.
 
 Other configurations: *serve + open in editor* (Simple Browser instead of an
 external one), *serve (WordPress sidecar)* for stepping through the socket and
@@ -61,11 +70,14 @@ Then open <http://localhost:8080>.
 `serve` refuses to start if no accounts exist — it will tell you to run
 `user add` rather than offer a login that cannot succeed.
 
-To look at a populated grid without typing a month of hours:
+To give the grid some columns to render:
 
 ```sh
-./bin/wpcalc demo-seed --db wpcalc.db --month 2026-07
+./bin/wpcalc sample-employees --db wpcalc.db --month 2026-07
 ```
+
+This creates placeholder employees only. It records no hours, deliberately —
+see the note above.
 
 ### Commands
 
@@ -73,8 +85,8 @@ To look at a populated grid without typing a month of hours:
 |---|---|
 | `wpcalc serve --addr :8080 \| --socket PATH` | run the server; exactly one listener |
 | `wpcalc migrate [up\|down\|status]` | apply, roll back one, or report migrations |
-| `wpcalc user add\|passwd\|list` | manage standalone accounts |
-| `wpcalc demo-seed [--month YYYY-MM]` | fill a database with a plausible month |
+| `wpcalc user add\|passwd\|list` | manage standalone accounts (`--allow-weak-password` for local testing only) |
+| `wpcalc sample-employees [--month YYYY-MM]` | create placeholder employees; records no hours |
 | `wpcalc version` | print the version |
 
 Flags may appear before or after positional arguments.

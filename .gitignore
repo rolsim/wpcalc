@@ -17,3 +17,4 @@ bin/
 
 # VS Code dev database and socket
 /.dev/
+cmd/wpcalc/__debug_*

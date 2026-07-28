@@ -11,15 +11,20 @@
 #      the port answers instead, and the app looks broken rather than absent.
 #      Failing here stops the launch and names the culprit.
 #
-#   2. Seed the dev database, once. The guard is the database file, so
-#      re-running never duplicates seed data or fails on an existing account.
+#   2. Prepare the dev database, once. The guard is the database file, so
+#      re-running never duplicates anything or fails on an existing account.
+#      No working hours are created: this is a timesheet, and invented entries
+#      are indistinguishable from real ones once they are in the database.
 
 set -eu
 
 PORT="${1:-8080}"
 DB="${2:-.dev/wpcalc.db}"
-USER_NAME="dev"
-USER_PASS="devpassword123"
+# Throwaway credentials for a local, gitignored database. They are below the
+# password minimum on purpose, which is why the commands below pass
+# --allow-weak-password explicitly rather than the minimum being lowered.
+ADMIN_NAME="admin"; ADMIN_PASS="admin"
+USER_NAME="user";  USER_PASS="user"
 
 # ---- 1. port ------------------------------------------------------------
 
@@ -67,13 +72,19 @@ if [ -f "${DB}" ]; then
 	exit 0
 fi
 
-echo "seeding ${DB} …"
-CGO_ENABLED=0 GOPRIVATE='source.simonet.internal/*' \
-	go run ./cmd/wpcalc demo-seed --db "${DB}" --month "$(date +%Y-%m)"
+echo "preparing ${DB} …"
 
-# serve refuses to start with an empty user table, so this is required, not a
-# convenience. The password is a local dev credential in a gitignored file.
-printf '%s\n' "${USER_PASS}" | CGO_ENABLED=0 GOPRIVATE='source.simonet.internal/*' \
-	go run ./cmd/wpcalc user add "${USER_NAME}" -role admin --db "${DB}" 2>/dev/null
+export CGO_ENABLED=0
+export GOPRIVATE='source.simonet.internal/*'
 
-echo "--- dev login: ${USER_NAME} / ${USER_PASS} ---"
+# Placeholder employees so the grid has columns. No hours are recorded.
+go run ./cmd/wpcalc sample-employees --db "${DB}" --month "$(date +%Y-%m)"
+
+# serve refuses to start with an empty user table, so these are required, not a
+# convenience. One of each role, so both permission paths can be exercised.
+printf '%s\n' "${ADMIN_PASS}" |
+	go run ./cmd/wpcalc user add "${ADMIN_NAME}" -role admin --allow-weak-password --db "${DB}" 2>/dev/null
+printf '%s\n' "${USER_PASS}" |
+	go run ./cmd/wpcalc user add "${USER_NAME}" -role user --allow-weak-password --db "${DB}" 2>/dev/null
+
+echo "--- dev logins: ${ADMIN_NAME}/${ADMIN_PASS} (admin), ${USER_NAME}/${USER_PASS} (user) ---"

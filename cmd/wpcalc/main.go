@@ -39,8 +39,8 @@ func run(args []string) error {
 		return cmdMigrate(ctx, args[1:])
 	case "user":
 		return cmdUser(ctx, args[1:])
-	case "demo-seed":
-		return cmdDemoSeed(ctx, args[1:])
+	case "sample-employees":
+		return cmdSampleEmployees(ctx, args[1:])
 	case "version":
 		fmt.Println(version)
 		return nil
@@ -59,8 +59,8 @@ func usage(w *os.File) {
 Usage:
   wpcalc serve [--addr :8080 | --socket PATH] [--db PATH]
   wpcalc migrate [up|down|status] [--db PATH]
-  wpcalc user add|passwd|list [--db PATH]
-  wpcalc demo-seed [--db PATH]
+  wpcalc user add|passwd|list [--db PATH] [-role admin|user]
+  wpcalc sample-employees [--db PATH] [--month YYYY-MM]
   wpcalc version
 
 Exactly one of --addr or --socket must be given to serve.

@@ -19,6 +19,8 @@ func cmdUser(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("user", flag.ContinueOnError)
 	dbPath := fs.String("db", defaultDBPath(), "path to the SQLite database")
 	role := fs.String("role", domain.RoleUser, "role for a new account: admin or user")
+	weak := fs.Bool("allow-weak-password", false,
+		"accept a password below the minimum length (local development only)")
 	positional, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -41,9 +43,9 @@ func cmdUser(ctx context.Context, args []string) error {
 
 	switch action := arg(0); action {
 	case "add":
-		return userAdd(ctx, db, arg(1), *role)
+		return userAdd(ctx, db, arg(1), *role, *weak)
 	case "passwd":
-		return userPasswd(ctx, db, arg(1))
+		return userPasswd(ctx, db, arg(1), *weak)
 	case "list":
 		return userList(ctx, db)
 	default:
@@ -51,7 +53,7 @@ func cmdUser(ctx context.Context, args []string) error {
 	}
 }
 
-func userAdd(ctx context.Context, db *store.DB, username, role string) error {
+func userAdd(ctx context.Context, db *store.DB, username, role string, weak bool) error {
 	if username == "" {
 		return errors.New("user add: username is required")
 	}
@@ -59,11 +61,11 @@ func userAdd(ctx context.Context, db *store.DB, username, role string) error {
 		return err
 	}
 
-	pw, err := readPassword(true)
+	pw, err := readPassword(true, weak)
 	if err != nil {
 		return err
 	}
-	if _, err := db.CreateUser(ctx, username, pw, role); err != nil {
+	if _, err := db.CreateUserWeak(ctx, username, pw, role, weak); err != nil {
 		if errors.Is(err, store.ErrDuplicateUsername) {
 			return fmt.Errorf("user add: %q already exists", username)
 		}
@@ -73,15 +75,15 @@ func userAdd(ctx context.Context, db *store.DB, username, role string) error {
 	return nil
 }
 
-func userPasswd(ctx context.Context, db *store.DB, username string) error {
+func userPasswd(ctx context.Context, db *store.DB, username string, weak bool) error {
 	if username == "" {
 		return errors.New("user passwd: username is required")
 	}
-	pw, err := readPassword(true)
+	pw, err := readPassword(true, weak)
 	if err != nil {
 		return err
 	}
-	if err := db.SetPassword(ctx, username, pw); err != nil {
+	if err := db.SetPasswordWeak(ctx, username, pw, weak); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return fmt.Errorf("user passwd: no such user %q", username)
 		}
@@ -112,7 +114,15 @@ func userList(ctx context.Context, db *store.DB) error {
 // container-based e2e tests and any provisioning script can pipe one in. That
 // fallback is announced on stderr rather than being silent, because a password
 // typed into a non-terminal would otherwise be echoed with no warning.
-func readPassword(confirm bool) (string, error) {
+func readPassword(confirm, allowWeak bool) (string, error) {
+	check := domain.ValidPassword
+	if allowWeak {
+		// Loud on stderr: a short password is a deliberate local-development
+		// choice, and it should never pass unremarked into a real database.
+		fmt.Fprintln(os.Stderr, "warning: --allow-weak-password is set; the minimum length is not enforced")
+		check = func(string) error { return nil }
+	}
+
 	fd := int(os.Stdin.Fd())
 	if !term.IsTerminal(fd) {
 		fmt.Fprintln(os.Stderr, "warning: stdin is not a terminal; reading the password from the pipe without echo protection")
@@ -121,7 +131,10 @@ func readPassword(confirm bool) (string, error) {
 			return "", fmt.Errorf("read password: %w", err)
 		}
 		pw := strings.TrimRight(line, "\r\n")
-		return pw, domain.ValidPassword(pw)
+		if pw == "" {
+			return "", errors.New("password is empty")
+		}
+		return pw, check(pw)
 	}
 
 	fmt.Fprint(os.Stderr, "Password: ")
@@ -130,7 +143,7 @@ func readPassword(confirm bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read password: %w", err)
 	}
-	if err := domain.ValidPassword(string(first)); err != nil {
+	if err := check(string(first)); err != nil {
 		return "", err
 	}
 

@@ -246,3 +246,50 @@ func TestPurgeExpiredSessions(t *testing.T) {
 		t.Errorf("%d sessions left after purge, want 1", n)
 	}
 }
+
+func TestWeakPasswordWaiverIsOptInOnly(t *testing.T) {
+	// The waiver exists so a local dev database can be primed with throwaway
+	// credentials like admin/admin. It must stay impossible to reach by
+	// accident: the ordinary constructor has to keep refusing them.
+	db := testDB(t)
+	ctx := t.Context()
+
+	for _, pw := range []string{"admin", "user", "short"} {
+		if _, err := db.CreateUser(ctx, "someone", pw, domain.RoleUser); err == nil {
+			t.Errorf("CreateUser accepted the weak password %q", pw)
+		}
+	}
+
+	// And with the waiver, the same password is accepted and actually works.
+	if _, err := db.CreateUserWeak(ctx, "admin", "admin", domain.RoleAdmin, true); err != nil {
+		t.Fatalf("CreateUserWeak: %v", err)
+	}
+	u, err := db.Authenticate(ctx, "admin", "admin")
+	if err != nil {
+		t.Fatalf("Authenticate with the primed credentials: %v", err)
+	}
+	if !u.IsAdmin() {
+		t.Error("primed admin account does not hold the admin role")
+	}
+	// Still a hash on disk — the waiver is about length, not about storage.
+	if u.PasswordHash == "admin" || len(u.PasswordHash) < 50 {
+		t.Errorf("weak password was not hashed: %q", u.PasswordHash)
+	}
+}
+
+func TestEmptyPasswordIsRejectedEvenWithTheWaiver(t *testing.T) {
+	// "Short" is a deliberate local choice; "absent" is always a mistake, and
+	// would otherwise hash the empty string into a working account.
+	db := testDB(t)
+	ctx := t.Context()
+
+	if _, err := db.CreateUserWeak(ctx, "nobody", "", domain.RoleUser, true); err == nil {
+		t.Error("CreateUserWeak accepted an empty password")
+	}
+	if _, err := db.CreateUserWeak(ctx, "someone", "x", domain.RoleUser, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetPasswordWeak(ctx, "someone", "", true); err == nil {
+		t.Error("SetPasswordWeak accepted an empty password")
+	}
+}

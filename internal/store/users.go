@@ -18,6 +18,17 @@ var ErrDuplicateUsername = errors.New("username already exists")
 
 // CreateUser adds an account, hashing the password with bcrypt.
 func (db *DB) CreateUser(ctx context.Context, username, password, role string) (int64, error) {
+	return db.CreateUserWeak(ctx, username, password, role, false)
+}
+
+// CreateUserWeak is CreateUser with the option to skip the password length
+// requirement.
+//
+// The exception exists only so a local development database can be primed with
+// throwaway credentials. It is a separate, explicitly named entry point rather
+// than a lower global minimum, so that every caller that waives the rule is
+// greppable and no ordinary call site can waive it by accident.
+func (db *DB) CreateUserWeak(ctx context.Context, username, password, role string, allowWeak bool) (int64, error) {
 	username = strings.TrimSpace(username)
 	if err := domain.ValidUsername(username); err != nil {
 		return 0, err
@@ -25,8 +36,13 @@ func (db *DB) CreateUser(ctx context.Context, username, password, role string) (
 	if err := domain.ValidRole(role); err != nil {
 		return 0, err
 	}
-	if err := domain.ValidPassword(password); err != nil {
-		return 0, err
+	if password == "" {
+		return 0, fmt.Errorf("%w: password is required", domain.ErrInvalidUser)
+	}
+	if !allowWeak {
+		if err := domain.ValidPassword(password); err != nil {
+			return 0, err
+		}
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -52,8 +68,19 @@ func (db *DB) CreateUser(ctx context.Context, username, password, role string) (
 
 // SetPassword replaces an account's password.
 func (db *DB) SetPassword(ctx context.Context, username, password string) error {
-	if err := domain.ValidPassword(password); err != nil {
-		return err
+	return db.SetPasswordWeak(ctx, username, password, false)
+}
+
+// SetPasswordWeak is SetPassword with the same explicit length waiver as
+// CreateUserWeak.
+func (db *DB) SetPasswordWeak(ctx context.Context, username, password string, allowWeak bool) error {
+	if password == "" {
+		return fmt.Errorf("%w: password is required", domain.ErrInvalidUser)
+	}
+	if !allowWeak {
+		if err := domain.ValidPassword(password); err != nil {
+			return err
+		}
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {

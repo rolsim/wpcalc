@@ -174,3 +174,24 @@ reaches Apache, which answers 200 for unknown paths, and reading
 `/proc/net/tcp` flags Docker's own DNS resolver on 127.0.0.11. Whether the
 process was started with `--socket` and not `--addr` is the property that
 actually matters, and it has no false positives.
+
+**The sample-data command records no working hours.** It creates placeholder
+employees and stops there. This is a timesheet: once fabricated entries are in
+the database they are indistinguishable from real ones, and a demo database
+that gets copied, inherited, or pointed at by mistake would then hold invented
+records of work nobody did. The employment periods alone still demonstrate the
+grid, the weekend shading, the visibility rule and the locked cells, and an
+empty grid is the honest starting state. Renamed from `demo-seed` to
+`sample-employees` so the name cannot imply more than it does.
+*Reverse:* nothing depends on hours existing; the browser e2e types its own.
+
+**Local dev accounts are `admin`/`admin` and `user`/`user`, and they bypass the
+password-length rule — for testing only.** The waiver is an explicit
+`--allow-weak-password` flag reaching a separately named `CreateUserWeak`,
+never a lowered global minimum, so every caller that waives the rule is
+greppable and no ordinary call site can waive it by accident. `user add`
+without the flag still refuses them, the CLI warns on stderr when the flag is
+used, and an *empty* password is refused even with it — "short" is a
+deliberate local choice, "absent" is always a mistake. Tests pin both halves.
+*Reverse:* drop the flag and the two Weak entry points; the dev script then
+needs real passwords.

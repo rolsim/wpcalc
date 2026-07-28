@@ -42,14 +42,17 @@ the binary and applied at startup.
 
 ```sh
 make build
-./bin/wpcalc demo-seed --db /tmp/wpcalc.db --month 2026-07
+./bin/wpcalc sample-employees --db /tmp/wpcalc.db --month 2026-07
 ./bin/wpcalc user add you -role admin --db /tmp/wpcalc.db
 ./bin/wpcalc serve --addr :8080 --db /tmp/wpcalc.db
 ```
 
-Then <http://localhost:8080>. The seeded month has four people — two full-time,
-one joining mid-month, one who left the month before — so the visibility rule
-and the locked cells are visible immediately. Reports are under **Auswertungen**.
+Then <http://localhost:8080>. The sample data is four placeholder employees —
+two employed all month, one joining mid-month, one who left the month before —
+so the visibility rule and the locked cells are visible immediately. It records
+**no working hours**: this is a timesheet, and fabricated entries are
+indistinguishable from real ones once they are in the database. Reports are
+under **Auswertungen**.
 
 For WordPress: `make e2e-wp` builds, installs, activates and drives the whole
 thing in containers in about 45 seconds.

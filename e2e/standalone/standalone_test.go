@@ -109,9 +109,9 @@ func startServer(t *testing.T, root string) string {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 
-	seed := exec.Command(bin, "demo-seed", "--db", db, "--month", "2026-07")
+	seed := exec.Command(bin, "sample-employees", "--db", db, "--month", "2026-07")
 	if out, err := seed.CombinedOutput(); err != nil {
-		t.Fatalf("demo-seed: %v\n%s", err, out)
+		t.Fatalf("sample-employees: %v\n%s", err, out)
 	}
 
 	add := exec.Command(bin, "user", "add", adminUser, "-role", "admin", "--db", db)
