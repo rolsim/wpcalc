@@ -21,6 +21,7 @@ reload.
 |---|---|---|
 | Recording hours | [docs/de-CH/user.md](docs/de-CH/user.md) | [docs/en/user.md](docs/en/user.md) |
 | Running it | [docs/de-CH/admin.md](docs/de-CH/admin.md) | [docs/en/admin.md](docs/en/admin.md) |
+| Trying it out | [docs/de-CH/testing.md](docs/de-CH/testing.md) | — |
 
 The administrator guide covers both run modes, accounts, the WordPress plugin,
 backup and troubleshooting.
@@ -30,6 +31,7 @@ Both are embedded in the binary and readable from a terminal:
 ```sh
 wpcalc manual              # user guide, in your shell's language
 wpcalc manual admin        # administrator guide
+wpcalc manual testing      # how to try it out (de-CH)
 wpcalc manual --lang en    # force a language
 wpcalc manual --list       # what is available
 ```
