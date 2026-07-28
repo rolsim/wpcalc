@@ -16,10 +16,6 @@ import (
 // version is overridden at build time via -ldflags "-X main.version=...".
 var version = "dev"
 
-// errNotImplemented marks subcommands that are declared but not yet built.
-// Each disappears as its priority level lands; none may survive to the report.
-var errNotImplemented = errors.New("not implemented yet")
-
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "wpcalc: %v\n", err)
@@ -70,6 +66,3 @@ Usage:
 Exactly one of --addr or --socket must be given to serve.
 `)
 }
-
-func cmdUser(_ context.Context, _ []string) error     { return errNotImplemented }
-func cmdDemoSeed(_ context.Context, _ []string) error { return errNotImplemented }

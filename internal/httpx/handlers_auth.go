@@ -50,7 +50,17 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, s.url("/"), http.StatusSeeOther)
 }
 
+// requestLogouter is implemented by authenticators that keep sessions
+// server-side and can therefore revoke the one this request carries.
+type requestLogouter interface{ LogoutRequest(r *http.Request) }
+
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// Revoke server-side first. Clearing only the cookie would leave a copied
+	// token working for the rest of its lifetime, which is not what anyone
+	// clicking "log out" understands the button to mean.
+	if rl, ok := s.authn.(requestLogouter); ok {
+		rl.LogoutRequest(r)
+	}
 	if sw, ok := s.authn.(auth.SessionWriter); ok {
 		sw.Logout(w)
 	}

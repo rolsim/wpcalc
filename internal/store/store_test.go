@@ -77,7 +77,11 @@ func TestOpenCreatesDatabaseFile(t *testing.T) {
 func TestMigrationsUpDownUpIsClean(t *testing.T) {
 	// A Down block that does not actually reverse its Up is worse than no Down
 	// block: it fails halfway and leaves a schema nobody can reason about.
-	// Open() has already migrated up, so this drives down and back.
+	// Open() has already migrated up, so this drives all the way down and back.
+	//
+	// Every migration is rolled back, not just the newest. A Down block that
+	// has never been executed is not known to work, and the one most likely to
+	// be wrong is the oldest — the one nobody has run since writing it.
 	db := testDB(t)
 	ctx := t.Context()
 
@@ -85,12 +89,18 @@ func TestMigrationsUpDownUpIsClean(t *testing.T) {
 	if err := db.SetHours(ctx, id, mustDate(t, "2026-07-14"), 775); err != nil {
 		t.Fatalf("seed entry: %v", err)
 	}
+	if _, err := db.CreateUser(ctx, "someone", "a-long-enough-password", domain.RoleAdmin); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
 
-	if err := db.MigrateDown(ctx); err != nil {
-		t.Fatalf("migrate down: %v", err)
+	if err := db.MigrateReset(ctx); err != nil {
+		t.Fatalf("migrate reset: %v", err)
 	}
 	if _, err := db.Employees(ctx); err == nil {
 		t.Error("employees table still queryable after down migration")
+	}
+	if _, err := db.Users(ctx); err == nil {
+		t.Error("users table still queryable after down migration")
 	}
 
 	if err := db.Migrate(ctx); err != nil {

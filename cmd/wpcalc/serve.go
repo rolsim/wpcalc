@@ -52,7 +52,7 @@ func cmdServe(ctx context.Context, args []string) error {
 		return err
 	}
 
-	authn, connKind, err := buildAuthenticator(*socket != "", *secureCookies)
+	authn, connKind, err := buildAuthenticator(ctx, db, *socket != "", *secureCookies)
 	if err != nil {
 		return err
 	}
@@ -114,7 +114,7 @@ func cmdServe(ctx context.Context, args []string) error {
 // The two modes are mutually exclusive on purpose. Offering the standalone
 // login form while running behind WordPress would be a second, weaker door
 // into the same data, bypassing whatever access control the site already has.
-func buildAuthenticator(isSocket, secureCookies bool) (auth.Authenticator, auth.ConnKind, error) {
+func buildAuthenticator(ctx context.Context, db *store.DB, isSocket, secureCookies bool) (auth.Authenticator, auth.ConnKind, error) {
 	if isSocket {
 		secret := os.Getenv("WPCALC_SECRET")
 		a, err := auth.NewWordPress(secret)
@@ -124,10 +124,18 @@ func buildAuthenticator(isSocket, secureCookies bool) (auth.Authenticator, auth.
 		return a, auth.ConnUnix, nil
 	}
 
-	a, err := auth.NewPassword(os.Getenv("WPCALC_PASSWORD"))
+	// Refuse to start rather than serve a login form that can never succeed.
+	// An operator staring at "Anmeldung fehlgeschlagen" with correct
+	// credentials has no way to discover the table is simply empty.
+	hasUsers, err := db.HasUsers(ctx)
 	if err != nil {
-		return nil, "", fmt.Errorf("serve: %w", err)
+		return nil, "", err
 	}
+	if !hasUsers {
+		return nil, "", auth.ErrNoAccounts
+	}
+
+	a := auth.NewAccounts(db)
 	a.SetSecureCookies(secureCookies)
 	return a, auth.ConnTCP, nil
 }

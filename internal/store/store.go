@@ -105,6 +105,22 @@ func (db *DB) MigrateDown(ctx context.Context) error {
 	return nil
 }
 
+// MigrateReset rolls every migration back, newest first.
+//
+// Only tests and a deliberate `migrate reset` should call this: it drops the
+// data. It exists because rolling back a single step exercises only the
+// newest Down block, and a Down block that has never run is not known to work.
+func (db *DB) MigrateReset(ctx context.Context) error {
+	p, err := newProvider(db.DB)
+	if err != nil {
+		return err
+	}
+	if _, err := p.DownTo(ctx, 0); err != nil {
+		return fmt.Errorf("store: migrate reset: %w", err)
+	}
+	return nil
+}
+
 // MigrationStatus reports each migration and whether it has been applied.
 func (db *DB) MigrationStatus(ctx context.Context) ([]string, error) {
 	p, err := newProvider(db.DB)

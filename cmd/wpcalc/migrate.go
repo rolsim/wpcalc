@@ -23,13 +23,14 @@ func defaultDBPath() string {
 func cmdMigrate(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
 	dbPath := fs.String("db", defaultDBPath(), "path to the SQLite database")
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseArgs(fs, args)
+	if err != nil {
 		return err
 	}
 
 	action := "up"
-	if fs.NArg() > 0 {
-		action = fs.Arg(0)
+	if len(positional) > 0 {
+		action = positional[0]
 	}
 
 	// Open already migrates up, which is what the server does on every start.
