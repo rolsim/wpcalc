@@ -23,6 +23,7 @@ var pageTemplates = []string{
 	"employee_form.html",
 	"login.html",
 	"error.html",
+	"reports.html",
 }
 
 // view is embedded in every page's data, which promotes T onto the template

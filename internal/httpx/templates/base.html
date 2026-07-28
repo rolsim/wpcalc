@@ -12,6 +12,7 @@
     <nav>
       <a href="{{ .URL "/" }}">{{ .T "nav.grid" }}</a>
       <a href="{{ .URL "/employees" }}">{{ .T "nav.employees" }}</a>
+      <a href="{{ .URL "/reports" }}">{{ .T "nav.reports" }}</a>
     </nav>
     {{ if .LoggedIn }}
       <form class="logout" method="post" action="{{ .URL "/logout" }}">

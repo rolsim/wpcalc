@@ -1,0 +1,34 @@
+{{ define "content" }}
+<div class="month-nav">
+  <a class="btn" href="{{ .PrevURL }}" rel="prev">&larr; {{ .T "nav.prev_month" }}</a>
+  <h1>{{ .MonthLabel }}</h1>
+  <a class="btn" href="{{ .NextURL }}" rel="next">{{ .T "nav.next_month" }} &rarr;</a>
+</div>
+
+<h2>{{ .T "report.month_overview" }}</h2>
+<p><a class="btn btn-primary" href="{{ .MonthURL }}">{{ .T "report.download" }}</a></p>
+
+<h2>{{ .T "employee.heading" }}</h2>
+{{ if not .Employees }}
+  <p class="empty">{{ .T "grid.no_employees" }}</p>
+{{ else }}
+<table class="list">
+  <thead>
+    <tr>
+      <th scope="col">{{ .T "employee.name" }}</th>
+      <th scope="col">{{ .T "report.month" }}</th>
+      <th scope="col">{{ .T "report.year" }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{ range .Employees }}
+      <tr>
+        <th scope="row">{{ .Name }}</th>
+        <td><a class="btn btn-quiet" href="{{ .MonthURL }}">{{ .MonthLabel }}</a></td>
+        <td><a class="btn btn-quiet" href="{{ .YearURL }}">{{ .YearLabel }}</a></td>
+      </tr>
+    {{ end }}
+  </tbody>
+</table>
+{{ end }}
+{{ end }}

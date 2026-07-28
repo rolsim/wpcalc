@@ -530,3 +530,75 @@ func TestErrorKeyIsWhitelisted(t *testing.T) {
 }
 
 func itoa(v int64) string { return strconv.FormatInt(v, 10) }
+
+func TestReportRoutesServePDFs(t *testing.T) {
+	ts := newTestServer(t, nil)
+	id := ts.employee(t, "Anna Muster", "2026-01-01", "")
+	day, _ := domain.ParseDate("2026-07-14")
+	if err := ts.db.SetHours(t.Context(), id, day, 775); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both the documented .pdf form and the bare form must route, because Go's
+	// mux cannot match a partial path segment and the suffix is stripped.
+	paths := []string{
+		"/report/month/2026-07.pdf",
+		"/report/month/2026-07",
+		"/report/employee/" + itoa(id) + "/month/2026-07.pdf",
+		"/report/employee/" + itoa(id) + "/year/2026.pdf",
+	}
+	for _, p := range paths {
+		w := ts.get(t, p)
+		if w.Code != http.StatusOK {
+			t.Errorf("GET %s: status %d, want 200", p, w.Code)
+			continue
+		}
+		if ct := w.Header().Get("Content-Type"); ct != "application/pdf" {
+			t.Errorf("GET %s: Content-Type %q, want application/pdf", p, ct)
+		}
+		if !strings.HasPrefix(w.Body.String(), "%PDF-") {
+			t.Errorf("GET %s: body is not a PDF", p)
+		}
+		if !strings.Contains(w.Body.String(), "%%EOF") {
+			t.Errorf("GET %s: PDF is truncated", p)
+		}
+		if cd := w.Header().Get("Content-Disposition"); !strings.Contains(cd, ".pdf") {
+			t.Errorf("GET %s: Content-Disposition %q has no filename", p, cd)
+		}
+	}
+}
+
+func TestReportRoutesRejectBadParameters(t *testing.T) {
+	ts := newTestServer(t, nil)
+	id := ts.employee(t, "Anna", "2026-01-01", "")
+
+	bad := []string{
+		"/report/month/2026-13.pdf",
+		"/report/month/nonsense",
+		"/report/employee/99999/month/2026-07.pdf",
+		"/report/employee/" + itoa(id) + "/year/abc",
+		"/report/employee/" + itoa(id) + "/year/12",
+	}
+	for _, p := range bad {
+		if w := ts.get(t, p); w.Code != http.StatusNotFound {
+			t.Errorf("GET %s: status %d, want 404", p, w.Code)
+		}
+	}
+}
+
+func TestReportIndexListsActiveEmployees(t *testing.T) {
+	ts := newTestServer(t, nil)
+	ts.employee(t, "Aktuell Person", "2026-01-01", "")
+	ts.employee(t, "Alt Person", "2019-01-01", "2019-12-31")
+
+	body := ts.get(t, "/reports?m=2026-07").Body.String()
+	if !strings.Contains(body, "Aktuell Person") {
+		t.Error("active employee missing from the report index")
+	}
+	if strings.Contains(body, "Alt Person") {
+		t.Error("inactive employee listed on the report index")
+	}
+	if strings.Contains(body, "!!") {
+		t.Errorf("report index has an untranslated key: %s", excerptAround(body, "!!"))
+	}
+}
