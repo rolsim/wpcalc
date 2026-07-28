@@ -11,16 +11,11 @@
       // fails on an account that already exists.
       "label": "wpcalc: prepare dev database",
       "type": "shell",
-      "command": "mkdir -p .dev && if [ ! -f .dev/wpcalc.db ]; then go run ./cmd/wpcalc demo-seed --db .dev/wpcalc.db --month \"$(date +%Y-%m)\" && printf 'devpassword123\\n' | go run ./cmd/wpcalc user add dev -role admin --db .dev/wpcalc.db && echo '--- dev login: dev / devpassword123 ---'; else echo 'dev database already present'; fi",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "env": {
-          "CGO_ENABLED": "0",
-          "GOPRIVATE": "source.simonet.internal/*"
-        }
-      },
+      "command": "./scripts/dev-setup.sh 8080 .dev/wpcalc.db",
+      "options": { "cwd": "${workspaceFolder}" },
       "presentation": {
         "reveal": "silent",
+        "revealProblems": "onProblem",
         "panel": "shared",
         "clear": true
       },

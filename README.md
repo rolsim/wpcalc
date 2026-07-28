@@ -28,9 +28,14 @@ Go 1.26+. No npm, no bundler, no build step for assets.
 
 ## Run in VS Code
 
-Press **F5**. It seeds `.dev/wpcalc.db` on first run, starts the server under
-the debugger on <http://127.0.0.1:8080>, and opens a browser once the port is
-actually listening. Breakpoints work.
+Press **F5**. It checks port 8080 is free, seeds `.dev/wpcalc.db` on first
+run, starts the server under the debugger on <http://127.0.0.1:8080>, and
+opens a browser once the port is actually listening. Breakpoints work.
+
+If the port is taken the launch stops before the debugger starts and names
+what is holding it. That check exists because the failure is otherwise
+misleading: the server exits, the browser opens anyway, and whatever owns the
+port answers instead — so the app looks broken rather than absent.
 
 Dev login: **`dev` / `devpassword123`** — created by the prelaunch task, in a
 gitignored database, for local use only.
