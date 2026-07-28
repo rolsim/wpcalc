@@ -43,6 +43,8 @@ func run(args []string) error {
 		return cmdSampleEmployees(ctx, args[1:])
 	case "manual":
 		return cmdManual(ctx, args[1:])
+	case "plugin":
+		return cmdPlugin(ctx, args[1:])
 	case "version":
 		fmt.Println(version)
 		return nil
@@ -64,6 +66,7 @@ Usage:
   wpcalc user add|passwd|lang|list [--db PATH] [-role admin|user] [-lang de-CH|en]
   wpcalc sample-employees [--db PATH] [--month YYYY-MM]
   wpcalc manual [user|admin] [--lang de-CH|en] [--raw] [--list]
+  wpcalc plugin export DIR [--force] [--php-only]
   wpcalc version
 
 Exactly one of --addr or --socket must be given to serve.

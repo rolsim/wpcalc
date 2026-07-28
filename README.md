@@ -112,6 +112,7 @@ see the note above.
 | `wpcalc user add\|passwd\|lang\|list` | manage standalone accounts (`--allow-weak-password` for local testing only) |
 | `wpcalc sample-employees [--month YYYY-MM]` | create placeholder employees; records no hours |
 | `wpcalc manual [user\|admin] [--lang L] [--raw] [--list]` | show an embedded manual, via glow when available |
+| `wpcalc plugin export DIR [--force] [--php-only]` | write the WordPress plugin out of the binary |
 | `wpcalc version` | print the version |
 
 Flags may appear before or after positional arguments.
@@ -127,10 +128,15 @@ Flags may appear before or after positional arguments.
 
 ## Install the WordPress plugin
 
-1. `make build`, then copy the binary into the plugin: `wordpress/wpcalc/bin/wpcalc`
-2. Copy `wordpress/wpcalc/` into `wp-content/plugins/`
-3. Activate **wpcalc** in WordPress
-4. Open **Working hours** in the admin menu
+The binary carries the plugin and installs itself:
+
+```sh
+wpcalc plugin export /var/www/html/wp-content/plugins
+```
+
+This writes `wpcalc/wpcalc.php` and `wpcalc/bin/wpcalc` — a copy of the binary
+that wrote it, so the plugin and the sidecar are always the same version. Then
+activate **wpcalc** and open **Working hours** in the admin menu.
 
 The plugin starts the binary on demand as a sidecar on a unix socket under
 `wp-content/uploads/wpcalc/`, supervises it, and proxies admin requests to it

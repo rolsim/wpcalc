@@ -48,6 +48,7 @@ dependencies — copy it to the host and run it.
 | `user add\|passwd\|lang\|list` | manage accounts |
 | `sample-employees [--month YYYY-MM]` | create placeholder employees; records **no hours** |
 | `manual [user\|admin]` | show an embedded manual |
+| `plugin export DIR` | write the WordPress plugin out of the binary |
 | `version` | print the version |
 
 Flags work before or after positional arguments.
@@ -161,10 +162,22 @@ page cannot disagree with the screen.
 
 ## WordPress
 
-1. `make build`, then copy the binary to `wordpress/wpcalc/bin/wpcalc`
-2. Copy `wordpress/wpcalc/` into `wp-content/plugins/`
-3. Activate **wpcalc**
-4. Open **Working hours** in the admin menu
+The binary carries the plugin, so it can install itself:
+
+```sh
+wpcalc plugin export /var/www/html/wp-content/plugins
+```
+
+That writes `wpcalc/wpcalc.php` and `wpcalc/bin/wpcalc` — a copy of the binary
+that wrote it, which is what keeps the two versions in step. Then activate
+**wpcalc** in WordPress and open **Working hours** in the admin menu.
+
+It refuses to overwrite an existing plugin directory unless you pass
+`--force`. `--php-only` writes the PHP without a binary, for the case where the
+sidecar is installed system-wide and the path is set in the settings.
+
+The WordPress e2e suite mounts the exported plugin rather than the source
+directory, so a broken export fails the tests instead of going unnoticed.
 
 The plugin starts the binary on demand as a sidecar, supervises it, and proxies
 requests with a signed assertion of the current WordPress user. Access requires

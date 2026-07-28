@@ -41,6 +41,7 @@ const (
 var (
 	repoRoot   string
 	composeDir string
+	exportDir  string
 	binaryPath string
 )
 
@@ -62,7 +63,10 @@ func TestMain(m *testing.M) {
 	}
 	repoRoot = strings.TrimSpace(string(out))
 	composeDir = filepath.Join(repoRoot, "e2e", "wordpress")
-	binaryPath = filepath.Join(repoRoot, "wordpress", "wpcalc", "bin", "wpcalc")
+	exportDir = filepath.Join(composeDir, ".export")
+	// Inside the exported plugin, not the source tree: the export is what the
+	// containers mount and what these tests are therefore checking.
+	binaryPath = filepath.Join(exportDir, "wpcalc", "bin", "wpcalc")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -85,7 +89,7 @@ func TestMain(m *testing.M) {
 }
 
 func setup(ctx context.Context) error {
-	if err := buildPluginBinary(ctx); err != nil {
+	if err := buildAndExportPlugin(ctx); err != nil {
 		return err
 	}
 
@@ -123,21 +127,40 @@ func setup(ctx context.Context) error {
 	return nil
 }
 
-// buildPluginBinary compiles the sidecar into the plugin's bin/ directory.
+// buildAndExportPlugin builds the binary and then has it export itself as a
+// WordPress plugin, which is what the containers mount.
 //
-// CGO_ENABLED=0 is what makes this work at all: the binary built on the host
-// runs unchanged inside the container, with no toolchain or libc in the image.
-func buildPluginBinary(ctx context.Context) error {
-	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
+// Going through `plugin export` rather than copying the source directory means
+// this suite tests the artifact a tester is handed. A broken export fails here
+// instead of passing against a directory that is never shipped.
+//
+// CGO_ENABLED=0 is what makes it work at all: the binary built on the host runs
+// unchanged inside the container, with no toolchain or libc in the image.
+func buildAndExportPlugin(ctx context.Context) error {
+	if err := os.RemoveAll(exportDir); err != nil {
+		return fmt.Errorf("clear export directory: %w", err)
+	}
+	if err := os.MkdirAll(exportDir, 0o755); err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", binaryPath, "./cmd/wpcalc")
-	cmd.Dir = repoRoot
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64")
-	if out, err := cmd.CombinedOutput(); err != nil {
+
+	built := filepath.Join(exportDir, "wpcalc-build")
+	build := exec.CommandContext(ctx, "go", "build", "-o", built, "./cmd/wpcalc")
+	build.Dir = repoRoot
+	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64")
+	if out, err := build.CombinedOutput(); err != nil {
 		return fmt.Errorf("build sidecar: %w\n%s", err, out)
 	}
-	return os.Chmod(binaryPath, 0o755)
+
+	export := exec.CommandContext(ctx, built, "plugin", "export", exportDir, "--force")
+	if out, err := export.CombinedOutput(); err != nil {
+		return fmt.Errorf("plugin export: %w\n%s", err, out)
+	}
+
+	if _, err := os.Stat(binaryPath); err != nil {
+		return fmt.Errorf("export produced no binary at %s: %w", binaryPath, err)
+	}
+	return os.Remove(built)
 }
 
 func compose(ctx context.Context, args ...string) (string, error) {
@@ -324,6 +347,34 @@ func TestSidecarIsReachableOnlyThroughTheSocket(t *testing.T) {
 	}
 	if mode := strings.TrimSpace(perms); mode != "660" {
 		t.Errorf("socket mode is %s, want 660", mode)
+	}
+}
+
+func TestTheMountedPluginIsTheExportedOne(t *testing.T) {
+	// Guards the premise of this whole suite. If the compose mount ever drifts
+	// back to the source directory, every other test here would still pass
+	// while proving nothing about what a tester receives.
+	php := filepath.Join(exportDir, "wpcalc", "wpcalc.php")
+	exported, err := os.ReadFile(php)
+	if err != nil {
+		t.Fatalf("no exported PHP at %s: %v", php, err)
+	}
+	source, err := os.ReadFile(filepath.Join(repoRoot, "wordpress", "wpcalc", "wpcalc.php"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(exported) != string(source) {
+		t.Error("the exported plugin differs from the source it was embedded from")
+	}
+
+	// And the container is running that exported binary, not some other one.
+	out, err := compose(t.Context(), "exec", "-T", "wordpress",
+		"sh", "-c", "ls -l /var/www/html/wp-content/plugins/wpcalc/bin/wpcalc")
+	if err != nil {
+		t.Fatalf("stat the mounted binary: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "wpcalc") {
+		t.Errorf("the mounted plugin has no binary:\n%s", out)
 	}
 }
 

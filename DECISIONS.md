@@ -274,3 +274,29 @@ would render in a language that does not exist and could only be fixed from the
 database. `return_to` comes from a form field, so it is an open redirect unless
 the target is confirmed local — "//evil.example" is scheme-relative and leaves
 the site while looking like a path.
+
+**`plugin export` writes the binary alongside the PHP, not just the PHP.** A
+plugin directory without a binary looks complete and does not run — the shim's
+entire job is to spawn one. Exporting a copy of the running binary also keeps
+the two halves at the same version, which shipping them separately does not:
+a plugin from one build talking to a sidecar from another is a failure mode
+with no good error message.
+*Reverse:* `--php-only` already covers the case where the sidecar is installed
+system-wide.
+
+**The embed pattern is `wordpress/wpcalc/*.php`, never the directory.** That
+directory also holds `bin/wpcalc` during an e2e run, so embedding it wholesale
+would embed the binary inside itself — doubling the build and doubling again on
+every rebuild. A test asserts the embedded tree contains no directories.
+
+**The WordPress e2e mounts the exported plugin rather than the source tree.**
+Otherwise the suite would prove that a directory nobody ships works, while the
+artifact a tester actually receives went untested. A separate test asserts the
+mount really is the export, because if that ever drifted back every other test
+here would keep passing and mean nothing.
+
+**Copying the binary is guarded against copying onto itself.** Exporting into
+the directory the binary already occupies would otherwise truncate it to zero
+bytes — destroying the very binary running the command. The copy also goes to a
+temporary name and is renamed into place, so an interrupted export cannot leave
+a half-written binary for WordPress to try to run.

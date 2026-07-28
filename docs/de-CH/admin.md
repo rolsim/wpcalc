@@ -49,6 +49,7 @@ Laufzeitabhängigkeiten: auf den Host kopieren und starten.
 | `user add\|passwd\|lang\|list` | Konten verwalten |
 | `sample-employees [--month YYYY-MM]` | Platzhalter-Mitarbeitende anlegen; erfasst **keine Stunden** |
 | `manual [user\|admin]` | eingebettetes Handbuch anzeigen |
+| `plugin export VERZ` | WordPress-Plugin aus der Binärdatei schreiben |
 | `version` | Version ausgeben |
 
 Flags funktionieren vor oder nach den Positionsargumenten.
@@ -169,10 +170,24 @@ wird — ein Ausdruck kann dem Bildschirm nicht widersprechen.
 
 ## WordPress
 
-1. `make build`, dann die Binärdatei nach `wordpress/wpcalc/bin/wpcalc` kopieren
-2. `wordpress/wpcalc/` nach `wp-content/plugins/` kopieren
-3. **wpcalc** aktivieren
-4. Im Admin-Menü **Arbeitszeiten** öffnen
+Die Binärdatei enthält das Plugin und kann sich selbst installieren:
+
+```sh
+wpcalc plugin export /var/www/html/wp-content/plugins
+```
+
+Das schreibt `wpcalc/wpcalc.php` und `wpcalc/bin/wpcalc` — eine Kopie genau der
+Binärdatei, die den Befehl ausgeführt hat, wodurch beide Teile
+zusammenpassen. Anschliessend **wpcalc** in WordPress aktivieren und im
+Admin-Menü **Arbeitszeiten** öffnen.
+
+Ein bestehendes Plugin-Verzeichnis wird nicht ohne `--force` überschrieben.
+`--php-only` schreibt nur die PHP-Datei, für den Fall, dass der Sidecar
+systemweit installiert ist und der Pfad in den Einstellungen steht.
+
+Die WordPress-E2E-Tests binden das exportierte Plugin ein, nicht das
+Quellverzeichnis — ein kaputter Export lässt also die Tests scheitern, statt
+unbemerkt zu bleiben.
 
 Das Plugin startet die Binärdatei bei Bedarf als Sidecar, überwacht sie und
 leitet Anfragen mit einer signierten Aussage über den aktuellen

@@ -1,9 +1,11 @@
 # WordPress integration stack for the e2e test.
 #
-# The plugin directory is bind-mounted rather than copied so the test can build
-# a fresh binary into wordpress/wpcalc/bin and have the container pick it up
-# without an image rebuild. That binary is the same CGO_ENABLED=0 artifact the
-# Makefile produces, which is the whole point of forbidding cgo.
+# The mounted plugin is the one `wpcalc plugin export` produces, not the source
+# directory. That way this suite exercises the artifact a tester actually
+# receives: if the export ever stops producing a working plugin, these tests
+# fail rather than passing against a directory nobody ships.
+#
+# .export/ is created by the test before compose starts, and gitignored.
 
 name: wpcalc-e2e
 
@@ -36,7 +38,7 @@ services:
       WORDPRESS_DEBUG: "1"
     volumes:
       - wp:/var/www/html
-      - ../../wordpress/wpcalc:/var/www/html/wp-content/plugins/wpcalc
+      - ./.export/wpcalc:/var/www/html/wp-content/plugins/wpcalc
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost/ >/dev/null || exit 1"]
       interval: 3s
@@ -57,7 +59,7 @@ services:
       WORDPRESS_DB_PASSWORD: wordpress
     volumes:
       - wp:/var/www/html
-      - ../../wordpress/wpcalc:/var/www/html/wp-content/plugins/wpcalc
+      - ./.export/wpcalc:/var/www/html/wp-content/plugins/wpcalc
     entrypoint: ["tail", "-f", "/dev/null"]
 
 volumes:
