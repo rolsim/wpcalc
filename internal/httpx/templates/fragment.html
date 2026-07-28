@@ -1,0 +1,24 @@
+{{/*
+  Fragment layout for the WordPress admin page.
+
+  The plugin renders the app inside WordPress's own admin chrome, which already
+  owns <html>, <head>, and the surrounding page. Emitting a second full
+  document there would be invalid markup and would fight WordPress for the
+  head, so this layout is the content alone. The plugin enqueues the
+  stylesheet and script separately, through the same proxy.
+*/}}
+<div class="wpcalc-app">
+  <nav class="topbar">
+    <a class="brand" href="{{ .URL "/" }}">{{ .T "app.title" }}</a>
+    <span class="topbar-links">
+      <a href="{{ .URL "/" }}">{{ .T "nav.grid" }}</a>
+      <a href="{{ .URL "/employees" }}">{{ .T "nav.employees" }}</a>
+      <a href="{{ .URL "/reports" }}">{{ .T "nav.reports" }}</a>
+    </span>
+  </nav>
+
+  {{ if .Error }}<div class="alert alert-error" role="alert">{{ .Error }}</div>{{ end }}
+  {{ if .Flash }}<div class="alert alert-ok" role="status">{{ .Flash }}</div>{{ end }}
+
+  {{ template "content" . }}
+</div>

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"source.simonet.internal/rolsim/wpcalc/internal/auth"
@@ -31,17 +32,19 @@ var pageTemplates = []string{
 // reach a raw string without noticing.
 type view struct {
 	*i18n.Printer
-	Title    string
-	Base     string
-	Identity auth.Identity
-	Error    string
-	Flash    string
+	Title     string
+	Base      string
+	LinkParam string
+	Fragment  bool
+	Identity  auth.Identity
+	Error     string
+	Flash     string
 }
 
 // URL builds an absolute path, honouring the base path the WordPress admin
 // page mounts the app under.
 func (v view) URL(format string, args ...any) string {
-	return joinBase(v.Base, fmt.Sprintf(format, args...))
+	return buildURL(v.Base, v.LinkParam, fmt.Sprintf(format, args...))
 }
 
 // LoggedIn reports whether a session is active, so the layout can hide the
@@ -53,10 +56,12 @@ func (s *Server) newView(r *http.Request, titleKey string) view {
 	p := s.bundle.For(s.bundle.Match(r.Header.Get("Accept-Language")))
 	id, _ := auth.IdentityFrom(r.Context())
 	return view{
-		Printer:  p,
-		Title:    p.T(titleKey),
-		Base:     s.basePath,
-		Identity: id,
+		Printer:   p,
+		Title:     p.T(titleKey),
+		Base:      s.basePath,
+		LinkParam: s.linkParam,
+		Fragment:  isFragment(r),
+		Identity:  id,
 	}
 }
 
@@ -84,7 +89,12 @@ func (s *Server) funcMap() template.FuncMap {
 // Writing straight to the ResponseWriter would commit a 200 and half a page
 // before a template error surfaced, leaving the browser with something that
 // looks like a successful but broken render.
-func (s *Server) render(w http.ResponseWriter, page string, status int, data any) {
+func (s *Server) render(w http.ResponseWriter, r *http.Request, page string, status int, data any) {
+	layout := "base.html"
+	if isFragment(r) {
+		layout = "fragment.html"
+	}
+
 	tmpl, ok := s.pages[page]
 	if !ok {
 		s.log.Error("unknown page template", "page", page)
@@ -93,7 +103,7 @@ func (s *Server) render(w http.ResponseWriter, page string, status int, data any
 	}
 
 	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, "base.html", data); err != nil {
+	if err := tmpl.ExecuteTemplate(&buf, layout, data); err != nil {
 		s.log.Error("render failed", "page", page, "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -109,13 +119,22 @@ func (s *Server) render(w http.ResponseWriter, page string, status int, data any
 func (s *Server) renderError(w http.ResponseWriter, r *http.Request, status int, msgKey string) {
 	v := s.newView(r, "app.title")
 	v.Error = v.T(msgKey)
-	s.render(w, "error.html", status, struct{ view }{v})
+	s.render(w, r, "error.html", status, struct{ view }{v})
 }
 
-// url builds a server-side path, honouring the base path.
+// url builds a link, honouring the base path and mounting style.
 func (s *Server) url(format string, args ...any) string {
-	return joinBase(s.basePath, fmt.Sprintf(format, args...))
+	return buildURL(s.basePath, s.linkParam, fmt.Sprintf(format, args...))
 }
+
+// FragmentHeader asks for content without the surrounding HTML document.
+//
+// The WordPress plugin renders the app inside the admin page's own chrome. A
+// full <html> document nested in that page would be invalid markup and would
+// fight WordPress for the <head>, so the shim asks for the content alone.
+const FragmentHeader = "X-Wpcalc-Fragment"
+
+func isFragment(r *http.Request) bool { return r.Header.Get(FragmentHeader) == "1" }
 
 // normaliseBase reduces a configured base path to either "" or "/prefix".
 func normaliseBase(base string) string {
@@ -128,6 +147,30 @@ func normaliseBase(base string) string {
 		base = "/" + base
 	}
 	return base
+}
+
+// buildURL generates a link to an application path.
+//
+// Two mounting styles, because the two run modes address pages differently.
+// Standalone (and behind a reverse proxy) uses a path prefix. WordPress
+// addresses admin screens by query string — /wp-admin/admin.php?page=wpcalc —
+// and cannot route /m/2026-07 at all, so there the application path travels as
+// a query parameter and the shim hands it back to the server as a real path.
+//
+// Only link generation differs. The handler tree still sees ordinary paths,
+// which is what keeps the WordPress mode from being a second implementation.
+func buildURL(base, param, path string) string {
+	if param == "" {
+		return joinBase(base, path)
+	}
+	if path == "" {
+		path = "/"
+	}
+	sep := "?"
+	if strings.Contains(base, "?") {
+		sep = "&"
+	}
+	return base + sep + url.QueryEscape(param) + "=" + url.QueryEscape(path)
 }
 
 func joinBase(base, path string) string {

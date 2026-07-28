@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"source.simonet.internal/rolsim/wpcalc/internal/auth"
 	"source.simonet.internal/rolsim/wpcalc/internal/i18n"
@@ -36,6 +37,11 @@ type Server struct {
 	pages    map[string]*template.Template
 	connKind auth.ConnKind
 
+	// linkParam, when set, makes generated links carry the application path
+	// as a query parameter instead of as a path prefix. WordPress addresses
+	// admin screens by query string and cannot route /m/2026-07 at all.
+	linkParam string
+
 	// basePath prefixes generated URLs. WordPress serves the app under an
 	// admin page rather than at the site root, so links must be built rather
 	// than hardcoded to "/".
@@ -50,6 +56,10 @@ type Config struct {
 	Logger   *slog.Logger
 	ConnKind auth.ConnKind
 	BasePath string
+
+	// LinkParam switches link generation to query-parameter mounting. Empty
+	// means path-prefix mounting, which is what standalone uses.
+	LinkParam string
 }
 
 // New builds the server and parses templates once at startup, so a broken
@@ -72,12 +82,20 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	s := &Server{
-		db:       cfg.DB,
-		bundle:   cfg.Bundle,
-		authn:    cfg.Auth,
-		log:      cfg.Logger,
-		connKind: cfg.ConnKind,
-		basePath: normaliseBase(cfg.BasePath),
+		db:        cfg.DB,
+		bundle:    cfg.Bundle,
+		authn:     cfg.Auth,
+		log:       cfg.Logger,
+		connKind:  cfg.ConnKind,
+		linkParam: cfg.LinkParam,
+	}
+
+	// A query-parameter base is a full URL with its own query string, so it
+	// must not be run through the path normaliser.
+	if cfg.LinkParam == "" {
+		s.basePath = normaliseBase(cfg.BasePath)
+	} else {
+		s.basePath = strings.TrimSpace(cfg.BasePath)
 	}
 
 	// Parse at startup so a broken template kills the process rather than the
@@ -86,7 +104,7 @@ func New(cfg Config) (*Server, error) {
 	for _, page := range pageTemplates {
 		tmpl, err := template.New(page).
 			Funcs(s.funcMap()).
-			ParseFS(templatesFS, "templates/base.html", "templates/"+page)
+			ParseFS(templatesFS, "templates/base.html", "templates/fragment.html", "templates/"+page)
 		if err != nil {
 			return nil, fmt.Errorf("httpx: parse %s: %w", page, err)
 		}

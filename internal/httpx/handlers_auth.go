@@ -22,7 +22,7 @@ func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, s.url("/"), http.StatusSeeOther)
 		return
 	}
-	s.render(w, "login.html", http.StatusOK, loginView{view: s.newView(r, "auth.login")})
+	s.render(w, r, "login.html", http.StatusOK, loginView{view: s.newView(r, "auth.login")})
 }
 
 func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +44,7 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		s.log.Warn("failed login", "remote", r.RemoteAddr)
 		v := s.newView(r, "auth.login")
 		v.Error = v.T("auth.failed")
-		s.render(w, "login.html", http.StatusUnauthorized, loginView{view: v, Failed: true})
+		s.render(w, r, "login.html", http.StatusUnauthorized, loginView{view: v, Failed: true})
 		return
 	}
 	http.Redirect(w, r, s.url("/"), http.StatusSeeOther)

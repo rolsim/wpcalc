@@ -63,7 +63,7 @@ func (s *Server) handleEmployeeList(w http.ResponseWriter, r *http.Request) {
 		}
 		v.Employees = append(v.Employees, row)
 	}
-	s.render(w, "employees.html", http.StatusOK, v)
+	s.render(w, r, "employees.html", http.StatusOK, v)
 }
 
 func (s *Server) handleEmployeeNew(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +74,7 @@ func (s *Server) handleEmployeeNew(w http.ResponseWriter, r *http.Request) {
 		ActionURL: s.url("/employees"),
 		CancelURL: s.url("/employees"),
 	}
-	s.render(w, "employee_form.html", http.StatusOK, v)
+	s.render(w, r, "employee_form.html", http.StatusOK, v)
 }
 
 func (s *Server) handleEmployeeCreate(w http.ResponseWriter, r *http.Request) {
@@ -113,7 +113,7 @@ func (s *Server) handleEmployeeEdit(w http.ResponseWriter, r *http.Request) {
 	if e.EndDate != nil {
 		v.EndDate = e.EndDate.String()
 	}
-	s.render(w, "employee_form.html", http.StatusOK, v)
+	s.render(w, r, "employee_form.html", http.StatusOK, v)
 }
 
 func (s *Server) handleEmployeeUpdate(w http.ResponseWriter, r *http.Request) {
@@ -211,7 +211,7 @@ func (s *Server) redisplayEmployeeForm(w http.ResponseWriter, r *http.Request, i
 		CancelURL: s.url("/employees"),
 	}
 	v.Error = v.T(errKey)
-	s.render(w, "employee_form.html", http.StatusUnprocessableEntity, v)
+	s.render(w, r, "employee_form.html", http.StatusUnprocessableEntity, v)
 }
 
 func mapEmployeeError(err error) string {

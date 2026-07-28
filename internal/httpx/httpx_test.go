@@ -602,3 +602,71 @@ func TestReportIndexListsActiveEmployees(t *testing.T) {
 		t.Errorf("report index has an untranslated key: %s", excerptAround(body, "!!"))
 	}
 }
+
+func TestQueryParamMountingBuildsWordPressURLs(t *testing.T) {
+	// WordPress addresses admin screens by query string and cannot route
+	// /m/2026-07 at all, so under the plugin the application path travels as a
+	// query parameter. Only link generation changes; the handler tree still
+	// sees ordinary paths.
+	cases := []struct {
+		base, param, path, want string
+	}{
+		{"", "", "/m/2026-07", "/m/2026-07"},
+		{"/prefix", "", "/m/2026-07", "/prefix/m/2026-07"},
+		{
+			"/wp-admin/admin.php?page=wpcalc", "wpcalc_path", "/m/2026-07",
+			"/wp-admin/admin.php?page=wpcalc&wpcalc_path=%2Fm%2F2026-07",
+		},
+		{
+			"/wp-admin/admin.php", "wpcalc_path", "/employees",
+			"/wp-admin/admin.php?wpcalc_path=%2Femployees",
+		},
+		// A path carrying its own query must survive intact once escaped.
+		{
+			"/wp-admin/admin.php?page=wpcalc", "wpcalc_path", "/reports?m=2026-08",
+			"/wp-admin/admin.php?page=wpcalc&wpcalc_path=%2Freports%3Fm%3D2026-08",
+		},
+	}
+	for _, c := range cases {
+		if got := buildURL(c.base, c.param, c.path); got != c.want {
+			t.Errorf("buildURL(%q,%q,%q) = %q, want %q", c.base, c.param, c.path, got, c.want)
+		}
+	}
+}
+
+func TestFragmentModeOmitsTheDocumentShell(t *testing.T) {
+	// The plugin renders inside WordPress's admin page, which already owns
+	// <html> and <head>. A nested document there is invalid markup and fights
+	// WordPress for the head.
+	ts := newTestServer(t, nil)
+	ts.employee(t, "Anna Muster", "2026-01-01", "")
+
+	full := ts.get(t, "/m/2026-07").Body.String()
+	if !strings.Contains(full, "<!DOCTYPE html>") || !strings.Contains(full, "<html") {
+		t.Fatal("the standalone page is not a complete document")
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/m/2026-07", nil)
+	r.Header.Set(FragmentHeader, "1")
+	w := httptest.NewRecorder()
+	ts.handler.ServeHTTP(w, r)
+
+	frag := w.Body.String()
+	if w.Code != http.StatusOK {
+		t.Fatalf("fragment request returned %d", w.Code)
+	}
+	for _, forbidden := range []string{"<!DOCTYPE", "<html", "<head", "<body"} {
+		if strings.Contains(frag, forbidden) {
+			t.Errorf("fragment contains %q; it must not carry a document shell", forbidden)
+		}
+	}
+	// It must still be the real page, not an empty div.
+	for _, want := range []string{"wpcalc-app", "Anna Muster", "Juli 2026"} {
+		if !strings.Contains(frag, want) {
+			t.Errorf("fragment is missing %q", want)
+		}
+	}
+	if strings.Contains(frag, "!!") {
+		t.Errorf("fragment has an untranslated key: %s", excerptAround(frag, "!!"))
+	}
+}

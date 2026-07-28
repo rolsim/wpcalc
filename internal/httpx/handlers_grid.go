@@ -69,7 +69,7 @@ func (s *Server) handleGrid(w http.ResponseWriter, r *http.Request) {
 		v.Error = v.T(errorKey(key))
 	}
 
-	s.render(w, "grid.html", http.StatusOK, v)
+	s.render(w, r, "grid.html", http.StatusOK, v)
 }
 
 // buildGridView assembles a month from four queries rather than one per cell.

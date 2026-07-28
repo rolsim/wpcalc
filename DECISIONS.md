@@ -1,0 +1,176 @@
+# Decisions
+
+Judgement calls made during the unattended build, with the reasoning and what
+it would take to reverse each. Newest last.
+
+---
+
+**Module path is `source.simonet.internal/rolsim/wpcalc`, with `GOPRIVATE` set
+in the Makefile.** The host is not publicly resolvable, so any module-proxy or
+checksum-database lookup would hang or fail. Harmless for a main module today,
+but a stall at 2am with nobody watching is exactly what the setting prevents.
+*Reverse:* change `module` in `go.mod` and the `GOPRIVATE` line.
+
+**`CGO_ENABLED=0` is enforced in the Makefile, not left to the environment.**
+The WordPress plugin spawns the binary on a host we do not control, so it has
+to be one static file with no libc dependency. This also made the e2e test
+possible: the binary built on the host runs unchanged inside the container.
+*Reverse:* nothing depends on it except the SQLite driver choice below.
+
+**SQLite driver is `modernc.org/sqlite`, not `mattn/go-sqlite3`.** The latter
+needs cgo and would cost the static binary. The pure-Go driver is slower, which
+does not matter at the scale of one company's timesheet.
+*Reverse:* swap the import and the driver name in `store.Open`; drop
+`CGO_ENABLED=0`.
+
+**Hours are stored as integer centihours, never as float.** The grid sums the
+same entries along two axes and the PDFs sum them a third time; those totals
+must agree exactly. Binary floats cannot promise that and the error compounds
+over a month. `TestCentihoursSumIsExact` and `TestTotalsEqualSumOfEntries` pin
+it. *Reverse:* would require changing the column type and every total, and
+would reintroduce the drift.
+
+**`domain.Date` is a timezone-free calendar type, not `time.Time`.**
+"2026-07-14" must mean the same day regardless of server offset or DST.
+Modelling an instant is how month boundaries acquire off-by-one-day bugs.
+*Reverse:* not advisable; the type is small and its tests are cheap.
+
+**`ParseHours` rejects rather than coerces.** "7.755" and "7:45" are refused
+instead of being read as 7.75 and 7. A quietly altered figure in a timesheet is
+worse than a visible error. Both decimal separators are accepted because a
+de-CH keyboard gives "7,75" and a numpad gives "7.75".
+*Reverse:* relax the checks in `internal/domain/hours.go`.
+
+**Clearing a cell deletes the row rather than storing zero.** Keeps "nobody
+touched this" distinguishable from "someone recorded nothing".
+*Reverse:* change the `h == 0` branch in `store.SetHours`.
+
+**The employment lock is enforced three times.** The template greys the cell,
+the handler returns 422, and the store refuses regardless of caller. The first
+two are presentation and convenience; only the store cannot be bypassed by a
+crafted request or a future second caller.
+*Reverse:* drop the check in `SetHours`, and accept that the rule then depends
+on every caller remembering it.
+
+**Goose uses the `Provider` API, not the package-level one.** The latter keeps
+dialect and filesystem in process globals, which race as soon as two tests
+migrate two databases at once.
+*Reverse:* `internal/store/store.go`, `newProvider`.
+
+**Accounts arrive in a second migration rather than in the initial schema.**
+By the time it runs the database already holds employees and hours, so it
+exercises goose against real data — the case that actually breaks in
+production, and one a schema created all at once never tests.
+*Reverse:* merge the two `.sql` files; loses the test value.
+
+**The up/down/up test rolls back every migration, not one step.** A Down block
+that has never executed is not known to work, and the oldest is the likeliest
+to be wrong. This needed `MigrateReset`.
+*Reverse:* call `MigrateDown` instead in the test.
+
+**Sessions live server-side, not in a signed self-contained cookie.** Logging
+out and changing a password have to actually revoke access; a signed token
+stays valid until it expires no matter what the server wants. For a timesheet
+holding staff data that is the wrong default.
+*Reverse:* replace `internal/auth/accounts.go` with an HMAC token scheme.
+
+**The single-password stopgap was deleted when accounts landed, not kept as a
+fallback.** Two ways in is the same problem the WordPress bridge exists to
+avoid. *Reverse:* `git show 9f51497^:internal/auth/password.go`.
+
+**Standalone `serve` refuses to start with an empty user table.** An operator
+staring at a failed login with correct credentials has no way to discover the
+table is simply empty. *Reverse:* drop the `HasUsers` check in
+`buildAuthenticator`.
+
+**`Authenticate` always runs a bcrypt comparison, including for unknown
+usernames.** Returning early would make the login form a user enumerator by
+timing. *Reverse:* remove the dummy-hash branch; not recommended.
+
+**The WordPress bridge requires both a valid HMAC *and* arrival on the unix
+socket.** Headers are forgeable by anything that can reach the listener, so the
+signature proves the sender knows the secret and the socket proves it is local.
+A valid signature over TCP is still refused, and `ConnKindFrom` defaults to the
+untrusted value so a context that lost its tag fails closed.
+*Reverse:* would weaken the only thing protecting header-asserted identity.
+
+**Links are generated two ways: path prefix, or query parameter.** WordPress
+addresses admin screens by query string and cannot route `/m/2026-07` at all,
+so under the plugin the application path travels as `wpcalc_path=`. Only link
+*generation* differs — the handler tree still sees ordinary paths, which is
+what keeps the WordPress mode from being a second implementation.
+*Reverse:* `buildURL` in `internal/httpx/views.go`.
+
+**The plugin renders a fragment, not a full document.** WordPress owns
+`<html>` and `<head>` on an admin page; nesting a second document there would
+be invalid and would fight WordPress for the head. The shim sends
+`X-Wpcalc-Fragment: 1` and the server picks `fragment.html` over `base.html`.
+*Reverse:* have the shim strip the body, which is more fragile.
+
+**The grid works with JavaScript disabled, and that path was built first.**
+Every cell is a real form that posts and redirects; `app.js` only intercepts
+those submissions. If it fails to load, the grid still works.
+*Reverse:* nothing depends on the no-JS path except correctness under a CSP or
+a failed asset load.
+
+**The browser never computes totals.** The JSON response carries figures from
+the same SQL the PDFs use, so the on-screen numbers cannot drift from the
+printed ones. *Reverse:* would reintroduce exactly the disagreement the integer
+hours decision exists to prevent.
+
+**PDFs render into a buffer before the response is touched.** Streaming would
+commit a 200 and a PDF content type before a mid-render failure, leaving a
+truncated download that looks successful. Same reasoning for HTML pages.
+
+**The PDF umlaut test renders with compression disabled.** fpdf's core fonts
+are Latin-1, so a string that bypasses the cp1252 translator still produces a
+valid PDF and still passes a `%PDF` check — it is only wrong on the page
+someone files. With compression on, no text survives in the bytes and the
+assertion would have passed vacuously. This was caught by a test that failed
+for the wrong reason first.
+*Reverse:* `Renderer.SetCompression`.
+
+**`.pdf` is stripped rather than routed on.** Go's mux matches whole path
+segments, so `{ym}.pdf` is not an expressible pattern. Both URL forms work.
+
+**Flags are accepted before or after positional arguments.** Go's `flag`
+package stops at the first positional, so `user add alice --db /path` silently
+left `--db` at its default: the account went into `./wpcalc.db` while the
+server, correctly pointed at the intended file, reported that no accounts
+existed. A flag that is ignored rather than rejected is the worst of both
+worlds. Found by the P3 smoke test, guarded by `TestParseArgsAcceptsFlagsAfterPositionals`.
+*Reverse:* `cmd/wpcalc/flags.go`.
+
+**Deviation from the brief: the `en` catalog landed complete at P3 rather than
+as translation-only work.** The brief anticipated the catalog would already be
+full by then; it was, so adding the locale was the cheap job it predicted.
+No `T()` call site changed.
+
+**The sidecar is detached through a throwaway shell, not held as a proc_open
+handle.** `proc_close()` waits for the process to exit, and this one runs
+forever, so the first version hung every admin page request for 30 seconds
+with no error anywhere. Leaking the handle does not help: PHP closes it at
+request shutdown with the same wait.
+*Reverse:* there is no version of holding the handle that works; a systemd
+unit or supervisor outside WordPress is the alternative.
+
+**Health is decided by asking the socket, not by checking the PID file.** A
+process that is alive but wedged passes a PID check and fails every request,
+which is the hardest failure to diagnose from an admin screen.
+
+**The WordPress e2e stack comes up once per package via `TestMain`.** The
+first version brought it up per test and tore it down in the first test's
+cleanup, leaving every later test with nothing to talk to. The teardown is
+deferred before setup runs, so it happens even when setup itself fails.
+
+**`is_our_page()` reads `$_REQUEST`, not `$_GET`.** The rendered form's action
+carries the query string, so `$_GET` is populated in practice — but a client
+posting the same fields in the body would otherwise reach no handler at all
+and get a 200 that looks like success.
+
+**The e2e asserts on the sidecar's command line, not on listening sockets.**
+Two earlier attempts tested the wrong thing: fetching `/healthz` over HTTP
+reaches Apache, which answers 200 for unknown paths, and reading
+`/proc/net/tcp` flags Docker's own DNS resolver on 127.0.0.11. Whether the
+process was started with `--socket` and not `--addr` is the property that
+actually matters, and it has no false positives.

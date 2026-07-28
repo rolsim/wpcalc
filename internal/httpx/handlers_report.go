@@ -67,7 +67,7 @@ func (s *Server) handleReportIndex(w http.ResponseWriter, r *http.Request) {
 			YearLabel:  base.T("report.employee_year"),
 		})
 	}
-	s.render(w, "reports.html", http.StatusOK, v)
+	s.render(w, r, "reports.html", http.StatusOK, v)
 }
 
 func (s *Server) handleReportMonth(w http.ResponseWriter, r *http.Request) {

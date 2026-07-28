@@ -23,7 +23,8 @@ func cmdServe(ctx context.Context, args []string) error {
 	addr := fs.String("addr", "", "TCP address to listen on, e.g. :8080")
 	socket := fs.String("socket", "", "unix socket path to listen on (WordPress sidecar mode)")
 	dbPath := fs.String("db", defaultDBPath(), "path to the SQLite database")
-	basePath := fs.String("base-path", os.Getenv("WPCALC_BASE_PATH"), "URL prefix the app is mounted under")
+	basePath := fs.String("base-path", os.Getenv("WPCALC_BASE_PATH"), "URL prefix, or full base URL when --link-param is set")
+	linkParam := fs.String("link-param", os.Getenv("WPCALC_LINK_PARAM"), "carry the app path in this query parameter instead of the URL path (WordPress admin)")
 	secureCookies := fs.Bool("secure-cookies", false, "mark session cookies Secure (requires HTTPS)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -58,12 +59,13 @@ func cmdServe(ctx context.Context, args []string) error {
 	}
 
 	srv, err := httpx.New(httpx.Config{
-		DB:       db,
-		Bundle:   bundle,
-		Auth:     authn,
-		Logger:   logger,
-		ConnKind: connKind,
-		BasePath: *basePath,
+		DB:        db,
+		Bundle:    bundle,
+		Auth:      authn,
+		Logger:    logger,
+		ConnKind:  connKind,
+		BasePath:  *basePath,
+		LinkParam: *linkParam,
 	})
 	if err != nil {
 		return err
