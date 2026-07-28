@@ -4,12 +4,12 @@
 
   <label>
     <span>{{ .T "auth.username" }}</span>
-    <input type="text" name="username" value="admin" autocomplete="username">
+    <input type="text" name="username" autocomplete="username" required autofocus>
   </label>
 
   <label>
     <span>{{ .T "auth.password" }}</span>
-    <input type="password" name="password" autocomplete="current-password" required autofocus>
+    <input type="password" name="password" autocomplete="current-password" required>
   </label>
 
   <div class="form-actions">

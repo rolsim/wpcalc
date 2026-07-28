@@ -183,6 +183,20 @@ func joinBase(base, path string) string {
 	return base + path
 }
 
+// parseAnyForm parses a request body in either form encoding.
+//
+// http.Request.ParseForm does not read a multipart body: it leaves PostForm
+// non-nil and empty, which then stops PostFormValue from parsing it either,
+// so every field reads as "" and the handler rejects a perfectly good request
+// as malformed. A browser sending FormData produces exactly that, and no
+// urlencoded test can see it.
+func parseAnyForm(r *http.Request) error {
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		return r.ParseMultipartForm(8 << 20)
+	}
+	return r.ParseForm()
+}
+
 // currentMonth is the month the grid opens on.
 func currentMonth() domain.YearMonth { return domain.CurrentYearMonth() }
 

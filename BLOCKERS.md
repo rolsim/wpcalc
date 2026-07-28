@@ -73,5 +73,29 @@ disabled specifically so the assertion has something to inspect.
 **Asserting on the wrong process.** An early e2e check fetched
 `localhost:8099/healthz` to prove the sidecar was not exposed over TCP. That
 URL reaches Apache, which answers 200 for unknown paths, so the check failed
-for a reason unrelated to what it claimed to test. It now reads the
-container's own listener table instead.
+for a reason unrelated to what it claimed to test. It now reads the sidecar's
+command line instead.
+
+**`ParseForm` does not read a multipart body.** It leaves `PostForm` non-nil
+and empty, which then stops `PostFormValue` from parsing it either, so every
+field reads as `""` and a valid request is rejected as malformed with a 400.
+`app.js` sent `FormData`, which is multipart, so *every* cell edit in a real
+browser failed — while every handler test passed, because they all post
+urlencoded. Two fixes: the handlers now accept both encodings, and `app.js`
+sends `URLSearchParams` so there is one shape on the wire rather than two.
+Guarded by `TestSetHoursAcceptsMultipartBodies`, which was confirmed to fail
+without the handler fix.
+
+**A stale `value="admin"` in the login form.** Left over from the deleted
+single-password stopgap. Harmless to look at, but `SendKeys` in a browser test
+appends, so the credential became `admine2e` and the login failed for a reason
+that had nothing to do with authentication. The prefill is gone, and the test
+uses `SetValue` so a future default cannot silently concatenate again.
+
+**`chromedp/headless-shell` runs Chrome on 9223, not 9222.** Its entrypoint
+forwards 9222 with socat. Passing `--remote-debugging-port=9222` puts Chrome
+where socat is not looking; the only symptom is a minute of connection-refused
+noise from a proxy nothing mentions. Use the image with no extra flags.
+
+**`pkill -f <pattern>` can match the shell running it.** Killed my own command
+mid-run once. Not project code, but worth remembering when scripting cleanup.

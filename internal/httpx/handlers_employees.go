@@ -159,7 +159,7 @@ func (s *Server) handleEmployeeDelete(w http.ResponseWriter, r *http.Request) {
 // on failure rather than an error, because every failure here is a message
 // shown next to the form.
 func (s *Server) employeeFromForm(r *http.Request, id int64) (domain.Employee, string) {
-	if err := r.ParseForm(); err != nil {
+	if err := parseAnyForm(r); err != nil {
 		return domain.Employee{}, "error.invalid_input"
 	}
 

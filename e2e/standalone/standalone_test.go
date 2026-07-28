@@ -65,14 +65,15 @@ func startChrome(t *testing.T) string {
 	_ = exec.Command("docker", "rm", "-f", chromeContainer).Run()
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", chromeContainer).Run() })
 
+	// No --remote-debugging-* flags here. The image's entrypoint already runs
+	// Chrome on 9223 and forwards 9222 to it with socat; overriding the port
+	// puts Chrome where socat is not looking, and the only symptom is a
+	// minute of "connection refused" from a proxy nobody mentioned.
 	cmd := exec.Command("docker", "run", "-d", "--rm",
 		"--name", chromeContainer,
 		"--network", "host",
 		"--shm-size", "1g",
-		chromeImage,
-		"--remote-debugging-address=0.0.0.0",
-		fmt.Sprintf("--remote-debugging-port=%d", chromePort),
-		"--disable-gpu", "--no-sandbox", "--headless=new")
+		chromeImage)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Skipf("cannot start %s (%v); skipping browser e2e\n%s", chromeImage, err, out)
 	}
@@ -163,8 +164,11 @@ func TestBrowserEntersHoursAndTotalsUpdate(t *testing.T) {
 	if err := chromedp.Run(ctx,
 		chromedp.Navigate(base+"/login"),
 		chromedp.WaitVisible(`input[name="password"]`, chromedp.ByQuery),
-		chromedp.SendKeys(`input[name="username"]`, adminUser, chromedp.ByQuery),
-		chromedp.SendKeys(`input[name="password"]`, adminPass, chromedp.ByQuery),
+		// SetValue rather than SendKeys: SendKeys appends, so any default the
+		// field carries becomes a prefix of the credential. That is exactly
+		// how this test first failed, against a stale value="admin".
+		chromedp.SetValue(`input[name="username"]`, adminUser, chromedp.ByQuery),
+		chromedp.SetValue(`input[name="password"]`, adminPass, chromedp.ByQuery),
 		chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
 		chromedp.WaitVisible(`table.grid`, chromedp.ByQuery),
 	); err != nil {
@@ -191,17 +195,8 @@ func TestBrowserEntersHoursAndTotalsUpdate(t *testing.T) {
 
 	// ---- entering hours updates the accumulators without a reload ------
 
-	// Pick the first editable cell that is currently empty.
-	var employeeID, date string
-	if err := chromedp.Run(ctx, chromedp.Evaluate(`
-		(() => {
-			const i = [...document.querySelectorAll('input.hours')].find(x => x.value === '');
-			return i ? JSON.stringify({e: i.dataset.employee, d: i.dataset.date}) : '';
-		})()
-	`, new(string))); err != nil {
-		t.Fatalf("locate an empty cell: %v", err)
-	}
-	var picked string
+	// Pick the first editable cell that is currently empty and type into it.
+	var employeeID, date, picked string
 	if err := chromedp.Run(ctx, chromedp.Evaluate(`
 		(() => {
 			const i = [...document.querySelectorAll('input.hours')].find(x => x.value === '');
@@ -268,8 +263,8 @@ func TestBrowserNavigatesMonthsAcrossYearBoundary(t *testing.T) {
 	if err := chromedp.Run(ctx,
 		chromedp.Navigate(base+"/login"),
 		chromedp.WaitVisible(`input[name="password"]`, chromedp.ByQuery),
-		chromedp.SendKeys(`input[name="username"]`, adminUser, chromedp.ByQuery),
-		chromedp.SendKeys(`input[name="password"]`, adminPass, chromedp.ByQuery),
+		chromedp.SetValue(`input[name="username"]`, adminUser, chromedp.ByQuery),
+		chromedp.SetValue(`input[name="password"]`, adminPass, chromedp.ByQuery),
 		chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
 		chromedp.WaitVisible(`table.grid`, chromedp.ByQuery),
 

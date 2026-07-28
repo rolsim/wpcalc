@@ -1,9 +1,11 @@
 package httpx
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -668,5 +670,76 @@ func TestFragmentModeOmitsTheDocumentShell(t *testing.T) {
 	}
 	if strings.Contains(frag, "!!") {
 		t.Errorf("fragment has an untranslated key: %s", excerptAround(frag, "!!"))
+	}
+}
+
+func TestSetHoursAcceptsMultipartBodies(t *testing.T) {
+	// The regression this guards cost a browser e2e run to find. Every other
+	// test here posts application/x-www-form-urlencoded, and a handler that
+	// only calls ParseForm looks perfectly correct under all of them —
+	// ParseForm does not read a multipart body, leaves PostForm non-nil and
+	// empty, and thereby stops PostFormValue from parsing it either. Every
+	// field then reads as "" and a valid request is rejected as malformed.
+	//
+	// A browser sending FormData produces exactly that shape.
+	ts := newTestServer(t, nil)
+	id := ts.employee(t, "Worker", "2026-01-01", "")
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	for k, v := range map[string]string{
+		"employee_id": itoa(id),
+		"date":        "2026-07-14",
+		"hours":       "7,75",
+	} {
+		if err := mw.WriteField(k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/m/2026-07/hours", &body)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	r.Header.Set("X-Requested-With", "XMLHttpRequest")
+	w := httptest.NewRecorder()
+	ts.handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("multipart POST returned %d, want 200: %s", w.Code, w.Body)
+	}
+
+	day, _ := domain.ParseDate("2026-07-14")
+	got, err := ts.db.Hours(t.Context(), id, day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 775 {
+		t.Errorf("stored %s, want 7.75 — the multipart body was not parsed", got)
+	}
+}
+
+func TestEmployeeCreateAcceptsMultipartBodies(t *testing.T) {
+	ts := newTestServer(t, nil)
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_ = mw.WriteField("name", "Multipart Person")
+	_ = mw.WriteField("start_date", "2026-01-01")
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/employees", &body)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	ts.handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("multipart POST returned %d, want 303: %s", w.Code, w.Body)
+	}
+	if !strings.Contains(ts.get(t, "/employees").Body.String(), "Multipart Person") {
+		t.Error("employee created via multipart is not listed")
 	}
 }

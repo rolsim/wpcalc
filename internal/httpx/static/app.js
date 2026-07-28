@@ -19,9 +19,13 @@
   var table = document.querySelector("table.grid");
 
   function post(form) {
+    // URLSearchParams, not FormData: this sends
+    // application/x-www-form-urlencoded, which is byte-for-byte what the
+    // plain form submit sends. One encoding on the wire means the enhanced
+    // path cannot diverge from the path that must work.
     return fetch(form.action, {
       method: "POST",
-      body: new FormData(form),
+      body: new URLSearchParams(new FormData(form)),
       headers: { "X-Requested-With": "XMLHttpRequest", Accept: "application/json" },
       credentials: "same-origin"
     }).then(function (res) {

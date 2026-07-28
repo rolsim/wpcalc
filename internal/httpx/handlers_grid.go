@@ -150,7 +150,7 @@ func (s *Server) handleSetHours(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := r.ParseForm(); err != nil {
+	if err := parseAnyForm(r); err != nil {
 		s.writeSetResult(w, r, month, "", "error.invalid_input", http.StatusBadRequest)
 		return
 	}
@@ -203,7 +203,7 @@ func (s *Server) handleSetComment(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := r.ParseForm(); err != nil {
+	if err := parseAnyForm(r); err != nil {
 		s.writeSetResult(w, r, month, "", "error.invalid_input", http.StatusBadRequest)
 		return
 	}
