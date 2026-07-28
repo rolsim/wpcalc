@@ -1,8 +1,9 @@
 # Scratch files: anything with `.untracked.` in the name, at any depth.
 *.untracked.*
 
-# Build output
-/bin/
+# Build output, at any depth: bin/ at the root, and wordpress/wpcalc/bin/
+# where the e2e test compiles the sidecar the plugin ships.
+bin/
 
 # Local databases and runtime artifacts
 *.db
