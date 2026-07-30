@@ -2,9 +2,8 @@
 #
 # CGO_ENABLED=0 is not optional: the whole dual-use design rests on shipping one
 # static binary that a PHP shim can spawn on a host we do not control.
-# GOPRIVATE is still required after moving to GitHub: the repository is
-# private, so the public module proxy and checksum database cannot fetch it
-# and a lookup there would fail rather than fall through.
+# GOPRIVATE keeps the module proxy and checksum database out of resolving
+# this module's own path, regardless of the repo's current visibility.
 
 export CGO_ENABLED = 0
 export GOPRIVATE = github.com/rolsim/*
