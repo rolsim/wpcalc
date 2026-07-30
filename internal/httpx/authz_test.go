@@ -123,6 +123,20 @@ func TestReporterCanPrintButNotWrite(t *testing.T) {
 	}
 }
 
+func TestViewerCannotWriteTheSharedDayComment(t *testing.T) {
+	// The day comment is shared, tenant-wide state — an employee-scope grant,
+	// even editor on one's own employee, must not reach it. Only a
+	// tenant-wide write permission (mandant-admin or above) may.
+	ts := newTestServer(t, nil)
+	empID := ts.employee(t, "Anna", "2026-01-01", "")
+	ts.Server.authn = stubAuth{id: employeeScoped(1, empID, "editor", []string{"read", "print", "write"})}
+
+	form := url.Values{"date": {"2026-07-14"}, "comment": {"Betriebsausflug"}}
+	if w := ts.post(t, "/m/2026-07/comment", form, true); w.Code != http.StatusForbidden {
+		t.Errorf("employee-scope editor writing the shared comment: status %d, want 403", w.Code)
+	}
+}
+
 func TestEditorCanWrite(t *testing.T) {
 	ts := newTestServer(t, nil)
 	empID := ts.employee(t, "Anna", "2026-01-01", "")

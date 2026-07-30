@@ -240,6 +240,15 @@ func (s *Server) handleSetComment(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The day comment is shared, tenant-wide state — not any one employee's —
+	// so it takes CanInTenant(write), not the per-employee Can() the hours
+	// cell uses. An employee-scope editor can write their one employee's
+	// hours, not the shared note.
+	id, _ := auth.IdentityFrom(r.Context())
+	if !id.CanInTenant(domain.PermWrite, tenantID) {
+		s.writeSetResult(w, r, tenantID, month, "", "error.forbidden", http.StatusForbidden)
+		return
+	}
 	if err := parseAnyForm(r); err != nil {
 		s.writeSetResult(w, r, tenantID, month, "", "error.invalid_input", http.StatusBadRequest)
 		return
