@@ -1,5 +1,7 @@
 # wpcalc
 
+*Deutsch (CH): [README.de-CH.md](README.de-CH.md)*
+
 A monthly employee working-hours grid, shipped as one static Go binary that
 runs either as a standalone web server or as the sidecar behind a thin
 WordPress plugin.
@@ -158,6 +160,29 @@ make e2e-wp         # WordPress integration: docker compose + wp-cli, minutes
 `make e2e-wp` builds a Linux binary into the plugin, brings up WordPress and
 MariaDB, installs and activates the plugin, and drives the admin page over
 HTTP. It tears the stack down on every exit path including failure.
+
+## Releases
+
+Every push to `main` and every pull request runs `make check` via
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml). Cutting a release is
+then just tagging:
+
+```sh
+git tag v0.1.0        # or v0.1.0-alpha, v0.1.0-rc.1, ...
+git push origin v0.1.0
+```
+
+Pushing a tag matching `v*` runs
+[`.github/workflows/release.yml`](.github/workflows/release.yml), which first
+runs `make check` on the tagged commit — a tag on a broken commit is built and
+checked again here rather than trusted to have already passed CI — and only
+then cross-compiles `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`,
+and `windows/amd64` from one Linux runner (no cgo, so no per-OS runner is
+needed), stamps `-X main.version=<tag>`, and publishes a GitHub release with
+one archive per platform plus `checksums.txt`.
+
+A tag with a hyphenated suffix (`-alpha`, `-beta`, `-rc.1`, ...) is published
+as a GitHub prerelease automatically; a plain `vX.Y.Z` is a stable release.
 
 ## Architecture
 

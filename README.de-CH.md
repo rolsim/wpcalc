@@ -1,5 +1,7 @@
 # wpcalc
 
+*English: [README.md](README.md)*
+
 Ein monatliches Arbeitszeitraster für Mitarbeitende, ausgeliefert als eine
 einzige statische Go-Binärdatei, die entweder als eigenständiger Webserver
 oder als Sidecar hinter einem schlanken WordPress-Plugin läuft.
@@ -169,6 +171,33 @@ make e2e-wp         # WordPress-Integration: docker compose + wp-cli, Minuten
 MariaDB hoch, installiert und aktiviert das Plugin und steuert die
 Admin-Seite über HTTP an. Fährt den Stack bei jedem Exit-Pfad herunter,
 auch im Fehlerfall.
+
+## Releases
+
+Jeder Push nach `main` und jeder Pull Request führt `make check` über
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) aus. Ein Release zu
+erstellen ist danach nur noch ein Tag:
+
+```sh
+git tag v0.1.0        # oder v0.1.0-alpha, v0.1.0-rc.1, ...
+git push origin v0.1.0
+```
+
+Das Pushen eines Tags nach dem Muster `v*` führt
+[`.github/workflows/release.yml`](.github/workflows/release.yml) aus: führt
+zuerst `make check` auf dem getaggten Commit aus — ein Tag auf einem
+kaputten Commit wird hier erneut geprüft, statt sich darauf zu verlassen,
+dass die CI für genau diesen Commit bereits erfolgreich war — und baut erst
+danach
+`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64` und
+`windows/amd64` aus einem einzigen Linux-Runner (kein cgo, also kein
+Runner pro Betriebssystem nötig), stempelt `-X main.version=<Tag>` und
+veröffentlicht ein GitHub-Release mit je einem Archiv pro Plattform sowie
+`checksums.txt`.
+
+Ein Tag mit angehängtem Bindestrich-Suffix (`-alpha`, `-beta`, `-rc.1`, ...)
+wird automatisch als GitHub-Prerelease veröffentlicht; ein reines `vX.Y.Z`
+ist ein stabiles Release.
 
 ## Architektur
 

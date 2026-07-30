@@ -9,7 +9,30 @@ permissions:
   contents: write
 
 jobs:
+  # Tagging is independent of ci.yml, so nothing otherwise stops a tag on a
+  # broken commit from being built and published. Gate here instead of
+  # trusting that CI already ran and passed for this exact commit.
+  check:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: 0
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.5"
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh |
+            sh -s -- -b "$(go env GOPATH)/bin" latest
+
+      - name: make check
+        run: make check
+
   build:
+    needs: check
     runs-on: ubuntu-latest
     strategy:
       matrix:
