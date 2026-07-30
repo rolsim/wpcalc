@@ -25,7 +25,7 @@ den Seiten-Reload.
 |---|---|---|
 | Arbeitszeit erfassen | [docs/de-CH/user.md](docs/de-CH/user.md) | [docs/en/user.md](docs/en/user.md) |
 | Betrieb | [docs/de-CH/admin.md](docs/de-CH/admin.md) | [docs/en/admin.md](docs/en/admin.md) |
-| Ausprobieren | [docs/de-CH/testing.md](docs/de-CH/testing.md) | — |
+| Ausprobieren | [docs/de-CH/testing.md](docs/de-CH/testing.md) | [docs/en/testing.md](docs/en/testing.md) |
 
 Das Administratorhandbuch deckt beide Betriebsarten ab: Konten, das
 WordPress-Plugin, Datensicherung und Fehlerbehebung.
@@ -35,7 +35,7 @@ Beide sind in der Binärdatei eingebettet und im Terminal lesbar:
 ```sh
 wpcalc manual              # Benutzerhandbuch, in der Sprache Ihrer Shell
 wpcalc manual admin        # Administratorhandbuch
-wpcalc manual testing      # wie man es ausprobiert (de-CH)
+wpcalc manual testing      # wie man es ausprobiert
 wpcalc manual --lang en    # Sprache erzwingen
 wpcalc manual --list       # was verfügbar ist
 ```

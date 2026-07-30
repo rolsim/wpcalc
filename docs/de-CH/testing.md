@@ -1,5 +1,7 @@
 # wpcalc testen
 
+*English: [../en/testing.md](../en/testing.md)*
+
 Wie Sie die Anwendung ausprobieren — in beiden Betriebsarten, mit oder ohne
 Quellcode. Rechnen Sie mit einer Viertelstunde.
 
