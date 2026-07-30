@@ -70,7 +70,7 @@ jobs:
             bin="$2"  # path to the built binary
             asset="${name}-${GITHUB_REF_NAME}-${GOOS}-${GOARCH}"
             if [ "${GOOS}" = "windows" ]; then
-              zip "${asset}.zip" "${bin}"
+              zip -q "${asset}.zip" "${bin}"
               echo "${asset}.zip"
             else
               tar -czf "${asset}.tar.gz" "${bin}"
