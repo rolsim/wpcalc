@@ -78,6 +78,29 @@ paths:
               schema: { $ref: "#/components/schemas/Tenant" }
         default: { $ref: "#/components/responses/Error" }
 
+  /tenants/accessible:
+    get:
+      operationId: listAccessibleTenants
+      summary: List tenants the caller can reach
+      description: >-
+        Every tenant this token's account can reach, via a role at any
+        scope — system, tenant, or employee. Unlike `GET /tenants`
+        (`manage_tenants`, system-wide only), this requires no particular
+        permission: the result is already scoped to the caller, so a
+        tenant- or employee-scope token can use it to discover which
+        `tenantId` to put in every other path, without already knowing it.
+      x-required-permission: null
+      x-permission-scope: null
+      responses:
+        "200":
+          description: Every tenant reachable by the caller. Empty if none.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Tenant" }
+        default: { $ref: "#/components/responses/Error" }
+
   /tenants/{tenantId}:
     parameters:
       - $ref: "#/components/parameters/TenantId"

@@ -320,11 +320,20 @@ and at what scope; a few examples:
 | Operation | Permission | Scope |
 |---|---|---|
 | `GET /api/v1/tenants` | `manage_tenants` | system |
+| `GET /api/v1/tenants/accessible` | none — self-scoping | — |
 | `GET /api/v1/tenants/{tenantId}/employees` | `manage_employees` | tenant |
 | `GET /api/v1/tenants/{tenantId}/months/{ym}` | `read` | employee |
 | `PUT .../months/{ym}/entries` | `write` | employee |
 | `GET .../months/{ym}/report` | `print` | tenant or employee |
 | `POST /api/v1/roles` | `manage_roles` | system |
+
+`GET /api/v1/tenants/accessible` is the exception to "every operation
+requires a permission": it needs no particular one, because what it
+returns is already filtered to the caller — every tenant reachable via any
+role, at any scope. Unlike `GET /api/v1/tenants` (system-wide
+`manage_tenants` only, `403` otherwise), this is how a tenant- or
+employee-scope token discovers which `tenantId` to put in every other
+path, without already being told one out of band.
 
 The full, authoritative list — every operation, its request and response
 shapes, and its permission — is in `/api/v1/openapi.html`, generated from

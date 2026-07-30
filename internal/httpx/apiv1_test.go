@@ -176,6 +176,87 @@ func TestAPIv1EmployeeScopedTokenCannotListTenants(t *testing.T) {
 	}
 }
 
+func TestAPIv1ListAccessibleTenantsForASuperAdminIsEveryTenant(t *testing.T) {
+	ts := newTestServer(t, nil)
+	token := ts.bearer(t, "api-admin")
+	if _, err := ts.db.CreateTenant(t.Context(), "Acme"); err != nil {
+		t.Fatal(err)
+	}
+
+	w := ts.apiGet(t, "/api/v1/tenants/accessible", token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var tenants []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &tenants); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(tenants) != 2 {
+		t.Fatalf("tenants = %v, want 2 (Default + Acme)", tenants)
+	}
+}
+
+// TestAPIv1ListAccessibleTenantsIsScopedForANonAdminToken is the reason
+// this endpoint exists: unlike GET /api/v1/tenants (manage_tenants,
+// system-wide only, 403 for a non-admin — see
+// TestAPIv1EmployeeScopedTokenCannotListTenants above), this one requires
+// no particular permission and answers with exactly what the caller can
+// reach — letting a tenant- or employee-scope token discover its own
+// tenantId without already knowing it, and never leaking a tenant it
+// cannot reach.
+func TestAPIv1ListAccessibleTenantsIsScopedForANonAdminToken(t *testing.T) {
+	ts := newTestServer(t, nil)
+	empID := ts.employee(t, "Anna", "2026-01-01", "")
+	otherTenantID, err := ts.db.CreateTenant(t.Context(), "Acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	uid, err := ts.db.CreateUserWeak(t.Context(), "viewer-api", "x", true)
+	if err != nil {
+		t.Fatalf("CreateUserWeak: %v", err)
+	}
+	if err := ts.db.GrantUserRole(t.Context(), uid, nil, &empID, domain.RoleViewer); err != nil {
+		t.Fatalf("GrantUserRole: %v", err)
+	}
+	token, _, err := ts.db.CreateAPIToken(t.Context(), uid, "test")
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	w := ts.apiGet(t, "/api/v1/tenants/accessible", token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var tenants []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &tenants); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(tenants) != 1 || tenants[0]["name"] != "Default" {
+		t.Fatalf("tenants = %v, want only the Default tenant (not %d)", tenants, otherTenantID)
+	}
+}
+
+func TestAPIv1ListAccessibleTenantsIsEmptyForATokenWithNoRoles(t *testing.T) {
+	ts := newTestServer(t, nil)
+	uid, err := ts.db.CreateUserWeak(t.Context(), "nobody", "x", true)
+	if err != nil {
+		t.Fatalf("CreateUserWeak: %v", err)
+	}
+	token, _, err := ts.db.CreateAPIToken(t.Context(), uid, "test")
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	w := ts.apiGet(t, "/api/v1/tenants/accessible", token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200: %s", w.Code, w.Body.String())
+	}
+	if body := strings.TrimSpace(w.Body.String()); body != "[]" {
+		t.Fatalf("body = %s, want []", body)
+	}
+}
+
 func TestAPIv1RevokedTokenStopsWorking(t *testing.T) {
 	ts := newTestServer(t, nil)
 	uid, err := ts.db.CreateUserWeak(t.Context(), "revokee", "x", true)

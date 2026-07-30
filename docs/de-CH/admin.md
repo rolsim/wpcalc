@@ -342,11 +342,21 @@ sie in welchem Geltungsbereich verlangt; einige Beispiele:
 | Operation | Berechtigung | Geltungsbereich |
 |---|---|---|
 | `GET /api/v1/tenants` | `manage_tenants` | system |
+| `GET /api/v1/tenants/accessible` | keine — selbstbegrenzend | — |
 | `GET /api/v1/tenants/{tenantId}/employees` | `manage_employees` | tenant |
 | `GET /api/v1/tenants/{tenantId}/months/{ym}` | `read` | employee |
 | `PUT .../months/{ym}/entries` | `write` | employee |
 | `GET .../months/{ym}/report` | `print` | tenant oder employee |
 | `POST /api/v1/roles` | `manage_roles` | system |
+
+`GET /api/v1/tenants/accessible` ist die Ausnahme von "jede Operation
+verlangt eine Berechtigung": Sie braucht keine bestimmte, weil das
+Ergebnis bereits auf den Aufrufenden gefiltert ist — jeder über eine Rolle
+in irgendeinem Geltungsbereich erreichbare Mandant. Anders als
+`GET /api/v1/tenants` (nur system-weites `manage_tenants`, sonst `403`)
+ist dies der Weg, wie ein Token mit Mandanten- oder
+Mitarbeitenden-Geltungsbereich seine erreichbare `tenantId` entdeckt, ohne
+sie bereits von aussen mitgeteilt bekommen zu haben.
 
 Die vollständige, massgebliche Liste — jede Operation, ihre Anfrage- und
 Antwortformen sowie ihre Berechtigung — steht in `/api/v1/openapi.html`,

@@ -376,6 +376,9 @@ type ServerInterface interface {
 	// CreateTenant Create a tenant
 	// (POST /tenants)
 	CreateTenant(w http.ResponseWriter, r *http.Request)
+	// ListAccessibleTenants List tenants the caller can reach
+	// (GET /tenants/accessible)
+	ListAccessibleTenants(w http.ResponseWriter, r *http.Request)
 	// GetTenant Fetch one tenant
 	// (GET /tenants/{tenantId})
 	GetTenant(w http.ResponseWriter, r *http.Request, tenantId TenantId)
@@ -636,6 +639,20 @@ func (siw *ServerInterfaceWrapper) CreateTenant(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateTenant(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAccessibleTenants operation middleware
+func (siw *ServerInterfaceWrapper) ListAccessibleTenants(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAccessibleTenants(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1257,6 +1274,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/healthz", wrapper.Healthz)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants", wrapper.ListTenants)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants", wrapper.CreateTenant)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/accessible", wrapper.ListAccessibleTenants)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}", wrapper.GetTenant)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/employees", wrapper.ListEmployees)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/employees", wrapper.CreateEmployee)
@@ -1694,6 +1712,44 @@ type CreateTenantdefaultJSONResponse struct {
 }
 
 func (response CreateTenantdefaultJSONResponse) VisitCreateTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAccessibleTenantsRequestObject struct {
+}
+
+type ListAccessibleTenantsResponseObject interface {
+	VisitListAccessibleTenantsResponse(w http.ResponseWriter) error
+}
+
+type ListAccessibleTenants200JSONResponse []Tenant
+
+func (response ListAccessibleTenants200JSONResponse) VisitListAccessibleTenantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAccessibleTenantsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListAccessibleTenantsdefaultJSONResponse) VisitListAccessibleTenantsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -2339,6 +2395,9 @@ type StrictServerInterface interface {
 	// CreateTenant Create a tenant
 	// (POST /tenants)
 	CreateTenant(ctx context.Context, request CreateTenantRequestObject) (CreateTenantResponseObject, error)
+	// ListAccessibleTenants List tenants the caller can reach
+	// (GET /tenants/accessible)
+	ListAccessibleTenants(ctx context.Context, request ListAccessibleTenantsRequestObject) (ListAccessibleTenantsResponseObject, error)
 	// GetTenant Fetch one tenant
 	// (GET /tenants/{tenantId})
 	GetTenant(ctx context.Context, request GetTenantRequestObject) (GetTenantResponseObject, error)
@@ -2748,6 +2807,30 @@ func (sh *strictHandler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateTenantResponseObject); ok {
 		if err := validResponse.VisitCreateTenantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListAccessibleTenants operation middleware
+func (sh *strictHandler) ListAccessibleTenants(w http.ResponseWriter, r *http.Request) {
+	var request ListAccessibleTenantsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAccessibleTenants(ctx, request.(ListAccessibleTenantsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAccessibleTenants")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAccessibleTenantsResponseObject); ok {
+		if err := validResponse.VisitListAccessibleTenantsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
