@@ -72,8 +72,20 @@ jobs:
         working-directory: dist
         run: sha256sum * > checksums.txt
 
+      - name: Detect prerelease
+        id: prerelease
+        run: |
+          # Semver convention: a hyphen introduces a prerelease identifier,
+          # e.g. v0.0.1-alpha, v1.0.0-rc.1. Plain vX.Y.Z is a stable release.
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            echo "flag=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "flag=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           generate_release_notes: true
+          prerelease: ${{ steps.prerelease.outputs.flag }}
