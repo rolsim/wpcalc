@@ -10,7 +10,29 @@ CREATE TABLE tenants (
 );
 INSERT INTO tenants (id, name) VALUES (1, 'Default');
 
-ALTER TABLE employees ADD COLUMN tenant_id INTEGER NOT NULL REFERENCES tenants (id) DEFAULT 1;
+-- SQLite refuses "ADD COLUMN ... REFERENCES ... DEFAULT <non-null>" outright
+-- ("Cannot add a REFERENCES column with non-NULL default value") the moment
+-- the table being altered already has rows and foreign_keys is on — which
+-- is every real upgrade, just not a freshly migrated test database, so this
+-- went unnoticed until someone ran it against actual data. Splitting it into
+-- an add-nullable-column followed by a backfill sidesteps the restriction
+-- entirely; tenant_id stays nullable at the schema level (SQLite cannot add
+-- a NOT NULL constraint to an existing column without a full table rebuild,
+-- and rebuilding is its own hazard here — see the note below), which is
+-- fine because every insert path already requires it in Go
+-- (domain.Employee.Validate rejects TenantID == 0) and every existing row is
+-- backfilled to the Default tenant below, unconditionally.
+ALTER TABLE employees ADD COLUMN tenant_id INTEGER REFERENCES tenants (id);
+UPDATE employees SET tenant_id = 1;
+
+-- A rebuild (CREATE new + INSERT...SELECT + DROP old + RENAME, the pattern
+-- used for day_comments just below) would have let tenant_id be NOT NULL,
+-- but employees has incoming ON DELETE CASCADE references (time_entries,
+-- and user_roles further down in this same migration) — and SQLite tracks a
+-- foreign key's target by name across a RENAME, so dropping the renamed-out
+-- old table cascades through those exactly as if the original table itself
+-- had been dropped, silently deleting every recorded hour. Confirmed by
+-- direct testing before choosing the two-statement form above instead.
 
 -- day_comments' old UNIQUE(work_date) is a column-level constraint, which
 -- ALTER TABLE ADD COLUMN cannot remove — it would keep enforcing one comment
