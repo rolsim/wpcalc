@@ -64,25 +64,40 @@ jobs:
           set -eu
           ext=""
           if [ "${GOOS}" = "windows" ]; then ext=".exe"; fi
+
+          archive() {
+            name="$1" # server | ctl
+            bin="$2"  # path to the built binary
+            asset="${name}-${GITHUB_REF_NAME}-${GOOS}-${GOARCH}"
+            if [ "${GOOS}" = "windows" ]; then
+              zip "${asset}.zip" "${bin}"
+              echo "${asset}.zip"
+            else
+              tar -czf "${asset}.tar.gz" "${bin}"
+              echo "${asset}.tar.gz"
+            fi
+          }
+
           out_server="wpcalc${ext}"
-          out_cli="wpcalcctl${ext}"
           go build -ldflags "-X main.version=${GITHUB_REF_NAME}" -o "${out_server}" ./cmd/wpcalc
+          echo "SERVER_ASSET=$(archive wpcalc "${out_server}")" >> "$GITHUB_ENV"
+
+          out_cli="wpcalcctl${ext}"
           (cd cmd/wpcalcctl && go build -o "../../${out_cli}" .)
+          echo "CLI_ASSET=$(archive wpcalcctl "${out_cli}")" >> "$GITHUB_ENV"
 
-          archive="wpcalc-${GITHUB_REF_NAME}-${GOOS}-${GOARCH}"
-          if [ "${GOOS}" = "windows" ]; then
-            zip "${archive}.zip" "${out_server}" "${out_cli}"
-            echo "ASSET=${archive}.zip" >> "$GITHUB_ENV"
-          else
-            tar -czf "${archive}.tar.gz" "${out_server}" "${out_cli}"
-            echo "ASSET=${archive}.tar.gz" >> "$GITHUB_ENV"
-          fi
-
-      - name: Upload artifact
+      - name: Upload wpcalc artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ASSET }}
-          path: ${{ env.ASSET }}
+          name: ${{ env.SERVER_ASSET }}
+          path: ${{ env.SERVER_ASSET }}
+          retention-days: 1
+
+      - name: Upload wpcalcctl artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.CLI_ASSET }}
+          path: ${{ env.CLI_ASSET }}
           retention-days: 1
 
   release:
