@@ -26,6 +26,8 @@ func cmdSampleEmployees(ctx context.Context, args []string) error {
 	dbPath := fs.String("db", defaultDBPath(), "path to the SQLite database")
 	monthFlag := fs.String("month", domain.CurrentYearMonth().String(),
 		"month the employment periods are arranged around, YYYY-MM")
+	tenantID := fs.Int64("tenant", 1,
+		"tenant id the placeholder employees belong to (1 is the Default tenant every fresh database starts with)")
 	if _, err := parseArgs(fs, args); err != nil {
 		return err
 	}
@@ -53,7 +55,7 @@ func cmdSampleEmployees(ctx context.Context, args []string) error {
 
 	created := 0
 	for _, p := range people {
-		e := domain.Employee{DisplayName: p.name}
+		e := domain.Employee{TenantID: *tenantID, DisplayName: p.name}
 		if e.StartDate, err = domain.ParseDate(p.start); err != nil {
 			return err
 		}

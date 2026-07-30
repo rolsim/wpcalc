@@ -131,12 +131,15 @@ func buildAuthenticator(ctx context.Context, db *store.DB, isSocket, secureCooki
 
 	// Refuse to start rather than serve a login form that can never succeed.
 	// An operator staring at "Anmeldung fehlgeschlagen" with correct
-	// credentials has no way to discover the table is simply empty.
-	hasUsers, err := db.HasUsers(ctx)
+	// credentials has no way to discover that nobody can actually get in —
+	// checked as "does anyone hold manage_tenants or manage_roles
+	// system-wide" rather than "does any account exist", since an account
+	// with no role assignment at all is exactly as stuck.
+	hasAdmin, err := db.HasSystemAdmin(ctx)
 	if err != nil {
 		return nil, "", err
 	}
-	if !hasUsers {
+	if !hasAdmin {
 		return nil, "", auth.ErrNoAccounts
 	}
 

@@ -13,39 +13,108 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+
+	"github.com/rolsim/wpcalc/internal/domain"
 )
 
 // ErrUnauthenticated means no valid identity accompanied the request.
 var ErrUnauthenticated = errors.New("unauthenticated")
 
 // Identity is the authenticated caller.
+//
+// Access is entirely derived from UserRoles (RBAC96's UA relation — see
+// domain.UserRole) via Can/CanInTenant/CanSystemWide: no handler or
+// middleware ever compares a role ID to a hardcoded string. Both fields are
+// resolved once, when the identity is built (standalone: accounts.go's
+// identityFor; WordPress: wordpress.go's synthetic FullAccess identity), so a
+// permission revoked mid-session takes effect on the very next request
+// without anything here caching stale data.
 type Identity struct {
 	Username string
-	Roles    []string
 
 	// Language is this caller's preferred interface locale, or "" to fall back
 	// to content negotiation. Carried on the identity so a handler never has
 	// to query for it: it is resolved once, where the identity is.
 	Language string
+
+	// UserID identifies the account, for store calls keyed by user (e.g.
+	// listing accessible tenants). Zero for a WordPress-mode identity, which
+	// is not tied to a stored account row.
+	UserID int64
+
+	// UserRoles are this account's user_roles rows (UA in RBAC96).
+	// RolePermissions maps each held RoleID to the permission IDs its
+	// role_permissions grant (PA in RBAC96) — resolved alongside UserRoles so
+	// Can/CanInTenant/CanSystemWide need no further DB access.
+	UserRoles       []domain.UserRole
+	RolePermissions map[string][]string
+
+	// ActiveTenantID is which of the account's several tenant memberships (if
+	// more than one) is active for this session — RBAC96 session
+	// role-activation, adapted to tenant scoping.
+	ActiveTenantID *int64
+
+	// FullAccess marks an identity that may do anything in this database,
+	// bypassing the UserRoles walk entirely. Set only for WordPress-mode
+	// identities: PHP already gates every proxied request on manage_options
+	// before it reaches here, so there is no lesser tier under WordPress —
+	// modeling it as an ordinary role assignment would need the WordPress
+	// authenticator to depend on the store, which it deliberately does not
+	// (see wordpress.go).
+	FullAccess bool
 }
 
 // IsZero reports the absence of an identity.
 func (i Identity) IsZero() bool { return i.Username == "" }
 
-// HasRole reports role membership.
-func (i Identity) HasRole(role string) bool { return slices.Contains(i.Roles, role) }
-
-// IsAdmin reports whether this identity may manage employees and users.
-func (i Identity) IsAdmin() bool {
-	return i.HasRole(RoleAdmin) || i.HasRole("administrator")
+// CanSystemWide reports whether the identity holds a system-scope role
+// granting this permission.
+func (i Identity) CanSystemWide(permission string) bool {
+	if i.FullAccess {
+		return true
+	}
+	for _, ur := range i.UserRoles {
+		if ur.TenantID == nil && ur.EmployeeID == nil && i.roleHas(ur.RoleID, permission) {
+			return true
+		}
+	}
+	return false
 }
 
-// Roles. "administrator" is WordPress's spelling and is accepted alongside
-// ours so the two modes agree on who is privileged.
-const (
-	RoleAdmin = "admin"
-	RoleUser  = "user"
-)
+// CanInTenant reports whether the identity holds this permission for
+// tenantID: a tenant-scope role for it, or CanSystemWide.
+func (i Identity) CanInTenant(permission string, tenantID int64) bool {
+	if i.CanSystemWide(permission) {
+		return true
+	}
+	for _, ur := range i.UserRoles {
+		if ur.TenantID != nil && *ur.TenantID == tenantID && i.roleHas(ur.RoleID, permission) {
+			return true
+		}
+	}
+	return false
+}
+
+// Can reports whether the identity holds this permission for employeeID,
+// which belongs to tenantID: an employee-scope role for it, or CanInTenant
+// for its tenant. The caller supplies tenantID (already known from the
+// employee record) rather than Identity looking it up, since Identity has no
+// store access of its own.
+func (i Identity) Can(permission string, employeeID, tenantID int64) bool {
+	if i.CanInTenant(permission, tenantID) {
+		return true
+	}
+	for _, ur := range i.UserRoles {
+		if ur.EmployeeID != nil && *ur.EmployeeID == employeeID && i.roleHas(ur.RoleID, permission) {
+			return true
+		}
+	}
+	return false
+}
+
+func (i Identity) roleHas(roleID, permission string) bool {
+	return slices.Contains(i.RolePermissions[roleID], permission)
+}
 
 // Authenticator resolves the identity for a request, or reports that there is
 // none. Implementations must not write to the response: redirecting to a login

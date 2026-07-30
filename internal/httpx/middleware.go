@@ -90,6 +90,24 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 	})
 }
 
+// requireSystemPermission turns away a signed-in identity that does not hold
+// this permission at system scope — used for the platform-wide admin pages
+// (/tenants, /roles) that are not scoped to any one tenant.
+//
+// A 403 rather than a redirect: the caller is authenticated, just not
+// permitted, and sending them back to a login form they already passed would
+// misdescribe the failure.
+func (s *Server) requireSystemPermission(permission string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := auth.IdentityFrom(r.Context())
+		if !ok || !id.CanSystemWide(permission) {
+			s.renderError(w, r, http.StatusForbidden, "error.forbidden")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // wantsJSON reports whether the caller is a script rather than a navigating
 // browser, so failures can be reported in a form it can act on.
 func wantsJSON(r *http.Request) bool {

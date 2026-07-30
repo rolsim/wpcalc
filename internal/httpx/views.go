@@ -25,6 +25,10 @@ var pageTemplates = []string{
 	"login.html",
 	"error.html",
 	"reports.html",
+	"tenants.html",
+	"tenant_choose.html",
+	"tenant_access.html",
+	"roles.html",
 }
 
 // view is embedded in every page's data, which promotes T onto the template
@@ -47,12 +51,29 @@ type view struct {
 	// CurrentPath is where to return after changing the language, so the
 	// change does not also lose the month someone was looking at.
 	CurrentPath string
+
+	// TenantID is the active tenant a tenant-scoped page (grid, employees,
+	// reports) was built for. Zero on pages that are not scoped to one
+	// tenant (the tenant list, role management, the chooser itself).
+	TenantID int64
+	// AccessibleTenants drives the topbar switcher — populated only when the
+	// account can act in more than one, so the layout hides a switcher that
+	// would otherwise have nothing to switch between.
+	AccessibleTenants []TenantOption
+	TenantSwitchURL   string
 }
 
 // LanguageOption is one entry in the language selector.
 type LanguageOption struct {
 	Tag      string
 	Label    string
+	Selected bool
+}
+
+// TenantOption is one entry in the tenant switcher.
+type TenantOption struct {
+	ID       int64
+	Name     string
 	Selected bool
 }
 
@@ -96,6 +117,17 @@ func (s *Server) newView(r *http.Request, titleKey string) view {
 		v.LanguageURL = s.url("/language")
 		v.CurrentPath = r.URL.RequestURI()
 		v.Languages = s.languageOptions(p.Lang(), id.Language)
+	}
+	if _, ok := s.authn.(auth.TenantWriter); ok && !id.IsZero() {
+		if tenants, err := s.accessibleTenants(r.Context(), id); err == nil && len(tenants) > 1 {
+			v.CurrentPath = r.URL.RequestURI()
+			v.TenantSwitchURL = s.url("/tenant")
+			for _, t := range tenants {
+				v.AccessibleTenants = append(v.AccessibleTenants, TenantOption{
+					ID: t.ID, Name: t.Name, Selected: id.ActiveTenantID != nil && *id.ActiveTenantID == t.ID,
+				})
+			}
+		}
 	}
 	return v
 }
@@ -273,6 +305,7 @@ var knownErrors = map[string]string{
 	"name_required":    "error.name_required",
 	"end_before_start": "error.end_before_start",
 	"server":           "error.server",
+	"forbidden":        "error.forbidden",
 }
 
 // errorKey maps a query-string token to a catalog key, falling back to a

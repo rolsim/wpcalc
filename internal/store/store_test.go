@@ -37,7 +37,7 @@ func mustDate(t *testing.T, s string) domain.Date {
 
 func mustEmployee(t *testing.T, db *DB, name, start, end string) int64 {
 	t.Helper()
-	e := domain.Employee{DisplayName: name, StartDate: mustDate(t, start)}
+	e := domain.Employee{TenantID: 1, DisplayName: name, StartDate: mustDate(t, start)}
 	if end != "" {
 		d := mustDate(t, end)
 		e.EndDate = &d
@@ -69,7 +69,7 @@ func TestOpenCreatesDatabaseFile(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("database file not created: %v", err)
 	}
-	if _, err := db.Employees(t.Context()); err != nil {
+	if _, err := db.Employees(t.Context(), 1); err != nil {
 		t.Errorf("schema not usable after create: %v", err)
 	}
 }
@@ -89,14 +89,14 @@ func TestMigrationsUpDownUpIsClean(t *testing.T) {
 	if err := db.SetHours(ctx, id, mustDate(t, "2026-07-14"), 775); err != nil {
 		t.Fatalf("seed entry: %v", err)
 	}
-	if _, err := db.CreateUser(ctx, "someone", "a-long-enough-password", domain.RoleAdmin); err != nil {
+	if _, err := db.CreateUser(ctx, "someone", "a-long-enough-password"); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 
 	if err := db.MigrateReset(ctx); err != nil {
 		t.Fatalf("migrate reset: %v", err)
 	}
-	if _, err := db.Employees(ctx); err == nil {
+	if _, err := db.Employees(ctx, 1); err == nil {
 		t.Error("employees table still queryable after down migration")
 	}
 	if _, err := db.Users(ctx); err == nil {
@@ -108,7 +108,7 @@ func TestMigrationsUpDownUpIsClean(t *testing.T) {
 	}
 
 	// The schema must be usable, and empty — down really dropped the data.
-	emps, err := db.Employees(ctx)
+	emps, err := db.Employees(ctx, 1)
 	if err != nil {
 		t.Fatalf("employees after re-up: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestTotalsEqualSumOfEntries(t *testing.T) {
 		}
 	}
 
-	totals, err := db.Totals(ctx, july)
+	totals, err := db.Totals(ctx, 1, july)
 	if err != nil {
 		t.Fatalf("Totals: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestTotalsIgnoreEntriesOutsideTheMonth(t *testing.T) {
 		}
 	}
 
-	totals, err := db.Totals(ctx, domain.NewYearMonth(2026, time.July))
+	totals, err := db.Totals(ctx, 1, domain.NewYearMonth(2026, time.July))
 	if err != nil {
 		t.Fatalf("Totals: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestEmployeesActiveInMatchesDomainRule(t *testing.T) {
 		domain.NewYearMonth(2019, time.June),
 		domain.NewYearMonth(2030, time.January),
 	} {
-		fromSQL, err := db.EmployeesActiveIn(ctx, m)
+		fromSQL, err := db.EmployeesActiveIn(ctx, 1, m)
 		if err != nil {
 			t.Fatalf("EmployeesActiveIn(%s): %v", m, err)
 		}
@@ -379,10 +379,10 @@ func TestDayComments(t *testing.T) {
 	july := domain.NewYearMonth(2026, time.July)
 	day := mustDate(t, "2026-07-14")
 
-	if err := db.SetDayComment(ctx, day, "Betriebsausflug"); err != nil {
+	if err := db.SetDayComment(ctx, 1, day, "Betriebsausflug"); err != nil {
 		t.Fatalf("SetDayComment: %v", err)
 	}
-	comments, err := db.DayComments(ctx, july)
+	comments, err := db.DayComments(ctx, 1, july)
 	if err != nil {
 		t.Fatalf("DayComments: %v", err)
 	}
@@ -391,10 +391,10 @@ func TestDayComments(t *testing.T) {
 	}
 
 	// One comment per day: writing again replaces rather than duplicates.
-	if err := db.SetDayComment(ctx, day, "Ersetzt"); err != nil {
+	if err := db.SetDayComment(ctx, 1, day, "Ersetzt"); err != nil {
 		t.Fatalf("SetDayComment replace: %v", err)
 	}
-	comments, _ = db.DayComments(ctx, july)
+	comments, _ = db.DayComments(ctx, 1, july)
 	if comments[day] != "Ersetzt" {
 		t.Errorf("got %q after replace, want %q", comments[day], "Ersetzt")
 	}
@@ -403,10 +403,10 @@ func TestDayComments(t *testing.T) {
 	}
 
 	// Blank clears, matching how clearing an hours cell behaves.
-	if err := db.SetDayComment(ctx, day, "   "); err != nil {
+	if err := db.SetDayComment(ctx, 1, day, "   "); err != nil {
 		t.Fatalf("SetDayComment clear: %v", err)
 	}
-	comments, _ = db.DayComments(ctx, july)
+	comments, _ = db.DayComments(ctx, 1, july)
 	if len(comments) != 0 {
 		t.Errorf("got %d comments after clearing, want 0", len(comments))
 	}
@@ -488,7 +488,7 @@ func TestEmployeeCRUD(t *testing.T) {
 		t.Errorf("missing employee: got %v, want ErrNotFound", err)
 	}
 	if err := db.UpdateEmployee(ctx, domain.Employee{
-		ID: 99999, DisplayName: "Ghost", StartDate: mustDate(t, "2026-01-01"),
+		ID: 99999, TenantID: 1, DisplayName: "Ghost", StartDate: mustDate(t, "2026-01-01"),
 	}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("updating missing employee: got %v, want ErrNotFound", err)
 	}
@@ -500,13 +500,15 @@ func TestEmployeeCRUD(t *testing.T) {
 func TestCreateEmployeeRejectsInvalid(t *testing.T) {
 	db := testDB(t)
 	bad := []domain.Employee{
-		{DisplayName: "", StartDate: mustDate(t, "2026-01-01")},
-		{DisplayName: "NoStart"},
+		{TenantID: 1, DisplayName: "", StartDate: mustDate(t, "2026-01-01")},
+		{TenantID: 1, DisplayName: "NoStart"},
 		{
+			TenantID:    1,
 			DisplayName: "Backwards",
 			StartDate:   mustDate(t, "2026-07-01"),
 			EndDate:     func() *domain.Date { d := mustDate(t, "2026-06-01"); return &d }(),
 		},
+		{DisplayName: "NoTenant", StartDate: mustDate(t, "2026-01-01")}, // TenantID left zero
 	}
 	for _, e := range bad {
 		if _, err := db.CreateEmployee(t.Context(), e); err == nil {

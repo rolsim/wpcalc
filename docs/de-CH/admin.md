@@ -6,13 +6,14 @@ Installation, Betrieb und Wartung von wpcalc.
 
 ---
 
-> **Rollen werden gespeichert, aber noch nicht durchgesetzt.** Jedes
-> angemeldete Konto kann Mitarbeitende anlegen, bearbeiten und löschen sowie
-> jede Auswertung herunterladen — unabhängig von seiner Rolle. Die
-> Unterscheidung `admin` / `user` existiert in der Datenbank und in der
-> WordPress-Brücke, aber keine Route prüft sie. Behandeln Sie bis auf Weiteres
-> jedes Konto als vollwertigen Administrator und geben Sie keine
-> `user`-Konten in der Annahme aus, sie seien eingeschränkt.
+> **Dies ist eine mandantenfähige Anwendung mit durchgesetztem RBAC.**
+> Mehrere Firmen («Mandanten») können sich eine Datenbank teilen, vollständig
+> voneinander isoliert. Der Zugriff folgt dem NIST-RBAC96-Modell: ein Konto
+> hält eine oder mehrere **Rollen**, jeweils gültig für das ganze System, für
+> einen Mandanten oder für eine einzelne Person. Siehe
+> [Mandanten und Rollen](#mandanten-und-rollen) weiter unten — ein neu
+> angelegtes Konto hat **noch keinerlei Zugriff**, bis ihm eine Rolle
+> zugewiesen wird.
 
 ## Zwei Betriebsarten
 
@@ -30,12 +31,15 @@ Beide bedienen exakt dieselbe Anwendung.
 ```sh
 make build                                            # -> bin/wpcalc
 ./bin/wpcalc migrate --db /var/lib/wpcalc/wpcalc.db   # legt die Datei an
-./bin/wpcalc user add alice -role admin --db /var/lib/wpcalc/wpcalc.db
+./bin/wpcalc user add alice --db /var/lib/wpcalc/wpcalc.db
+./bin/wpcalc user grant alice --system -role super_admin --db /var/lib/wpcalc/wpcalc.db
 ./bin/wpcalc serve --addr :8080 --db /var/lib/wpcalc/wpcalc.db
 ```
 
-`serve` **startet nicht, solange kein Konto existiert** — statt eine Anmeldung
-anzubieten, die nicht gelingen kann. Legen Sie das erste Konto vor dem Start an.
+`serve` **startet nicht, solange kein Konto die Datenbank verwalten kann** —
+statt eine Anmeldung anzubieten, die nicht gelingen kann. Legen Sie das erste
+Konto an und weisen Sie ihm `super_admin` zu, bevor Sie starten — siehe
+[Mandanten und Rollen](#mandanten-und-rollen).
 
 Die Binärdatei ist statisch gelinkt und ohne cgo gebaut, hat also keine
 Laufzeitabhängigkeiten: auf den Host kopieren und starten.
@@ -46,8 +50,12 @@ Laufzeitabhängigkeiten: auf den Host kopieren und starten.
 |---|---|
 | `serve --addr :8080 \| --socket PFAD` | Server starten; genau ein Listener |
 | `migrate [up\|down\|status]` | Migrationen anwenden, eine zurückrollen, Status zeigen |
-| `user add\|passwd\|lang\|list` | Konten verwalten |
-| `sample-employees [--month YYYY-MM]` | Platzhalter-Mitarbeitende anlegen; erfasst **keine Stunden** |
+| `user add\|passwd\|lang\|roles\|list` | Konten verwalten |
+| `user grant\|revoke <Name> [-system\|-tenant ID\|-employee ID] [-role ID]` | Rolle zuweisen oder entziehen |
+| `tenant add\|list\|rename` | Mandanten verwalten |
+| `role add\|list\|delete\|permissions` | Rollenkatalog verwalten: was jede Rolle darf |
+| `permission list` | den festen Berechtigungskatalog auflisten (nur lesend) |
+| `sample-employees [--month YYYY-MM] [--tenant ID]` | Platzhalter-Mitarbeitende anlegen; erfasst **keine Stunden** |
 | `manual [user\|admin]` | eingebettetes Handbuch anzeigen |
 | `plugin export VERZ` | WordPress-Plugin aus der Binärdatei schreiben |
 | `version [--short]` | Build ausgeben: Version, Commit, Datum, Go |
@@ -92,7 +100,7 @@ schlicht nie gesendet und die Anmeldung scheinbar grundlos scheitern.
 ## Konten
 
 ```sh
-./bin/wpcalc user add alice -role admin --db DB   # fragt nach dem Passwort
+./bin/wpcalc user add alice --db DB   # fragt nach dem Passwort; noch kein Zugriff
 ./bin/wpcalc user passwd alice --db DB            # widerruft auch alices Sitzungen
 ./bin/wpcalc user list --db DB
 ```
@@ -102,6 +110,11 @@ sein. Benutzernamen unterscheiden nicht zwischen Gross- und Kleinschreibung.
 Sitzungen liegen serverseitig und gelten 12 Stunden — Abmelden oder eine
 Passwortänderung entzieht den Zugriff sofort, statt ein Token bis zum Ablauf
 gültig zu lassen.
+
+`user add` legt nur die Zugangsdaten an — das Konto kann nichts, bis ihm eine
+Rolle zugewiesen wird (siehe nächster Abschnitt). Es gibt keinen Moment, in
+dem ein Konto mit einer stillschweigenden Rolle existiert, die niemand
+verlangt hat.
 
 > `--allow-weak-password` hebt die Mindestlänge auf. Es existiert, damit eine
 > lokale Entwicklungsdatenbank mit Wegwerf-Zugangsdaten wie `admin`/`admin`
@@ -115,7 +128,7 @@ Browser entscheidet». Benutzer ändern sie selbst über die Auswahl oben rechts
 Sie können sie beim Anlegen oder später setzen:
 
 ```sh
-./bin/wpcalc user add alice -role admin -lang en --db DB
+./bin/wpcalc user add alice -lang en --db DB
 ./bin/wpcalc user lang alice de-CH --db DB    # de_CH wird ebenfalls akzeptiert
 ./bin/wpcalc user lang alice "" --db DB       # wieder dem Browser folgen
 ```
@@ -135,11 +148,109 @@ Ein Konto lässt sich über die Kommandozeile noch nicht löschen; entfernen Sie
 die Zeile nötigenfalls direkt aus der Tabelle `users`. Die zugehörigen
 Sitzungen verschwinden mit.
 
+## Mandanten und Rollen
+
+wpcalc folgt [NIST RBAC96](https://csrc.nist.gov/projects/role-based-access-control)
+(Sandhu, Coyne, Feinstein, Youman 1996) — demselben Modell wie Kubernetes
+RoleBindings oder AWS/GCP-IAM-Policies: eine **Rolle** bündelt
+**Berechtigungen**, und eine **Rollenzuweisung** gewährt einem Konto eine
+Rolle in einem **Geltungsbereich**. Es gibt drei Geltungsbereiche, vom
+weitesten zum engsten:
+
+- **system** — die ganze Datenbank; eine systemweite Rolle deckt jeden
+  Mandanten ab.
+- **tenant** — ein Mandant; deckt jede Person darin ab.
+- **employee** — nur die Zeiterfassung einer einzelnen Person.
+
+Ab Werk existieren fünf Rollen (alle vollständig editierbar — siehe unten):
+
+| Rolle | Geltungsbereich | Darf |
+|---|---|---|
+| `super_admin` | system | Alles: Mandanten, Rollen, Mitarbeitende und Konten überall verwalten. |
+| `mandant_admin` | tenant | Die Mitarbeitenden eines Mandanten und die mitarbeiterbezogenen Rollen seiner Konten verwalten. |
+| `viewer` | employee | Das Raster einer Person lesen. |
+| `reporter` | employee | Lesen und die PDF-Auswertungen dieser Person herunterladen. |
+| `editor` | employee | Lesen, drucken und die Stunden dieser Person erfassen. |
+
+Jede Berechtigungsprüfung in der Anwendung ist eine Abfrage, ob die gehaltene
+Rolle in einem Geltungsbereich, der das Ziel abdeckt, die nötige Berechtigung
+trägt — nirgends ist ein Rollenname fest verdrahtet. Der Zugriff eines
+`mandant_admin` endet an der Grenze des eigenen Mandanten: für den Zugriff auf
+die Mitarbeitenden eines anderen Mandanten gibt es `404` (nicht `403`, damit
+keine Existenz verraten wird), für systemweite Seiten wie die
+Mandantenverwaltung `403`.
+
+### Einrichtung
+
+```sh
+./bin/wpcalc tenant add "Acme Corp" --db DB                # -> Mandanten-Id, z. B. 2
+./bin/wpcalc user add alice --db DB
+./bin/wpcalc user grant alice --system -role super_admin --db DB
+
+./bin/wpcalc user add bob --db DB
+./bin/wpcalc user grant bob -tenant 2 -role mandant_admin --db DB
+
+./bin/wpcalc user add carol --db DB
+./bin/wpcalc user grant carol -employee 5 -role viewer --db DB
+
+./bin/wpcalc user roles bob --db DB                        # was bob erreichen kann
+./bin/wpcalc user revoke carol -employee 5 --db DB          # Rolle ändern: erst entziehen, dann neu zuweisen
+```
+
+Ein Konto hält höchstens eine Rolle pro Geltungsbereichs-**Instanz** —
+`-employee 5` zweimal mit unterschiedlichen Rollen wird abgelehnt; zuerst
+entziehen. `-system`, `-tenant ID` und `-employee ID` schliessen sich
+gegenseitig aus; genau eines ist erforderlich.
+
+Ein Konto mit mehreren mandanten- oder mitarbeiterbezogenen Zuweisungen über
+verschiedene Mandanten hinweg sieht oben in der Leiste einen
+**Mandanten-Wechsler** und beim ersten Login (oder wenn eine Rollenänderung
+den bisher aktiven Mandanten unerreichbar macht) eine Auswahlseite — RBAC96
+nennt das «Session-Rollenaktivierung»: welche der mehreren
+Mandantenmitgliedschaften für diese Browsersitzung aktiv ist.
+
+### Rollen selbst verwalten
+
+Rollen, ihre Berechtigungen und jede Zuweisung sind sowohl über die
+Weboberfläche als auch über die Kommandozeile editierbar — nichts davon ist
+ein fest verdrahteter Wertebereich:
+
+- **`/tenants`** (`manage_tenants`, systemweit) — Mandanten auflisten und
+  anlegen.
+- **`/tenants/{id}/access`** (`manage_users`, pro Mandant) — einem Konto eine
+  *mitarbeiterbezogene* Rolle für eine Person dieses Mandanten zuweisen oder
+  entziehen. Ein Mandant-Admin erreicht diese Seite, kann hier aber keinen
+  weiteren Mandant-Admin erzeugen — das ist Absicht, siehe unten.
+- **`/roles`** (`manage_roles`, systemweit) — die einzige Seite, die einen
+  weiteren `super_admin` oder `mandant_admin` erzeugen kann. Hier werden auch
+  Rollen selbst definiert: eine Rolle anlegen, eine löschen (schlägt fehl,
+  solange sie noch zugewiesen ist oder Berechtigungen hält), und die
+  Berechtigungen einer Rolle umschalten.
+
+```sh
+./bin/wpcalc role add auditor -name Auditor -scope tenant --db DB
+./bin/wpcalc role permissions auditor -add read --db DB
+./bin/wpcalc role permissions auditor -add manage_tenants --db DB   # abgelehnt: min_scope=system
+./bin/wpcalc role list --db DB
+./bin/wpcalc permission list --db DB
+```
+
+Die Berechtigungen selbst (`read`, `print`, `write`, `manage_employees`,
+`manage_users`, `manage_tenants`, `manage_roles`) sind der einzig feste Teil
+davon: jede entspricht einer tatsächlichen Prüfung im Code, deshalb gibt es
+kein `permission add` — eine über die Oberfläche erfundene Berechtigung würde
+nichts bewirken. Der `scope` einer Rolle muss breit genug für jede ihrer
+Berechtigungen sein (`manage_tenants` braucht `system`; `read` kann so eng wie
+`employee` sein) — sowohl die Kommandozeile als auch ein Datenbank-Trigger
+setzen das durch.
+
 ## Mitarbeitende
 
-Verwaltung unter **Mitarbeitende**. Jede Person hat einen Namen, ein
-Eintrittsdatum und ein optionales Austrittsdatum; solange jemand angestellt
-ist, bleibt das Austrittsdatum leer.
+Verwaltung unter **Mitarbeitende**, bezogen auf den gerade aktiven Mandanten
+(siehe [Mandanten und Rollen](#mandanten-und-rollen) oben) — diese Seite und
+ihre Aktionen verlangen alle `manage_employees` in diesem Mandanten. Jede
+Person hat einen Namen, ein Eintrittsdatum und ein optionales Austrittsdatum;
+solange jemand angestellt ist, bleibt das Austrittsdatum leer.
 
 Zwei Verhaltensweisen sind wichtig:
 
@@ -231,7 +342,9 @@ der auf `0.0.0.0:PORT` veröffentlicht, blockiert auch `127.0.0.1:PORT`.
 ss -ltnp | grep :8080
 ```
 
-**`no accounts exist`** — die Benutzertabelle ist leer. `user add` ausführen.
+**`no account can manage this database yet`** — entweder existiert kein Konto,
+oder keines hält `super_admin`. `user add` und `user grant --system -role
+super_admin` ausführen.
 
 **`serve: one of --addr or --socket is required`** — Absicht. Ein
 Standardwert auf TCP würde die Anwendung auf einem Host veröffentlichen, der

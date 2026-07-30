@@ -41,7 +41,7 @@ func mustDate(t *testing.T, s string) domain.Date {
 
 func employee(t *testing.T, db *store.DB, name, start, end string) int64 {
 	t.Helper()
-	e := domain.Employee{DisplayName: name, StartDate: mustDate(t, start)}
+	e := domain.Employee{TenantID: 1, DisplayName: name, StartDate: mustDate(t, start)}
 	if end != "" {
 		d := mustDate(t, end)
 		e.EndDate = &d
@@ -89,14 +89,14 @@ func TestMonthSummaryRendersTotals(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := r.MonthSummary(ctx, july, &buf); err != nil {
+	if err := r.MonthSummary(ctx, 1, july, &buf); err != nil {
 		t.Fatalf("MonthSummary: %v", err)
 	}
 	assertPDF(t, &buf)
 
 	// The totals the PDF prints must be the ones the store computes, since
 	// the grid prints those same figures on screen.
-	totals, err := db.Totals(ctx, july)
+	totals, err := db.Totals(ctx, 1, july)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestMonthSummaryHandlesEmptyMonth(t *testing.T) {
 	// than a zero-byte download.
 	r, _ := newRenderer(t)
 	var buf bytes.Buffer
-	if err := r.MonthSummary(t.Context(), domain.NewYearMonth(2030, time.January), &buf); err != nil {
+	if err := r.MonthSummary(t.Context(), 1, domain.NewYearMonth(2030, time.January), &buf); err != nil {
 		t.Fatalf("MonthSummary on an empty month: %v", err)
 	}
 	assertPDF(t, &buf)
@@ -129,7 +129,7 @@ func TestEmployeeMonthListsEveryEmployedDay(t *testing.T) {
 	if err := db.SetHours(ctx, id, mustDate(t, "2026-07-14"), 775); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetDayComment(ctx, mustDate(t, "2026-07-14"), "Betriebsausflug"); err != nil {
+	if err := db.SetDayComment(ctx, 1, mustDate(t, "2026-07-14"), "Betriebsausflug"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -220,7 +220,7 @@ func TestUmlautsSurviveIntoThePDF(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := r.MonthSummary(ctx, domain.NewYearMonth(2026, time.July), &buf); err != nil {
+	if err := r.MonthSummary(ctx, 1, domain.NewYearMonth(2026, time.July), &buf); err != nil {
 		t.Fatal(err)
 	}
 	body := assertPDF(t, &buf)

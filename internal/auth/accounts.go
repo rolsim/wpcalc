@@ -18,10 +18,13 @@ import (
 // testable without a database and the dependency points one way.
 type UserStore interface {
 	Authenticate(ctx context.Context, username, password string) (domain.User, error)
-	SessionUser(ctx context.Context, token string) (domain.User, error)
+	SessionByToken(ctx context.Context, token string) (domain.User, *int64, error)
 	CreateSession(ctx context.Context, token string, userID int64, expires time.Time) error
 	DeleteSession(ctx context.Context, token string) error
 	SetUserLanguage(ctx context.Context, userID int64, lang string) error
+	SetActiveTenant(ctx context.Context, token string, tenantID *int64) error
+	UserRolesForUser(ctx context.Context, userID int64) ([]domain.UserRole, error)
+	RolePermissionsFor(ctx context.Context, roleIDs []string) (map[string][]string, error)
 }
 
 // LanguageWriter is implemented by authenticators whose identities can store a
@@ -34,6 +37,18 @@ type UserStore interface {
 // does nothing.
 type LanguageWriter interface {
 	SetLanguage(r *http.Request, lang string) error
+}
+
+// TenantWriter is implemented by authenticators whose identities can persist
+// an active-tenant selection (the multi-tenant switcher).
+//
+// The WordPress adapter does not implement it: it authenticates fresh from
+// signed headers on every request, with no session row of its own to store
+// the choice in — and there is no switcher shown there anyway, since a
+// WordPress-mode identity already has full access to the one dedicated
+// database it runs against (see wordpress.go).
+type TenantWriter interface {
+	SetActiveTenant(r *http.Request, tenantID *int64) error
 }
 
 // CookieName is the standalone session cookie.
@@ -73,11 +88,15 @@ func (a *Accounts) Identify(r *http.Request) (Identity, error) {
 	if err != nil || c.Value == "" {
 		return Identity{}, ErrUnauthenticated
 	}
-	u, err := a.store.SessionUser(r.Context(), c.Value)
+	u, activeTenantID, err := a.store.SessionByToken(r.Context(), c.Value)
 	if err != nil {
 		return Identity{}, ErrUnauthenticated
 	}
-	return identityFor(u), nil
+	id, err := a.identityFor(r.Context(), u, activeTenantID)
+	if err != nil {
+		return Identity{}, err
+	}
+	return id, nil
 }
 
 // Login verifies credentials and starts a session.
@@ -145,19 +164,55 @@ func (a *Accounts) SetLanguage(r *http.Request, lang string) error {
 	if err != nil || c.Value == "" {
 		return ErrUnauthenticated
 	}
-	u, err := a.store.SessionUser(r.Context(), c.Value)
+	u, _, err := a.store.SessionByToken(r.Context(), c.Value)
 	if err != nil {
 		return ErrUnauthenticated
 	}
 	return a.store.SetUserLanguage(r.Context(), u.ID, lang)
 }
 
-func identityFor(u domain.User) Identity {
-	role := RoleUser
-	if u.IsAdmin() {
-		role = RoleAdmin
+// SetActiveTenant persists which tenant this request's session has activated
+// — RBAC96 session role-activation, adapted to tenant scoping (see
+// Identity.ActiveTenantID).
+func (a *Accounts) SetActiveTenant(r *http.Request, tenantID *int64) error {
+	c, err := r.Cookie(CookieName)
+	if err != nil || c.Value == "" {
+		return ErrUnauthenticated
 	}
-	return Identity{Username: u.Username, Roles: []string{role}, Language: u.Language}
+	return a.store.SetActiveTenant(r.Context(), c.Value, tenantID)
+}
+
+// identityFor resolves a user's full UA/PA data (UserRoles and their
+// permissions) into an Identity. Done fresh on every call — not cached
+// across requests — so a permission revoked mid-session takes effect on the
+// very next request.
+func (a *Accounts) identityFor(ctx context.Context, u domain.User, activeTenantID *int64) (Identity, error) {
+	userRoles, err := a.store.UserRolesForUser(ctx, u.ID)
+	if err != nil {
+		return Identity{}, err
+	}
+
+	roleIDs := make([]string, 0, len(userRoles))
+	seen := make(map[string]bool, len(userRoles))
+	for _, ur := range userRoles {
+		if !seen[ur.RoleID] {
+			seen[ur.RoleID] = true
+			roleIDs = append(roleIDs, ur.RoleID)
+		}
+	}
+	perms, err := a.store.RolePermissionsFor(ctx, roleIDs)
+	if err != nil {
+		return Identity{}, err
+	}
+
+	return Identity{
+		UserID:          u.ID,
+		Username:        u.Username,
+		Language:        u.Language,
+		UserRoles:       userRoles,
+		RolePermissions: perms,
+		ActiveTenantID:  activeTenantID,
+	}, nil
 }
 
 // newSessionToken produces an unguessable session identifier.
@@ -176,8 +231,11 @@ var (
 	_ Authenticator  = (*WordPress)(nil)
 	_ SessionWriter  = (*Accounts)(nil)
 	_ LanguageWriter = (*Accounts)(nil)
+	_ TenantWriter   = (*Accounts)(nil)
 )
 
-// ErrNoAccounts signals an empty user table, so the operator is told to create
-// the first account instead of watching every login fail for no stated reason.
-var ErrNoAccounts = errors.New("auth: no accounts exist; create one with `wpcalc user add`")
+// ErrNoAccounts signals that nobody can administer this database yet, so the
+// operator is told how to fix it instead of watching every login fail for no
+// stated reason.
+var ErrNoAccounts = errors.New("auth: no account can manage this database yet; " +
+	"create one with `wpcalc user add` and `wpcalc user grant <name> --system -role super_admin`")

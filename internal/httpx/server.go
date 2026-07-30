@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/rolsim/wpcalc/internal/auth"
+	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/i18n"
 	"github.com/rolsim/wpcalc/internal/store"
 )
@@ -161,6 +162,32 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /report/month/{ym}", s.handleReportMonth)
 	mux.HandleFunc("GET /report/employee/{id}/month/{ym}", s.handleReportEmployeeMonth)
 	mux.HandleFunc("GET /report/employee/{id}/year/{year}", s.handleReportEmployeeYear)
+
+	// Tenant switcher: available to any signed-in account, since which
+	// tenants it lists is already scoped to what that account can reach.
+	mux.HandleFunc("GET /tenants/choose", s.handleTenantChoose)
+	mux.HandleFunc("POST /tenant", s.handleTenantSwitch)
+
+	// Tenant list/create: system-wide, manage_tenants only.
+	mux.Handle("GET /tenants", s.requireSystemPermission(domain.PermManageTenants, http.HandlerFunc(s.handleTenantList)))
+	mux.Handle("POST /tenants", s.requireSystemPermission(domain.PermManageTenants, http.HandlerFunc(s.handleTenantCreate)))
+
+	// Per-tenant access matrix (employee-scope roles only): each handler
+	// checks manage_users against the {id} in the path itself, since that
+	// permission is tenant-specific rather than system-wide.
+	mux.HandleFunc("GET /tenants/{id}/access", s.handleTenantAccess)
+	mux.HandleFunc("POST /tenants/{id}/access", s.handleTenantAccessGrant)
+	mux.HandleFunc("POST /tenants/{id}/access/revoke", s.handleTenantAccessRevoke)
+
+	// Role management: system-wide, manage_roles only. The one place that
+	// can create another super-admin or mandant-admin.
+	mux.Handle("GET /roles", s.requireSystemPermission(domain.PermManageRoles, http.HandlerFunc(s.handleRoleList)))
+	mux.Handle("POST /roles", s.requireSystemPermission(domain.PermManageRoles, http.HandlerFunc(s.handleRoleCreate)))
+	mux.Handle("POST /roles/{id}/delete", s.requireSystemPermission(domain.PermManageRoles, http.HandlerFunc(s.handleRoleDelete)))
+	mux.Handle("POST /roles/{id}/permissions", s.requireSystemPermission(domain.PermManageRoles, http.HandlerFunc(s.handleRolePermissionAdd)))
+	mux.Handle("POST /roles/{id}/permissions/remove", s.requireSystemPermission(domain.PermManageRoles, http.HandlerFunc(s.handleRolePermissionRemove)))
+	mux.Handle("POST /roles/assign", s.requireSystemPermission(domain.PermManageRoles, http.HandlerFunc(s.handleRoleAssign)))
+	mux.Handle("POST /roles/revoke", s.requireSystemPermission(domain.PermManageRoles, http.HandlerFunc(s.handleRoleRevoke)))
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {

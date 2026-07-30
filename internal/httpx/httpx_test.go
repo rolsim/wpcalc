@@ -31,6 +31,36 @@ func (s stubAuth) Identify(*http.Request) (auth.Identity, error) {
 	return s.id, nil
 }
 
+// tenantOnePtr points at tenant 1, the "Default" tenant every fresh migrated
+// database seeds — every test here operates within it unless it says
+// otherwise.
+func tenantOnePtr() *int64 { v := int64(1); return &v }
+
+// superAdminPermissions mirrors migration 00004's seed data for the
+// super_admin role, so stub identities exercise the same permission set a
+// real one would resolve to.
+var superAdminPermissions = []string{
+	"manage_tenants", "manage_roles", "manage_employees", "manage_users",
+	"read", "print", "write",
+}
+
+// adminIdentity is the default test identity: system-wide access, tenant 1
+// already active so grid/employees/reports tests never hit the
+// tenant-chooser redirect.
+func adminIdentity() auth.Identity {
+	return adminIdentityWithLanguage("")
+}
+
+func adminIdentityWithLanguage(lang string) auth.Identity {
+	return auth.Identity{
+		Username:        "tester",
+		Language:        lang,
+		ActiveTenantID:  tenantOnePtr(),
+		UserRoles:       []domain.UserRole{{RoleID: "super_admin"}},
+		RolePermissions: map[string][]string{"super_admin": superAdminPermissions},
+	}
+}
+
 type testServer struct {
 	*Server
 	db      *store.DB
@@ -52,7 +82,7 @@ func newTestServer(t *testing.T, authn auth.Authenticator) *testServer {
 	}
 
 	if authn == nil {
-		authn = stubAuth{id: auth.Identity{Username: "tester", Roles: []string{auth.RoleAdmin}}}
+		authn = stubAuth{id: adminIdentity()}
 	}
 
 	srv, err := New(Config{
@@ -89,7 +119,7 @@ func (ts *testServer) post(t *testing.T, path string, form url.Values, json bool
 
 func (ts *testServer) employee(t *testing.T, name, start, end string) int64 {
 	t.Helper()
-	e := domain.Employee{DisplayName: name}
+	e := domain.Employee{TenantID: 1, DisplayName: name}
 	d, err := domain.ParseDate(start)
 	if err != nil {
 		t.Fatal(err)
@@ -432,7 +462,7 @@ func TestNoPageRendersAnUntranslatedMarker(t *testing.T) {
 	if err := ts.db.SetHours(t.Context(), id, day, 775); err != nil {
 		t.Fatal(err)
 	}
-	if err := ts.db.SetDayComment(t.Context(), day, "Notiz"); err != nil {
+	if err := ts.db.SetDayComment(t.Context(), 1, day, "Notiz"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -487,7 +517,7 @@ func TestBasePathPrefixesGeneratedURLs(t *testing.T) {
 	bundle, _ := i18n.New()
 	srv, err := New(Config{
 		DB: db, Bundle: bundle,
-		Auth:     stubAuth{id: auth.Identity{Username: "t", Roles: []string{auth.RoleAdmin}}},
+		Auth:     stubAuth{id: adminIdentity()},
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 		BasePath: "/wp-admin/admin.php",
 	})
@@ -747,9 +777,7 @@ func TestEmployeeCreateAcceptsMultipartBodies(t *testing.T) {
 func TestStoredLanguageOverridesAcceptLanguage(t *testing.T) {
 	// The stored preference is the more specific statement: someone whose
 	// laptop is set to English but who wants the German interface has said so.
-	ts := newTestServer(t, stubAuth{id: auth.Identity{
-		Username: "tester", Roles: []string{auth.RoleAdmin}, Language: "de-CH",
-	}})
+	ts := newTestServer(t, stubAuth{id: adminIdentityWithLanguage("de-CH")})
 	ts.employee(t, "Muster A", "2026-01-01", "")
 
 	r := httptest.NewRequest(http.MethodGet, "/m/2026-07", nil)
@@ -771,9 +799,7 @@ func TestStoredLanguageOverridesAcceptLanguage(t *testing.T) {
 }
 
 func TestAcceptLanguageUsedWhenNoPreferenceStored(t *testing.T) {
-	ts := newTestServer(t, stubAuth{id: auth.Identity{
-		Username: "tester", Roles: []string{auth.RoleAdmin}, // Language empty
-	}})
+	ts := newTestServer(t, stubAuth{id: adminIdentity()}) // Language empty
 	ts.employee(t, "Muster A", "2026-01-01", "")
 
 	r := httptest.NewRequest(http.MethodGet, "/m/2026-07", nil)
@@ -789,9 +815,7 @@ func TestAcceptLanguageUsedWhenNoPreferenceStored(t *testing.T) {
 func TestUnknownStoredLanguageFallsBackRatherThanBreaking(t *testing.T) {
 	// A catalog can be removed after someone has chosen it. That must degrade
 	// to negotiation, not render untranslated markers.
-	ts := newTestServer(t, stubAuth{id: auth.Identity{
-		Username: "tester", Roles: []string{auth.RoleAdmin}, Language: "fr-CH",
-	}})
+	ts := newTestServer(t, stubAuth{id: adminIdentityWithLanguage("fr-CH")})
 	ts.employee(t, "Muster A", "2026-01-01", "")
 
 	r := httptest.NewRequest(http.MethodGet, "/m/2026-07", nil)
@@ -833,7 +857,7 @@ func TestLanguageSelectorAppearsOnlyWhenItCanPersist(t *testing.T) {
 	// Offering a control that silently does nothing is worse than not offering
 	// one, which is the WordPress case: WordPress owns the user record there.
 	withStore := newTestServer(t, &langWritingAuth{stubAuth: stubAuth{
-		id: auth.Identity{Username: "tester", Roles: []string{auth.RoleAdmin}}}})
+		id: adminIdentity()}})
 	if !strings.Contains(withStore.get(t, "/employees").Body.String(), `name="lang"`) {
 		t.Error("selector missing when the authenticator can persist")
 	}
@@ -846,7 +870,7 @@ func TestLanguageSelectorAppearsOnlyWhenItCanPersist(t *testing.T) {
 
 func TestSetLanguagePersistsValidatesAndReturns(t *testing.T) {
 	a := &langWritingAuth{stubAuth: stubAuth{
-		id: auth.Identity{Username: "tester", Roles: []string{auth.RoleAdmin}}}}
+		id: adminIdentity()}}
 	ts := newTestServer(t, a)
 
 	// The POSIX spelling is accepted, because that is what a shell locale
@@ -883,7 +907,7 @@ func TestLanguageReturnToCannotLeaveTheSite(t *testing.T) {
 	// return_to comes from a form field, so it is an open redirect unless the
 	// target is checked.
 	a := &langWritingAuth{stubAuth: stubAuth{
-		id: auth.Identity{Username: "tester", Roles: []string{auth.RoleAdmin}}}}
+		id: adminIdentity()}}
 	ts := newTestServer(t, a)
 
 	for _, evil := range []string{"//evil.example/", "https://evil.example/", "javascript:alert(1)", ""} {

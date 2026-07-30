@@ -95,15 +95,19 @@ Socket- und signierten-Header-Pfade, sowie *debug current test*.
 
 ```sh
 ./bin/wpcalc migrate --db wpcalc.db          # legt die Datei an, falls nicht vorhanden
-./bin/wpcalc user add alice -role admin --db wpcalc.db
+./bin/wpcalc user add alice --db wpcalc.db
+./bin/wpcalc user grant alice --system -role super_admin --db wpcalc.db
 ./bin/wpcalc serve --addr :8080 --db wpcalc.db
 ```
 
 Dann <http://localhost:8080> öffnen.
 
-`serve` startet nicht, wenn keine Konten existieren — es weist stattdessen
-darauf hin, `user add` auszuführen, statt einen Login anzubieten, der nicht
-gelingen kann.
+`serve` startet nicht, solange kein Konto die Datenbank verwalten kann — es
+weist stattdessen darauf hin, `user add` und `user grant` auszuführen, statt
+einen Login anzubieten, der nicht gelingen kann. wpcalc ist mandantenfähig
+mit RBAC96-artigen Rollen (mehrere Firmen in einer Datenbank, jedes Konto mit
+Rollen im System-, Mandanten- oder Mitarbeitenden-Geltungsbereich); siehe das
+[Administratorhandbuch](docs/de-CH/admin.md) für das vollständige Modell.
 
 Damit das Raster überhaupt Spalten zum Darstellen hat:
 
@@ -120,7 +124,10 @@ keine Stunden erfasst — siehe Hinweis oben.
 |---|---|
 | `wpcalc serve --addr :8080 \| --socket PATH` | Server starten; genau ein Listener |
 | `wpcalc migrate [up\|down\|status]` | Migrationen anwenden, eine zurückrollen oder Status ausgeben |
-| `wpcalc user add\|passwd\|lang\|list` | Standalone-Konten verwalten (`--allow-weak-password` nur für lokale Tests) |
+| `wpcalc user add\|passwd\|lang\|roles\|list` | Standalone-Konten verwalten (`--allow-weak-password` nur für lokale Tests) |
+| `wpcalc user grant\|revoke <Name> [-system\|-tenant ID\|-employee ID] [-role ID]` | Rolle zuweisen oder entziehen |
+| `wpcalc tenant add\|list\|rename` | Mandanten verwalten |
+| `wpcalc role add\|list\|delete\|permissions` | Rollenkatalog verwalten |
 | `wpcalc sample-employees [--month YYYY-MM]` | Platzhalter-Mitarbeitende anlegen; erfasst keine Stunden |
 | `wpcalc manual [user\|admin] [--lang L] [--raw] [--list]` | ein eingebettetes Handbuch anzeigen, via glow sofern verfügbar |
 | `wpcalc plugin export DIR [--force] [--php-only]` | das WordPress-Plugin aus der Binärdatei schreiben |

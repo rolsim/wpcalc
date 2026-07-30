@@ -10,6 +10,7 @@ import (
 // interval. EndDate nil means still employed.
 type Employee struct {
 	ID          int64
+	TenantID    int64
 	DisplayName string
 	StartDate   Date
 	EndDate     *Date
@@ -55,6 +56,9 @@ func (e Employee) ActiveIn(m YearMonth) bool {
 
 // Validate checks the invariants the store and handlers both rely on.
 func (e Employee) Validate() error {
+	if e.TenantID == 0 {
+		return fmt.Errorf("%w: tenant is required", ErrInvalidEmployee)
+	}
 	if strings.TrimSpace(e.DisplayName) == "" {
 		return fmt.Errorf("%w: display name is required", ErrInvalidEmployee)
 	}

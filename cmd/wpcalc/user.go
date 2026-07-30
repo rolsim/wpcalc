@@ -18,17 +18,20 @@ import (
 func cmdUser(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("user", flag.ContinueOnError)
 	dbPath := fs.String("db", defaultDBPath(), "path to the SQLite database")
-	role := fs.String("role", domain.RoleUser, "role for a new account: admin or user")
 	lang := fs.String("lang", "",
 		"interface language for the account: de-CH, en, or empty to follow the browser")
 	weak := fs.Bool("allow-weak-password", false,
 		"accept a password below the minimum length (local development only)")
+	system := fs.Bool("system", false, "grant/revoke a system-scope role (user grant|revoke)")
+	tenant := fs.Int64("tenant", 0, "grant/revoke a tenant-scope role for this tenant id (user grant|revoke)")
+	employee := fs.Int64("employee", 0, "grant/revoke an employee-scope role for this employee id (user grant|revoke)")
+	role := fs.String("role", "", "role id to grant (user grant)")
 	positional, err := parseArgs(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(positional) == 0 {
-		return errors.New("user: want one of add, passwd, lang, list")
+		return errors.New("user: want one of add, passwd, lang, grant, revoke, roles, list")
 	}
 	arg := func(i int) string {
 		if i < len(positional) {
@@ -45,31 +48,37 @@ func cmdUser(ctx context.Context, args []string) error {
 
 	switch action := arg(0); action {
 	case "add":
-		return userAdd(ctx, db, arg(1), *role, *lang, *weak)
+		return userAdd(ctx, db, arg(1), *lang, *weak)
 	case "lang":
 		return userLang(ctx, db, arg(1), arg(2))
 	case "passwd":
 		return userPasswd(ctx, db, arg(1), *weak)
+	case "grant":
+		return userGrant(ctx, db, arg(1), *system, *tenant, *employee, *role)
+	case "revoke":
+		return userRevoke(ctx, db, arg(1), *system, *tenant, *employee)
+	case "roles":
+		return userRoles(ctx, db, arg(1))
 	case "list":
 		return userList(ctx, db)
 	default:
-		return fmt.Errorf("user: unknown action %q (want add, passwd, lang, or list)", action)
+		return fmt.Errorf("user: unknown action %q (want add, passwd, lang, grant, revoke, roles, or list)", action)
 	}
 }
 
-func userAdd(ctx context.Context, db *store.DB, username, role, lang string, weak bool) error {
+// userAdd creates a bare account with no access at all — role assignment is
+// a separate step (see userGrant), so there is never a moment where an
+// account holds an implicit role nobody asked for.
+func userAdd(ctx context.Context, db *store.DB, username, lang string, weak bool) error {
 	if username == "" {
 		return errors.New("user add: username is required")
-	}
-	if err := domain.ValidRole(role); err != nil {
-		return err
 	}
 
 	pw, err := readPassword(true, weak)
 	if err != nil {
 		return err
 	}
-	id, err := db.CreateUserWeak(ctx, username, pw, role, weak)
+	id, err := db.CreateUserWeak(ctx, username, pw, weak)
 	if err != nil {
 		if errors.Is(err, store.ErrDuplicateUsername) {
 			return fmt.Errorf("user add: %q already exists", username)
@@ -84,7 +93,7 @@ func userAdd(ctx context.Context, db *store.DB, username, role, lang string, wea
 		}
 		shown = lang
 	}
-	fmt.Printf("created %s (%s, language: %s)\n", username, role, shown)
+	fmt.Printf("created %s (language: %s) — no access yet; grant a role with `wpcalc user grant`\n", username, shown)
 	return nil
 }
 
@@ -136,13 +145,129 @@ func userPasswd(ctx context.Context, db *store.DB, username string, weak bool) e
 	return nil
 }
 
+// userGrant assigns a role at exactly one scope: --system (no target),
+// --tenant ID, or --employee ID. The scope must match the role's own scope
+// (roles.scope) — enforced by the store, which the database's own trigger
+// enforces again underneath.
+func userGrant(ctx context.Context, db *store.DB, username string, system bool, tenant, employee int64, roleID string) error {
+	if username == "" {
+		return errors.New("user grant: username is required")
+	}
+	if roleID == "" {
+		return errors.New("user grant: -role is required")
+	}
+	tenantID, employeeID, err := scopeTarget(system, tenant, employee)
+	if err != nil {
+		return fmt.Errorf("user grant: %w", err)
+	}
+
+	u, err := db.UserByUsername(ctx, username)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("user grant: no such user %q", username)
+		}
+		return err
+	}
+	if err := db.GrantUserRole(ctx, u.ID, tenantID, employeeID, roleID); err != nil {
+		return fmt.Errorf("user grant: %w", err)
+	}
+	fmt.Printf("%s granted %s%s\n", username, roleID, scopeDescription(tenantID, employeeID))
+	return nil
+}
+
+// userRevoke removes whatever role a user holds at exactly one scope.
+func userRevoke(ctx context.Context, db *store.DB, username string, system bool, tenant, employee int64) error {
+	if username == "" {
+		return errors.New("user revoke: username is required")
+	}
+	tenantID, employeeID, err := scopeTarget(system, tenant, employee)
+	if err != nil {
+		return fmt.Errorf("user revoke: %w", err)
+	}
+
+	u, err := db.UserByUsername(ctx, username)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("user revoke: no such user %q", username)
+		}
+		return err
+	}
+	if err := db.RevokeUserRole(ctx, u.ID, tenantID, employeeID); err != nil {
+		return fmt.Errorf("user revoke: %w", err)
+	}
+	fmt.Printf("%s's role%s revoked\n", username, scopeDescription(tenantID, employeeID))
+	return nil
+}
+
+// scopeTarget turns the three mutually exclusive scope flags into the
+// tenant_id/employee_id pair user_roles expects (nil/nil meaning system).
+func scopeTarget(system bool, tenant, employee int64) (tenantID, employeeID *int64, err error) {
+	set := 0
+	if system {
+		set++
+	}
+	if tenant != 0 {
+		set++
+	}
+	if employee != 0 {
+		set++
+	}
+	if set != 1 {
+		return nil, nil, errors.New("exactly one of -system, -tenant, or -employee is required")
+	}
+	if tenant != 0 {
+		return &tenant, nil, nil
+	}
+	if employee != 0 {
+		return nil, &employee, nil
+	}
+	return nil, nil, nil
+}
+
+func scopeDescription(tenantID, employeeID *int64) string {
+	switch {
+	case tenantID != nil:
+		return fmt.Sprintf(" (tenant %d)", *tenantID)
+	case employeeID != nil:
+		return fmt.Sprintf(" (employee %d)", *employeeID)
+	default:
+		return " (system-wide)"
+	}
+}
+
+// userRoles lists an account's user_roles rows.
+func userRoles(ctx context.Context, db *store.DB, username string) error {
+	if username == "" {
+		return errors.New("user roles: username is required")
+	}
+	u, err := db.UserByUsername(ctx, username)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("user roles: no such user %q", username)
+		}
+		return err
+	}
+	roles, err := db.UserRolesForUser(ctx, u.ID)
+	if err != nil {
+		return err
+	}
+	if len(roles) == 0 {
+		fmt.Printf("%s holds no roles yet\n", username)
+		return nil
+	}
+	for _, ur := range roles {
+		fmt.Printf("%-20s%s\n", ur.RoleID, scopeDescription(ur.TenantID, ur.EmployeeID))
+	}
+	return nil
+}
+
 func userList(ctx context.Context, db *store.DB) error {
 	users, err := db.Users(ctx)
 	if err != nil {
 		return err
 	}
 	if len(users) == 0 {
-		fmt.Println("no accounts yet — create one with `wpcalc user add <name> -role admin`")
+		fmt.Println("no accounts yet — create one with `wpcalc user add <name>`")
 		return nil
 	}
 	for _, u := range users {
@@ -150,7 +275,7 @@ func userList(ctx context.Context, db *store.DB) error {
 		if lang == "" {
 			lang = "auto"
 		}
-		fmt.Printf("%-24s %-8s %s\n", u.Username, u.Role, lang)
+		fmt.Printf("%-24s %s\n", u.Username, lang)
 	}
 	return nil
 }

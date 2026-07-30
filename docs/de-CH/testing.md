@@ -39,24 +39,29 @@ Die Handbücher stecken mit drin, Sie müssen also nichts nachschlagen:
 Ist [glow](https://github.com/charmbracelet/glow) installiert, wird gesetzt
 dargestellt, sonst als reiner Text. Beides ist lesbar.
 
-Dann drei Befehle, und die Anwendung läuft:
+Dann vier Befehle, und die Anwendung läuft:
 
 ```sh
 ./wpcalc sample-employees --db test.db --month 2026-07
-./wpcalc user add tester -role admin -lang de-CH --db test.db
+./wpcalc user add tester -lang de-CH --db test.db
+./wpcalc user grant tester --system -role super_admin --db test.db
 ./wpcalc serve --addr 127.0.0.1:8090 --db test.db
 ```
 
-Der erste legt vier Beispiel-Anstellungen an, damit das Raster Spalten hat —
-Stunden erfasst er bewusst keine. Der zweite fragt zweimal nach einem Passwort;
-es muss mindestens zehn Zeichen haben. Der dritte startet den Server.
+Der erste legt vier Beispiel-Anstellungen im Standardmandanten an, damit das
+Raster Spalten hat — Stunden erfasst er bewusst keine. Der zweite fragt
+zweimal nach einem Passwort; es muss mindestens zehn Zeichen haben. `user add`
+allein gewährt keinerlei Zugriff — erst der dritte Befehl macht `tester` zur
+Administratorin bzw. zum Administrator mit Zugriff auf alles. Der vierte
+startet den Server.
 
 ## Mit dem Quellcode
 
 ```sh
 make build
 ./bin/wpcalc sample-employees --db test.db --month 2026-07
-./bin/wpcalc user add tester -role admin -lang de-CH --db test.db
+./bin/wpcalc user add tester -lang de-CH --db test.db
+./bin/wpcalc user grant tester --system -role super_admin --db test.db
 ./bin/wpcalc serve --addr 127.0.0.1:8090 --db test.db
 ```
 
@@ -93,6 +98,15 @@ von Dezember auf Januar.
 
 **Auswertungen.** Laden Sie die drei PDFs herunter und schauen Sie hinein — die
 Zahlen darin müssen mit dem Bildschirm übereinstimmen.
+
+**Rollen.** Legen Sie einen Mandanten und ein zweites, mitarbeiterbezogenes
+Konto an (`user add name`, dann `user grant name -employee ID -role viewer`)
+und melden Sie sich damit an: Der Menüpunkt «Mitarbeitende» fehlt,
+`/employees` und die monatliche Gesamtübersicht als PDF liefern «keine
+Berechtigung», und nur die Zellen dieser einen Person sind überhaupt
+sichtbar — jede andere Person fehlt vollständig im Raster, nicht nur
+gesperrt. `editor` kann diese Zellen beschreiben, `viewer` nicht. `/reports`
+öffnet sich weiterhin, zeigt aber nur diese eine Person.
 
 Zwei Dinge, die leicht übersehen werden. Die Sprachauswahl oben rechts bleibt
 beim Konto gespeichert, gilt also auch, wenn Sie sich in einem anderen Browser
@@ -152,13 +166,9 @@ Lauf bleiben weder Container noch Volumes stehen.
 
 ---
 
-## Zwei bekannte Punkte
+## Ein bekannter Punkt
 
-Die Rollen `admin` und `user` werden zwar gespeichert, aber noch nirgends
-ausgewertet: Jedes angemeldete Konto darf zurzeit alles. Das ist bekannt und
-kein Fund.
-
-Und die Beispieldaten enthalten absichtlich keine Arbeitsstunden, nur
+Die Beispieldaten enthalten absichtlich keine Arbeitsstunden, nur
 Anstellungen. Erfundene Einträge liessen sich später nicht mehr von echten
 unterscheiden, und das will man in einer Zeiterfassung nicht. Ein leeres Raster
 ist der richtige Ausgangszustand.

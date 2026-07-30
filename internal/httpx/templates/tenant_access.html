@@ -1,0 +1,61 @@
+{{ define "content" }}
+<div class="page-head">
+  <h1>{{ .T "tenant.access" }} — {{ .Tenant.Name }}</h1>
+</div>
+
+{{ if not .Assignments }}
+  <p class="empty">{{ .T "tenant.access_none" }}</p>
+{{ else }}
+<table class="list">
+  <thead>
+    <tr>
+      <th scope="col">{{ .T "tenant.user" }}</th>
+      <th scope="col">{{ .T "employee.heading" }}</th>
+      <th scope="col">{{ .T "role.heading" }}</th>
+      <th scope="col"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {{ $root := . }}
+    {{ range .Assignments }}
+      <tr>
+        <th scope="row">{{ .Username }}</th>
+        <td>{{ .EmployeeName }}</td>
+        <td>{{ .RoleName }}</td>
+        <td class="row-actions">
+          <form method="post" action="{{ $root.URL "/tenants/%d/access/revoke" $root.Tenant.ID }}"
+                data-confirm="{{ $root.T "tenant.revoke_confirm" }}">
+            <input type="hidden" name="user_id" value="{{ .UserID }}">
+            <input type="hidden" name="employee_id" value="{{ .EmployeeID }}">
+            <button class="btn btn-danger" type="submit">{{ $root.T "tenant.revoke" }}</button>
+          </form>
+        </td>
+      </tr>
+    {{ end }}
+  </tbody>
+</table>
+{{ end }}
+
+<h2>{{ .T "tenant.access_grant" }}</h2>
+<form method="post" action="{{ .URL "/tenants/%d/access" .Tenant.ID }}">
+  <label for="access-username">{{ .T "tenant.user" }}</label>
+  <input id="access-username" name="username" type="text" required>
+
+  <label for="access-employee">{{ .T "employee.heading" }}</label>
+  <select id="access-employee" name="employee_id" required>
+    {{ $root := . }}
+    {{ range .Employees }}
+      <option value="{{ .ID }}">{{ .DisplayName }}</option>
+    {{ end }}
+  </select>
+
+  <label for="access-role">{{ .T "role.heading" }}</label>
+  <select id="access-role" name="role_id" required>
+    {{ range .Roles }}
+      <option value="{{ .ID }}">{{ .Name }}</option>
+    {{ end }}
+  </select>
+
+  <button class="btn btn-primary" type="submit">{{ .T "tenant.access_grant" }}</button>
+</form>
+{{ end }}

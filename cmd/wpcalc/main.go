@@ -36,6 +36,12 @@ func run(args []string) error {
 		return cmdMigrate(ctx, args[1:])
 	case "user":
 		return cmdUser(ctx, args[1:])
+	case "tenant":
+		return cmdTenant(ctx, args[1:])
+	case "role":
+		return cmdRole(ctx, args[1:])
+	case "permission":
+		return cmdPermission(ctx, args[1:])
 	case "sample-employees":
 		return cmdSampleEmployees(ctx, args[1:])
 	case "manual":
@@ -59,8 +65,12 @@ func usage(w *os.File) {
 Usage:
   wpcalc serve [--addr :8080 | --socket PATH] [--db PATH]
   wpcalc migrate [up|down|status] [--db PATH]
-  wpcalc user add|passwd|lang|list [--db PATH] [-role admin|user] [-lang de-CH|en]
-  wpcalc sample-employees [--db PATH] [--month YYYY-MM]
+  wpcalc user add|passwd|lang|roles|list [--db PATH] [-lang de-CH|en]
+  wpcalc user grant|revoke <name> [-system|-tenant ID|-employee ID] [-role ID]
+  wpcalc tenant add|list|rename [--db PATH]
+  wpcalc role add|list|delete|permissions [--db PATH] [-name N] [-scope S] [-add|-remove PERM]
+  wpcalc permission list [--db PATH]
+  wpcalc sample-employees [--db PATH] [--month YYYY-MM] [--tenant ID]
   wpcalc manual [user|admin|testing] [--lang de-CH|en] [--raw] [--list]
   wpcalc plugin export DIR [--force] [--php-only]
   wpcalc version [--short]

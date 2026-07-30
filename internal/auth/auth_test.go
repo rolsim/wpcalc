@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/rolsim/wpcalc/internal/domain"
 )
 
 const testSecret = "a-shared-secret-of-sufficient-length"
@@ -57,8 +59,8 @@ func TestSignedHeadersRejectedOverTCP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("valid signature over unix socket: %v", err)
 	}
-	if id.Username != "alice" || !id.IsAdmin() {
-		t.Errorf("got %+v, want alice with admin rights", id)
+	if id.Username != "alice" || !id.FullAccess {
+		t.Errorf("got %+v, want alice with full access", id)
 	}
 }
 
@@ -145,23 +147,69 @@ func TestWordPressRequiresStrongSecret(t *testing.T) {
 }
 
 func TestIdentityHelpers(t *testing.T) {
-	if !(Identity{Username: "a", Roles: []string{RoleAdmin}}).IsAdmin() {
-		t.Error("admin role not recognised")
+	tenantID, otherTenantID := int64(1), int64(2)
+	empID, otherEmpID := int64(10), int64(11)
+
+	sysAdmin := Identity{
+		Username:        "root",
+		UserRoles:       []domain.UserRole{{RoleID: "super_admin"}},
+		RolePermissions: map[string][]string{"super_admin": {"manage_tenants", "read", "write"}},
 	}
-	// WordPress spells it differently; both modes must agree on who is privileged.
-	if !(Identity{Username: "a", Roles: []string{"administrator"}}).IsAdmin() {
-		t.Error("WordPress administrator role not recognised")
+	if !sysAdmin.CanSystemWide("manage_tenants") {
+		t.Error("system-scope role does not satisfy CanSystemWide")
 	}
-	if (Identity{Username: "a", Roles: []string{RoleUser}}).IsAdmin() {
-		t.Error("plain user treated as admin")
+	if !sysAdmin.CanInTenant("read", tenantID) {
+		t.Error("system-scope role should satisfy CanInTenant for any tenant")
 	}
+	if !sysAdmin.Can("write", empID, tenantID) {
+		t.Error("system-scope role should satisfy Can for any employee")
+	}
+
+	tenantAdmin := Identity{
+		Username:        "mandant",
+		UserRoles:       []domain.UserRole{{TenantID: &tenantID, RoleID: "mandant_admin"}},
+		RolePermissions: map[string][]string{"mandant_admin": {"manage_employees", "read", "write"}},
+	}
+	if tenantAdmin.CanSystemWide("manage_employees") {
+		t.Error("tenant-scope role must not satisfy CanSystemWide")
+	}
+	if !tenantAdmin.CanInTenant("manage_employees", tenantID) {
+		t.Error("tenant-scope role does not satisfy CanInTenant for its own tenant")
+	}
+	if tenantAdmin.CanInTenant("manage_employees", otherTenantID) {
+		t.Error("tenant-scope role leaked into another tenant")
+	}
+	if !tenantAdmin.Can("write", empID, tenantID) {
+		t.Error("tenant-scope role does not cover an employee in its tenant")
+	}
+
+	viewer := Identity{
+		Username:        "vera",
+		UserRoles:       []domain.UserRole{{EmployeeID: &empID, RoleID: "viewer"}},
+		RolePermissions: map[string][]string{"viewer": {"read"}},
+	}
+	if !viewer.Can("read", empID, tenantID) {
+		t.Error("employee-scope role does not cover its own employee")
+	}
+	if viewer.Can("write", empID, tenantID) {
+		t.Error("viewer role must not grant write")
+	}
+	if viewer.Can("read", otherEmpID, tenantID) {
+		t.Error("employee-scope role leaked into another employee")
+	}
+
+	fullAccess := Identity{Username: "wp", FullAccess: true}
+	if !fullAccess.CanSystemWide("anything") || !fullAccess.CanInTenant("anything", tenantID) || !fullAccess.Can("anything", empID, tenantID) {
+		t.Error("FullAccess identity must satisfy every check")
+	}
+
 	if !(Identity{}).IsZero() {
 		t.Error("zero identity not reported as zero")
 	}
 }
 
 func TestIdentityContextRoundTrip(t *testing.T) {
-	ctx := WithIdentity(t.Context(), Identity{Username: "alice", Roles: []string{RoleAdmin}})
+	ctx := WithIdentity(t.Context(), Identity{Username: "alice"})
 	id, ok := IdentityFrom(ctx)
 	if !ok || id.Username != "alice" {
 		t.Errorf("IdentityFrom = (%+v, %v)", id, ok)

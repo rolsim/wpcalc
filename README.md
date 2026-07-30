@@ -89,14 +89,19 @@ signed-header paths, and *debug current test*.
 
 ```sh
 ./bin/wpcalc migrate --db wpcalc.db          # creates the file if absent
-./bin/wpcalc user add alice -role admin --db wpcalc.db
+./bin/wpcalc user add alice --db wpcalc.db
+./bin/wpcalc user grant alice --system -role super_admin --db wpcalc.db
 ./bin/wpcalc serve --addr :8080 --db wpcalc.db
 ```
 
 Then open <http://localhost:8080>.
 
-`serve` refuses to start if no accounts exist — it will tell you to run
-`user add` rather than offer a login that cannot succeed.
+`serve` refuses to start if no account can manage the database — it will tell
+you to run `user add` and `user grant` rather than offer a login that cannot
+succeed. wpcalc is multi-tenant with RBAC96-style roles (several companies in
+one database, each account holding roles scoped to the system, one tenant, or
+one employee); see the [administrator guide](docs/en/admin.md) for the full
+model.
 
 To give the grid some columns to render:
 
@@ -113,7 +118,10 @@ see the note above.
 |---|---|
 | `wpcalc serve --addr :8080 \| --socket PATH` | run the server; exactly one listener |
 | `wpcalc migrate [up\|down\|status]` | apply, roll back one, or report migrations |
-| `wpcalc user add\|passwd\|lang\|list` | manage standalone accounts (`--allow-weak-password` for local testing only) |
+| `wpcalc user add\|passwd\|lang\|roles\|list` | manage standalone accounts (`--allow-weak-password` for local testing only) |
+| `wpcalc user grant\|revoke <name> [-system\|-tenant ID\|-employee ID] [-role ID]` | assign or remove a role |
+| `wpcalc tenant add\|list\|rename` | manage tenants |
+| `wpcalc role add\|list\|delete\|permissions` | manage the role catalog |
 | `wpcalc sample-employees [--month YYYY-MM]` | create placeholder employees; records no hours |
 | `wpcalc manual [user\|admin] [--lang L] [--raw] [--list]` | show an embedded manual, via glow when available |
 | `wpcalc plugin export DIR [--force] [--php-only]` | write the WordPress plugin out of the binary |

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/report"
 	"github.com/rolsim/wpcalc/internal/store"
@@ -31,7 +32,17 @@ type reportIndexView struct {
 	Employees  []reportEmployee
 }
 
+// handleReportIndex lists downloadable reports for the active tenant. A
+// mandant-admin (or system-wide holder of print) sees every employee and the
+// whole-tenant month PDF; anyone else sees only the employees they hold
+// print-or-above on — this is the same route serving both "see every
+// employee" and "download my own report", narrowed by permission rather than
+// split into two pages.
 func (s *Server) handleReportIndex(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := s.resolveActiveTenant(w, r)
+	if !ok {
+		return
+	}
 	month := domain.CurrentYearMonth()
 	if raw := r.URL.Query().Get("m"); raw != "" {
 		parsed, err := domain.ParseYearMonth(raw)
@@ -42,23 +53,32 @@ func (s *Server) handleReportIndex(w http.ResponseWriter, r *http.Request) {
 		month = parsed
 	}
 
-	employees, err := s.db.EmployeesActiveIn(r.Context(), month)
+	all, err := s.db.EmployeesActiveIn(r.Context(), tenantID, month)
 	if err != nil {
 		s.log.Error("report index", "error", err)
 		s.renderError(w, r, http.StatusInternalServerError, "error.server")
 		return
 	}
 
+	id, _ := auth.IdentityFrom(r.Context())
+	canWholeTenant := id.CanInTenant(domain.PermPrint, tenantID)
+
 	base := s.newView(r, "report.heading")
+	base.TenantID = tenantID
 	v := reportIndexView{
 		view:       base,
 		Month:      month,
 		MonthLabel: base.T(i18nMonthKey(month)) + " " + strconv.Itoa(month.Year),
-		MonthURL:   s.url("/report/month/%s.pdf", month),
 		PrevURL:    s.url("/reports?m=%s", month.Prev()),
 		NextURL:    s.url("/reports?m=%s", month.Next()),
 	}
-	for _, e := range employees {
+	if canWholeTenant {
+		v.MonthURL = s.url("/report/month/%s.pdf", month)
+	}
+	for _, e := range all {
+		if !id.Can(domain.PermPrint, e.ID, tenantID) {
+			continue
+		}
 		v.Employees = append(v.Employees, reportEmployee{
 			Name:       e.DisplayName,
 			MonthURL:   s.url("/report/employee/%d/month/%s.pdf", e.ID, month),
@@ -71,19 +91,26 @@ func (s *Server) handleReportIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReportMonth(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := s.requireTenantPermission(w, r, domain.PermPrint)
+	if !ok {
+		return
+	}
 	month, ok := s.reportMonth(w, r, "ym")
 	if !ok {
 		return
 	}
 	s.writePDF(w, r, fmt.Sprintf("wpcalc-%s.pdf", month),
 		func(rr *report.Renderer, buf *bytes.Buffer) error {
-			return rr.MonthSummary(r.Context(), month, buf)
+			return rr.MonthSummary(r.Context(), tenantID, month, buf)
 		})
 }
 
 func (s *Server) handleReportEmployeeMonth(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.employeeIDFromPath(w, r)
 	if !ok {
+		return
+	}
+	if !s.canPrintEmployee(w, r, id) {
 		return
 	}
 	month, ok := s.reportMonth(w, r, "ym")
@@ -101,6 +128,9 @@ func (s *Server) handleReportEmployeeYear(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
+	if !s.canPrintEmployee(w, r, id) {
+		return
+	}
 	year, err := strconv.Atoi(trimPDF(r.PathValue("year")))
 	if err != nil || year < 1000 || year > 9999 {
 		s.renderError(w, r, http.StatusNotFound, "error.invalid_month")
@@ -110,6 +140,24 @@ func (s *Server) handleReportEmployeeYear(w http.ResponseWriter, r *http.Request
 		func(rr *report.Renderer, buf *bytes.Buffer) error {
 			return rr.EmployeeYear(r.Context(), id, year, buf)
 		})
+}
+
+// canPrintEmployee checks print access against the employee's own tenant —
+// deliberately independent of the caller's *active* tenant, so an account
+// holding a role in more than one tenant can still reach a direct report
+// link for any of them without switching first. Renders the failure itself.
+func (s *Server) canPrintEmployee(w http.ResponseWriter, r *http.Request, employeeID int64) bool {
+	emp, err := s.db.Employee(r.Context(), employeeID)
+	if err != nil {
+		s.employeeLookupError(w, r, err)
+		return false
+	}
+	id, _ := auth.IdentityFrom(r.Context())
+	if !id.Can(domain.PermPrint, employeeID, emp.TenantID) {
+		s.renderError(w, r, http.StatusForbidden, "error.forbidden")
+		return false
+	}
+	return true
 }
 
 // writePDF renders into a buffer before touching the response.

@@ -1,0 +1,21 @@
+{{ define "content" }}
+<div class="page-head">
+  <h1>{{ .T "tenant.choose" }}</h1>
+</div>
+<table class="list">
+  <tbody>
+    {{ $root := . }}
+    {{ range .Tenants }}
+      <tr>
+        <th scope="row">{{ .Name }}</th>
+        <td class="row-actions">
+          <form method="post" action="{{ $root.URL "/tenant" }}">
+            <input type="hidden" name="tenant_id" value="{{ .ID }}">
+            <button class="btn btn-primary" type="submit">{{ $root.T "tenant.select" }}</button>
+          </form>
+        </td>
+      </tr>
+    {{ end }}
+  </tbody>
+</table>
+{{ end }}

@@ -18,9 +18,12 @@ func (db *DB) CreateEmployee(ctx context.Context, e domain.Employee) (int64, err
 		return 0, err
 	}
 	res, err := db.ExecContext(ctx,
-		`INSERT INTO employees (display_name, start_date, end_date) VALUES (?, ?, ?)`,
-		e.DisplayName, e.StartDate.String(), nullDate(e.EndDate))
+		`INSERT INTO employees (tenant_id, display_name, start_date, end_date) VALUES (?, ?, ?, ?)`,
+		e.TenantID, e.DisplayName, e.StartDate.String(), nullDate(e.EndDate))
 	if err != nil {
+		if isForeignKeyViolation(err) {
+			return 0, fmt.Errorf("store: create employee: tenant %d: %w", e.TenantID, ErrNotFound)
+		}
 		return 0, fmt.Errorf("store: create employee: %w", err)
 	}
 	id, err := res.LastInsertId()
@@ -30,7 +33,9 @@ func (db *DB) CreateEmployee(ctx context.Context, e domain.Employee) (int64, err
 	return id, nil
 }
 
-// UpdateEmployee saves name and employment dates.
+// UpdateEmployee saves name and employment dates. The employee's tenant is
+// not touched here — moving an employee between tenants is not something
+// this method does.
 //
 // Shortening an employment can strand entries outside the new interval. Those
 // rows are left in place on purpose: deleting recorded hours because someone
@@ -74,10 +79,12 @@ func (db *DB) DeleteEmployee(ctx context.Context, id int64) error {
 	return nil
 }
 
-// Employee fetches one employee by id.
+// Employee fetches one employee by id — global, not tenant-scoped, since an
+// id is unique across every tenant. Callers that must not leak across
+// tenants (any HTTP route) check the returned TenantID themselves.
 func (db *DB) Employee(ctx context.Context, id int64) (domain.Employee, error) {
 	row := db.QueryRowContext(ctx,
-		`SELECT id, display_name, start_date, end_date FROM employees WHERE id = ?`, id)
+		`SELECT id, tenant_id, display_name, start_date, end_date FROM employees WHERE id = ?`, id)
 	e, err := scanEmployee(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Employee{}, fmt.Errorf("store: employee %d: %w", id, ErrNotFound)
@@ -88,27 +95,31 @@ func (db *DB) Employee(ctx context.Context, id int64) (domain.Employee, error) {
 	return e, nil
 }
 
-// Employees lists every employee, ordered for stable display.
-func (db *DB) Employees(ctx context.Context) ([]domain.Employee, error) {
+// Employees lists every employee in a tenant, ordered for stable display.
+func (db *DB) Employees(ctx context.Context, tenantID int64) ([]domain.Employee, error) {
 	return db.queryEmployees(ctx,
-		`SELECT id, display_name, start_date, end_date
+		`SELECT id, tenant_id, display_name, start_date, end_date
 		   FROM employees
-		  ORDER BY display_name COLLATE NOCASE, id`)
+		  WHERE tenant_id = ?
+		  ORDER BY display_name COLLATE NOCASE, id`,
+		tenantID)
 }
 
-// EmployeesActiveIn lists only those whose employment overlaps the month.
+// EmployeesActiveIn lists only those in a tenant whose employment overlaps
+// the month.
 //
 // The overlap is computed in SQL rather than by filtering in Go so that a
 // month with two active people out of two hundred former ones reads two rows.
 // It mirrors domain.Employee.ActiveIn exactly, and a test pins them together.
-func (db *DB) EmployeesActiveIn(ctx context.Context, m domain.YearMonth) ([]domain.Employee, error) {
+func (db *DB) EmployeesActiveIn(ctx context.Context, tenantID int64, m domain.YearMonth) ([]domain.Employee, error) {
 	return db.queryEmployees(ctx,
-		`SELECT id, display_name, start_date, end_date
+		`SELECT id, tenant_id, display_name, start_date, end_date
 		   FROM employees
-		  WHERE start_date <= ?
+		  WHERE tenant_id = ?
+		    AND start_date <= ?
 		    AND (end_date IS NULL OR end_date >= ?)
 		  ORDER BY display_name COLLATE NOCASE, id`,
-		m.Last().String(), m.First().String())
+		tenantID, m.Last().String(), m.First().String())
 }
 
 func (db *DB) queryEmployees(ctx context.Context, query string, args ...any) ([]domain.Employee, error) {
@@ -142,7 +153,7 @@ func scanEmployee(s scanner) (domain.Employee, error) {
 		end     sql.NullString
 		parsErr error
 	)
-	if err := s.Scan(&e.ID, &e.DisplayName, &start, &end); err != nil {
+	if err := s.Scan(&e.ID, &e.TenantID, &e.DisplayName, &start, &end); err != nil {
 		return domain.Employee{}, err
 	}
 	if e.StartDate, parsErr = domain.ParseDate(start); parsErr != nil {

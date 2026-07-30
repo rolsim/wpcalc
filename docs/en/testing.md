@@ -36,24 +36,28 @@ The manuals are embedded, so there is nothing to look up separately:
 If [glow](https://github.com/charmbracelet/glow) is installed it is rendered;
 otherwise plain text. Either way it is readable.
 
-Then three commands, and the application is running:
+Then four commands, and the application is running:
 
 ```sh
 ./wpcalc sample-employees --db test.db --month 2026-07
-./wpcalc user add tester -role admin -lang en --db test.db
+./wpcalc user add tester -lang en --db test.db
+./wpcalc user grant tester --system -role super_admin --db test.db
 ./wpcalc serve --addr 127.0.0.1:8090 --db test.db
 ```
 
-The first creates four sample employment records so the grid has columns —
-deliberately no hours recorded. The second asks for a password twice; it must
-be at least ten characters. The third starts the server.
+The first creates four sample employment records in the default tenant so the
+grid has columns — deliberately no hours recorded. The second asks for a
+password twice; it must be at least ten characters. `user add` alone grants no
+access — the third command is what makes `tester` an administrator, able to
+reach everything. The fourth starts the server.
 
 ## With the source tree
 
 ```sh
 make build
 ./bin/wpcalc sample-employees --db test.db --month 2026-07
-./bin/wpcalc user add tester -role admin -lang en --db test.db
+./bin/wpcalc user add tester -lang en --db test.db
+./bin/wpcalc user grant tester --system -role super_admin --db test.db
 ./bin/wpcalc serve --addr 127.0.0.1:8090 --db test.db
 ```
 
@@ -88,6 +92,14 @@ December to January.
 
 **Reports.** Download the three PDFs and check them — the numbers inside must
 match the screen.
+
+**Roles.** Create a tenant and a second, employee-scoped account (`user add
+name`, then `user grant name -employee ID -role viewer`) and sign in as it:
+the "Employees" nav link is gone, `/employees` and the whole-tenant month PDF
+come back forbidden, and only that one employee's cells are visible at all —
+every other employee is missing from the grid entirely, not merely locked.
+`editor` can write those cells; `viewer` cannot. `/reports` still opens, but
+lists only that one employee.
 
 Two things that are easy to miss. The language selector in the top right is
 stored with the account, so it also applies when you sign in from a different
@@ -147,13 +159,9 @@ left behind after the run.
 
 ---
 
-## Two known points
+## One known point
 
-The `admin` and `user` roles are recorded but not yet enforced anywhere: every
-signed-in account can currently do everything. That is known and not a new
-finding.
-
-And the sample data deliberately contains no working hours, only employment
+The sample data deliberately contains no working hours, only employment
 records. Invented entries could no longer be told apart from real ones later,
 which is not something you want in a timesheet. An empty grid is the correct
 starting state.

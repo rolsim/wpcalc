@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/store"
 )
@@ -15,9 +16,11 @@ type gridCell struct {
 	EmployeeID int64
 	DateISO    string
 	Hours      domain.Centihours
-	// Locked marks a day outside this employee's employment. The template
-	// greys and disables it, but that is presentation: the write path checks
-	// the same rule again, because a disabled input is a suggestion.
+	// Locked marks a cell the caller may not write: outside this employee's
+	// employment, or their role on this employee is read/print but not
+	// write. The template greys and disables it, but that is presentation:
+	// the write path checks both rules again, because a disabled input is a
+	// suggestion.
 	Locked bool
 }
 
@@ -55,8 +58,12 @@ func (s *Server) handleGrid(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	tenantID, ok := s.resolveActiveTenant(w, r)
+	if !ok {
+		return
+	}
 
-	v, err := s.buildGridView(r, month)
+	v, err := s.buildGridView(r, tenantID, month)
 	if err != nil {
 		s.log.Error("build grid", "month", month, "error", err)
 		s.renderError(w, r, http.StatusInternalServerError, "error.server")
@@ -73,27 +80,41 @@ func (s *Server) handleGrid(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildGridView assembles a month from four queries rather than one per cell.
-func (s *Server) buildGridView(r *http.Request, month domain.YearMonth) (gridView, error) {
+//
+// Employees the caller holds no permission on at all are omitted as columns
+// entirely, not merely locked — the per-employee visibility RBAC gives each
+// account. Among the rest, a column is locked unless the caller can write
+// that employee's hours (in addition to the existing employment-period lock).
+func (s *Server) buildGridView(r *http.Request, tenantID int64, month domain.YearMonth) (gridView, error) {
 	ctx := r.Context()
+	id, _ := auth.IdentityFrom(ctx)
 
-	employees, err := s.db.EmployeesActiveIn(ctx, month)
+	all, err := s.db.EmployeesActiveIn(ctx, tenantID, month)
 	if err != nil {
 		return gridView{}, err
 	}
-	entries, err := s.db.MonthEntries(ctx, month)
+	employees := make([]domain.Employee, 0, len(all))
+	for _, e := range all {
+		if id.Can(domain.PermRead, e.ID, tenantID) {
+			employees = append(employees, e)
+		}
+	}
+
+	entries, err := s.db.MonthEntries(ctx, tenantID, month)
 	if err != nil {
 		return gridView{}, err
 	}
-	comments, err := s.db.DayComments(ctx, month)
+	comments, err := s.db.DayComments(ctx, tenantID, month)
 	if err != nil {
 		return gridView{}, err
 	}
-	totals, err := s.db.Totals(ctx, month)
+	totals, err := s.db.Totals(ctx, tenantID, month)
 	if err != nil {
 		return gridView{}, err
 	}
 
 	base := s.newView(r, "app.title")
+	base.TenantID = tenantID
 	v := gridView{
 		view:         base,
 		Month:        month,
@@ -120,11 +141,12 @@ func (s *Server) buildGridView(r *http.Request, month domain.YearMonth) (gridVie
 			Cells:     make([]gridCell, 0, len(employees)),
 		}
 		for _, e := range employees {
+			locked := !e.Employed(day) || !id.Can(domain.PermWrite, e.ID, tenantID)
 			row.Cells = append(row.Cells, gridCell{
 				EmployeeID: e.ID,
 				DateISO:    day.String(),
 				Hours:      entries[e.ID][day],
-				Locked:     !e.Employed(day),
+				Locked:     locked,
 			})
 		}
 		v.Rows = append(v.Rows, row)
@@ -150,19 +172,30 @@ func (s *Server) handleSetHours(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	tenantID, ok := s.resolveActiveTenant(w, r)
+	if !ok {
+		return
+	}
 	if err := parseAnyForm(r); err != nil {
-		s.writeSetResult(w, r, month, "", "error.invalid_input", http.StatusBadRequest)
+		s.writeSetResult(w, r, tenantID, month, "", "error.invalid_input", http.StatusBadRequest)
 		return
 	}
 
 	employeeID, err := strconv.ParseInt(r.PostFormValue("employee_id"), 10, 64)
 	if err != nil {
-		s.writeSetResult(w, r, month, "", "error.invalid_input", http.StatusBadRequest)
+		s.writeSetResult(w, r, tenantID, month, "", "error.invalid_input", http.StatusBadRequest)
 		return
 	}
+
+	id, _ := auth.IdentityFrom(r.Context())
+	if !id.Can(domain.PermWrite, employeeID, tenantID) {
+		s.writeSetResult(w, r, tenantID, month, "", "error.forbidden", http.StatusForbidden)
+		return
+	}
+
 	day, err := domain.ParseDate(r.PostFormValue("date"))
 	if err != nil {
-		s.writeSetResult(w, r, month, "", "error.invalid_date", http.StatusBadRequest)
+		s.writeSetResult(w, r, tenantID, month, "", "error.invalid_date", http.StatusBadRequest)
 		return
 	}
 
@@ -172,7 +205,7 @@ func (s *Server) handleSetHours(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, domain.ErrHoursRange) {
 			key = "error.hours_range"
 		}
-		s.writeSetResult(w, r, month, "", key, http.StatusUnprocessableEntity)
+		s.writeSetResult(w, r, tenantID, month, "", key, http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -183,19 +216,19 @@ func (s *Server) handleSetHours(w http.ResponseWriter, r *http.Request) {
 			// did not come from that template.
 			s.log.Warn("write to a locked cell rejected",
 				"employee", employeeID, "date", day, "remote", r.RemoteAddr)
-			s.writeSetResult(w, r, month, "", "error.not_employed", http.StatusUnprocessableEntity)
+			s.writeSetResult(w, r, tenantID, month, "", "error.not_employed", http.StatusUnprocessableEntity)
 		case errors.Is(err, domain.ErrHoursRange):
-			s.writeSetResult(w, r, month, "", "error.hours_range", http.StatusUnprocessableEntity)
+			s.writeSetResult(w, r, tenantID, month, "", "error.hours_range", http.StatusUnprocessableEntity)
 		case errors.Is(err, store.ErrNotFound):
-			s.writeSetResult(w, r, month, "", "error.not_found", http.StatusNotFound)
+			s.writeSetResult(w, r, tenantID, month, "", "error.not_found", http.StatusNotFound)
 		default:
 			s.log.Error("set hours", "error", err)
-			s.writeSetResult(w, r, month, "", "error.server", http.StatusInternalServerError)
+			s.writeSetResult(w, r, tenantID, month, "", "error.server", http.StatusInternalServerError)
 		}
 		return
 	}
 
-	s.writeSetResult(w, r, month, hours.Format(s.sepFor(r)), "", http.StatusOK)
+	s.writeSetResult(w, r, tenantID, month, hours.Format(s.sepFor(r)), "", http.StatusOK)
 }
 
 func (s *Server) handleSetComment(w http.ResponseWriter, r *http.Request) {
@@ -203,21 +236,25 @@ func (s *Server) handleSetComment(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	tenantID, ok := s.resolveActiveTenant(w, r)
+	if !ok {
+		return
+	}
 	if err := parseAnyForm(r); err != nil {
-		s.writeSetResult(w, r, month, "", "error.invalid_input", http.StatusBadRequest)
+		s.writeSetResult(w, r, tenantID, month, "", "error.invalid_input", http.StatusBadRequest)
 		return
 	}
 	day, err := domain.ParseDate(r.PostFormValue("date"))
 	if err != nil {
-		s.writeSetResult(w, r, month, "", "error.invalid_date", http.StatusBadRequest)
+		s.writeSetResult(w, r, tenantID, month, "", "error.invalid_date", http.StatusBadRequest)
 		return
 	}
-	if err := s.db.SetDayComment(r.Context(), day, r.PostFormValue("comment")); err != nil {
+	if err := s.db.SetDayComment(r.Context(), tenantID, day, r.PostFormValue("comment")); err != nil {
 		s.log.Error("set comment", "error", err)
-		s.writeSetResult(w, r, month, "", "error.server", http.StatusInternalServerError)
+		s.writeSetResult(w, r, tenantID, month, "", "error.server", http.StatusInternalServerError)
 		return
 	}
-	s.writeSetResult(w, r, month, "", "", http.StatusOK)
+	s.writeSetResult(w, r, tenantID, month, "", "", http.StatusOK)
 }
 
 // setResult is the JSON body the enhanced path receives. It carries the
@@ -232,7 +269,7 @@ type setResult struct {
 	GrandTotal    string `json:"grandTotal,omitempty"`
 }
 
-func (s *Server) writeSetResult(w http.ResponseWriter, r *http.Request, month domain.YearMonth, value, errKey string, status int) {
+func (s *Server) writeSetResult(w http.ResponseWriter, r *http.Request, tenantID int64, month domain.YearMonth, value, errKey string, status int) {
 	if !wantsJSON(r) {
 		target := s.url("/m/%s", month)
 		if errKey != "" {
@@ -246,7 +283,7 @@ func (s *Server) writeSetResult(w http.ResponseWriter, r *http.Request, month do
 	res := setResult{OK: errKey == "", Value: value}
 	if errKey != "" {
 		res.Error = v.T(errKey)
-	} else if totals, err := s.db.Totals(r.Context(), month); err == nil {
+	} else if totals, err := s.db.Totals(r.Context(), tenantID, month); err == nil {
 		sep := v.DecimalSep()
 		res.GrandTotal = totals.Grand.Format(sep)
 		if id, err := strconv.ParseInt(r.PostFormValue("employee_id"), 10, 64); err == nil {

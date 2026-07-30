@@ -17,8 +17,12 @@ import (
 var ErrDuplicateUsername = errors.New("username already exists")
 
 // CreateUser adds an account, hashing the password with bcrypt.
-func (db *DB) CreateUser(ctx context.Context, username, password, role string) (int64, error) {
-	return db.CreateUserWeak(ctx, username, password, role, false)
+//
+// The account starts with no access at all: creating it and granting it a
+// role are separate steps (see rbac.go), so there is never a moment where an
+// account exists with an implicit role nobody asked for.
+func (db *DB) CreateUser(ctx context.Context, username, password string) (int64, error) {
+	return db.CreateUserWeak(ctx, username, password, false)
 }
 
 // CreateUserWeak is CreateUser with the option to skip the password length
@@ -28,12 +32,9 @@ func (db *DB) CreateUser(ctx context.Context, username, password, role string) (
 // throwaway credentials. It is a separate, explicitly named entry point rather
 // than a lower global minimum, so that every caller that waives the rule is
 // greppable and no ordinary call site can waive it by accident.
-func (db *DB) CreateUserWeak(ctx context.Context, username, password, role string, allowWeak bool) (int64, error) {
+func (db *DB) CreateUserWeak(ctx context.Context, username, password string, allowWeak bool) (int64, error) {
 	username = strings.TrimSpace(username)
 	if err := domain.ValidUsername(username); err != nil {
-		return 0, err
-	}
-	if err := domain.ValidRole(role); err != nil {
 		return 0, err
 	}
 	if password == "" {
@@ -51,8 +52,8 @@ func (db *DB) CreateUserWeak(ctx context.Context, username, password, role strin
 	}
 
 	res, err := db.ExecContext(ctx,
-		`INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)`,
-		username, string(hash), role)
+		`INSERT INTO users (username, password_hash) VALUES (?, ?)`,
+		username, string(hash))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return 0, fmt.Errorf("store: create user %q: %w", username, ErrDuplicateUsername)
@@ -172,10 +173,10 @@ func (db *DB) Authenticate(ctx context.Context, username, password string) (doma
 func (db *DB) UserByUsername(ctx context.Context, username string) (domain.User, error) {
 	var u domain.User
 	err := db.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, language
+		`SELECT id, username, password_hash, language
 		   FROM users WHERE username = ? COLLATE NOCASE`,
 		strings.TrimSpace(username)).
-		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Language)
+		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Language)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.User{}, fmt.Errorf("store: user %q: %w", username, ErrNotFound)
 	}
@@ -187,7 +188,7 @@ func (db *DB) UserByUsername(ctx context.Context, username string) (domain.User,
 
 // Users lists every account, without password hashes.
 func (db *DB) Users(ctx context.Context) ([]domain.User, error) {
-	rows, err := db.QueryContext(ctx, `SELECT id, username, role, language FROM users ORDER BY username`)
+	rows, err := db.QueryContext(ctx, `SELECT id, username, language FROM users ORDER BY username`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list users: %w", err)
 	}
@@ -196,7 +197,7 @@ func (db *DB) Users(ctx context.Context) ([]domain.User, error) {
 	var out []domain.User
 	for rows.Next() {
 		var u domain.User
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.Language); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Language); err != nil {
 			return nil, fmt.Errorf("store: list users: %w", err)
 		}
 		out = append(out, u)
@@ -207,8 +208,7 @@ func (db *DB) Users(ctx context.Context) ([]domain.User, error) {
 	return out, nil
 }
 
-// HasUsers reports whether any account exists, so the server can tell the
-// operator to create the first one rather than silently refusing every login.
+// HasUsers reports whether any account exists at all.
 func (db *DB) HasUsers(ctx context.Context) (bool, error) {
 	var n int
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&n); err != nil {
@@ -228,35 +228,67 @@ func (db *DB) CreateSession(ctx context.Context, token string, userID int64, exp
 	return nil
 }
 
-// SessionUser resolves a session token to its account, rejecting expired ones.
-func (db *DB) SessionUser(ctx context.Context, token string) (domain.User, error) {
+// SessionByToken resolves a session token to its account and active tenant,
+// rejecting expired sessions.
+//
+// Returns plain values rather than a store-defined struct so that
+// auth.UserStore (which deliberately avoids importing this package — see its
+// doc comment) can declare a method with an identical signature and have
+// *DB satisfy it structurally.
+func (db *DB) SessionByToken(ctx context.Context, token string) (domain.User, *int64, error) {
 	var (
-		u       domain.User
-		expires string
+		u              domain.User
+		expires        string
+		activeTenantID sql.NullInt64
 	)
 	err := db.QueryRowContext(ctx,
-		`SELECT u.id, u.username, u.password_hash, u.role, u.language, s.expires_at
+		`SELECT u.id, u.username, u.password_hash, u.language, s.active_tenant_id, s.expires_at
 		   FROM sessions s
 		   JOIN users u ON u.id = s.user_id
 		  WHERE s.token = ?`, token).
-		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Language, &expires)
+		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Language, &activeTenantID, &expires)
 	if errors.Is(err, sql.ErrNoRows) {
-		return domain.User{}, ErrNotFound
+		return domain.User{}, nil, ErrNotFound
 	}
 	if err != nil {
-		return domain.User{}, fmt.Errorf("store: session lookup: %w", err)
+		return domain.User{}, nil, fmt.Errorf("store: session lookup: %w", err)
 	}
 
 	exp, err := time.Parse(time.RFC3339, expires)
 	if err != nil {
-		return domain.User{}, fmt.Errorf("store: session expiry: %w", err)
+		return domain.User{}, nil, fmt.Errorf("store: session expiry: %w", err)
 	}
 	if time.Now().After(exp) {
 		// Clean up on the way past rather than needing a sweeper.
 		_ = db.DeleteSession(ctx, token)
-		return domain.User{}, ErrNotFound
+		return domain.User{}, nil, ErrNotFound
 	}
-	return u, nil
+
+	var tenantID *int64
+	if activeTenantID.Valid {
+		tenantID = &activeTenantID.Int64
+	}
+	return u, tenantID, nil
+}
+
+// SetActiveTenant persists which tenant a session has activated — the RBAC96
+// session role-activation step, adapted to tenant scoping: a user assigned
+// roles in several tenants activates only one tenant's roles per session.
+// tenantID nil clears the selection.
+func (db *DB) SetActiveTenant(ctx context.Context, token string, tenantID *int64) error {
+	res, err := db.ExecContext(ctx,
+		`UPDATE sessions SET active_tenant_id = ? WHERE token = ?`, tenantID, token)
+	if err != nil {
+		return fmt.Errorf("store: set active tenant: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("store: set active tenant: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("store: set active tenant: %w", ErrNotFound)
+	}
+	return nil
 }
 
 // DeleteSession revokes one session.
@@ -281,4 +313,22 @@ func (db *DB) PurgeExpiredSessions(ctx context.Context) error {
 // the driver's concrete error type.
 func isUniqueViolation(err error) bool {
 	return err != nil && strings.Contains(strings.ToUpper(err.Error()), "UNIQUE CONSTRAINT FAILED")
+}
+
+// isForeignKeyViolation recognises SQLite's foreign key error the same way.
+func isForeignKeyViolation(err error) bool {
+	return err != nil && strings.Contains(strings.ToUpper(err.Error()), "FOREIGN KEY CONSTRAINT FAILED")
+}
+
+// isCheckViolation recognises a rejected CHECK constraint or RAISE(ABORT, ...)
+// trigger the same way — both are how the RBAC scope-consistency rules in
+// migration 00004 surface.
+func isCheckViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	up := strings.ToUpper(err.Error())
+	return strings.Contains(up, "CHECK CONSTRAINT FAILED") || strings.Contains(up, "CONSTRAINT FAILED") ||
+		strings.Contains(err.Error(), "role scope too narrow for permission") ||
+		strings.Contains(err.Error(), "role assigned at the wrong scope")
 }

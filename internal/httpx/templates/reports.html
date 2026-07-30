@@ -5,8 +5,10 @@
   <a class="btn" href="{{ .NextURL }}" rel="next">{{ .T "nav.next_month" }} &rarr;</a>
 </div>
 
+{{ if .MonthURL }}
 <h2>{{ .T "report.month_overview" }}</h2>
 <p><a class="btn btn-primary" href="{{ .MonthURL }}">{{ .T "report.download" }}</a></p>
+{{ end }}
 
 <h2>{{ .T "employee.heading" }}</h2>
 {{ if not .Employees }}

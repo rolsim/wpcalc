@@ -6,12 +6,13 @@ Installing, running and maintaining wpcalc.
 
 ---
 
-> **Roles are recorded but not yet enforced.** Every signed-in account can add,
-> edit and delete employees and download every report, whichever role it
-> holds. The `admin` / `user` distinction exists in the database and in the
-> WordPress bridge, but no route checks it. Treat every account as a full
-> administrator until that changes, and do not hand out `user` accounts
-> expecting them to be limited.
+> **This is a multi-tenant application with enforced RBAC.** Several
+> companies ("Mandanten") can share one database, fully isolated from each
+> other. Access follows the NIST RBAC96 model: an account holds one or more
+> **roles**, each scoped to the whole system, to one tenant, or to one
+> employee. See [Multi-tenancy and roles](#multi-tenancy-and-roles) below —
+> a freshly created account has **no access at all** until a role is
+> granted.
 
 ## Two ways to run
 
@@ -29,12 +30,15 @@ Both serve exactly the same application.
 ```sh
 make build                                            # -> bin/wpcalc
 ./bin/wpcalc migrate --db /var/lib/wpcalc/wpcalc.db   # creates the file
-./bin/wpcalc user add alice -role admin --db /var/lib/wpcalc/wpcalc.db
+./bin/wpcalc user add alice --db /var/lib/wpcalc/wpcalc.db
+./bin/wpcalc user grant alice --system -role super_admin --db /var/lib/wpcalc/wpcalc.db
 ./bin/wpcalc serve --addr :8080 --db /var/lib/wpcalc/wpcalc.db
 ```
 
-`serve` **refuses to start when no accounts exist**, rather than offering a
-login that cannot succeed. Create the first account before starting it.
+`serve` **refuses to start when no account can manage the database**, rather
+than offering a login that cannot succeed. Create the first account and
+grant it `super_admin` before starting it — see
+[Multi-tenancy and roles](#multi-tenancy-and-roles).
 
 The binary is statically linked with no cgo, so it has no runtime
 dependencies — copy it to the host and run it.
@@ -45,8 +49,12 @@ dependencies — copy it to the host and run it.
 |---|---|
 | `serve --addr :8080 \| --socket PATH` | run the server; exactly one listener |
 | `migrate [up\|down\|status]` | apply, roll back one, or report migrations |
-| `user add\|passwd\|lang\|list` | manage accounts |
-| `sample-employees [--month YYYY-MM]` | create placeholder employees; records **no hours** |
+| `user add\|passwd\|lang\|roles\|list` | manage accounts |
+| `user grant\|revoke <name> [-system\|-tenant ID\|-employee ID] [-role ID]` | assign or remove a role |
+| `tenant add\|list\|rename` | manage tenants ("Mandanten") |
+| `role add\|list\|delete\|permissions` | manage the role catalog and what each role can do |
+| `permission list` | list the fixed permission catalog (read-only) |
+| `sample-employees [--month YYYY-MM] [--tenant ID]` | create placeholder employees; records **no hours** |
 | `manual [user\|admin]` | show an embedded manual |
 | `plugin export DIR` | write the WordPress plugin out of the binary |
 | `version [--short]` | print the build: version, commit, date, Go |
@@ -90,7 +98,7 @@ and login appears to fail for no reason.
 ## Accounts
 
 ```sh
-./bin/wpcalc user add alice -role admin --db DB   # prompts for a password
+./bin/wpcalc user add alice --db DB   # prompts for a password; no access yet
 ./bin/wpcalc user passwd alice --db DB            # also revokes alice's sessions
 ./bin/wpcalc user list --db DB
 ```
@@ -99,6 +107,10 @@ Passwords are bcrypt-hashed and must be at least 10 characters. Usernames are
 case-insensitive. Sessions are stored server-side and last 12 hours, so
 signing out or changing a password revokes access immediately rather than
 leaving a token valid until it expires.
+
+`user add` only creates credentials — the account can do nothing until a role
+is granted (see the next section). There is no moment where an account exists
+with an implicit role nobody asked for.
 
 > `--allow-weak-password` waives the length requirement. It exists so a local
 > development database can be primed with throwaway credentials such as
@@ -112,7 +124,7 @@ browser". Users change it themselves from the selector in the top bar; you can
 set it when creating an account or afterwards:
 
 ```sh
-./bin/wpcalc user add alice -role admin -lang en --db DB
+./bin/wpcalc user add alice -lang en --db DB
 ./bin/wpcalc user lang alice de-CH --db DB    # de_CH is accepted too
 ./bin/wpcalc user lang alice "" --db DB       # back to following the browser
 ```
@@ -129,11 +141,99 @@ site administrator set, with no way to tell which was authoritative.
 There is no way to delete an account from the CLI yet; remove the row from the
 `users` table directly if you need to. Its sessions go with it.
 
+## Multi-tenancy and roles
+
+wpcalc follows [NIST RBAC96](https://csrc.nist.gov/projects/role-based-access-control)
+(Sandhu, Coyne, Feinstein, Youman 1996) — the same model as Kubernetes
+RoleBindings or AWS/GCP IAM policies: a **role** bundles **permissions**, and
+a **role assignment** grants a role to a user at a **scope**. There are three
+scopes, from broadest to narrowest:
+
+- **system** — the whole database; a system-scope role covers every tenant.
+- **tenant** — one company ("Mandant"); covers every employee in it.
+- **employee** — one person's timesheet data only.
+
+Out of the box, five roles exist (all fully editable — see below):
+
+| Role | Scope | Can do |
+|---|---|---|
+| `super_admin` | system | Everything: manage tenants, roles, employees, and users, anywhere. |
+| `mandant_admin` | tenant | Manage one tenant's employees and its users' employee-scope roles. |
+| `viewer` | employee | Read one employee's grid. |
+| `reporter` | employee | Read, and download that employee's PDF reports. |
+| `editor` | employee | Read, print, and enter that employee's hours. |
+
+Every permission check in the app is a lookup against the role a caller holds
+at a scope covering the thing they're touching — nothing is hardcoded to a
+role's name. A `mandant_admin`'s access ends at their own tenant: they get a
+`404` (not `403`, so existence isn't leaked) reaching into another tenant's
+employee, and `403` on system-wide pages like tenant management.
+
+### Setting it up
+
+```sh
+./bin/wpcalc tenant add "Acme Corp" --db DB               # -> tenant id, e.g. 2
+./bin/wpcalc user add alice --db DB
+./bin/wpcalc user grant alice --system -role super_admin --db DB
+
+./bin/wpcalc user add bob --db DB
+./bin/wpcalc user grant bob -tenant 2 -role mandant_admin --db DB
+
+./bin/wpcalc user add carol --db DB
+./bin/wpcalc user grant carol -employee 5 -role viewer --db DB
+
+./bin/wpcalc user roles bob --db DB                       # what bob can reach
+./bin/wpcalc user revoke carol -employee 5 --db DB         # revoke-then-grant to change a role
+```
+
+A user holds at most one role per scope *instance* — `-employee 5` twice with
+different roles is rejected; revoke first. `-system`, `-tenant ID`, and
+`-employee ID` are mutually exclusive; exactly one is required.
+
+An account with several tenant- or employee-scope grants across different
+tenants sees a **tenant switcher** in the top bar and, on first login (or
+after a role change leaves the previously active tenant unreachable), a
+chooser page — RBAC96 calls this "session role activation": which of the
+account's several tenant memberships is active for this browser session.
+
+### Managing roles themselves
+
+Roles, their permissions, and every grant are editable from the web UI as
+well as the CLI — nothing here is a fixed enum:
+
+- **`/tenants`** (`manage_tenants`, system-wide) — list and create tenants.
+- **`/tenants/{id}/access`** (`manage_users`, per tenant) — grant or revoke an
+  *employee-scope* role for a user on one of that tenant's employees. A
+  mandant-admin reaches this but cannot mint another mandant-admin here —
+  that's deliberate; see below.
+- **`/roles`** (`manage_roles`, system-wide) — the only page that can create
+  another `super_admin` or `mandant_admin`. Also where roles themselves are
+  defined: create a role, delete one (fails while still assigned or holding
+  permissions), and toggle which permissions it holds.
+
+```sh
+./bin/wpcalc role add auditor -name Auditor -scope tenant --db DB
+./bin/wpcalc role permissions auditor -add read --db DB
+./bin/wpcalc role permissions auditor -add manage_tenants --db DB   # rejected: min_scope=system
+./bin/wpcalc role list --db DB
+./bin/wpcalc permission list --db DB
+```
+
+Permissions themselves (`read`, `print`, `write`, `manage_employees`,
+`manage_users`, `manage_tenants`, `manage_roles`) are the one fixed part of
+this: each corresponds to an actual check in the code, so there is no
+`permission add` — inventing one through the UI would do nothing. A role's
+`scope` must be broad enough for every permission it holds (`manage_tenants`
+needs `system`; `read` can apply as narrowly as `employee`) — both the CLI
+and a database trigger enforce this.
+
 ## Employees
 
-Manage them under **Mitarbeitende / Employees**. Each has a name, a start date
-and an optional end date; leave the end date empty while someone is still
-employed.
+Manage them under **Mitarbeitende / Employees**, scoped to whichever tenant
+is currently active (see [Multi-tenancy and roles](#multi-tenancy-and-roles)
+above) — this page and its actions all require `manage_employees` in that
+tenant. Each employee has a name, a start date and an optional end date;
+leave the end date empty while someone is still employed.
 
 Two behaviours worth knowing:
 
@@ -219,7 +319,9 @@ container published on `0.0.0.0:PORT` also blocks `127.0.0.1:PORT`.
 ss -ltnp | grep :8080
 ```
 
-**`no accounts exist`** — the user table is empty. Run `user add`.
+**`no account can manage this database yet`** — either no account exists, or
+none holds `super_admin`. Run `user add` and `user grant --system -role
+super_admin`.
 
 **`serve: one of --addr or --socket is required`** — deliberate. Defaulting to
 TCP would publish the app on a host that meant to use the socket.

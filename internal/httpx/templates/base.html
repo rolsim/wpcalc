@@ -11,10 +11,24 @@
     <a class="brand" href="{{ .URL "/" }}">{{ .T "app.title" }}</a>
     <nav>
       <a href="{{ .URL "/" }}">{{ .T "nav.grid" }}</a>
-      <a href="{{ .URL "/employees" }}">{{ .T "nav.employees" }}</a>
+      {{ if .Identity.CanInTenant "manage_employees" .TenantID }}<a href="{{ .URL "/employees" }}">{{ .T "nav.employees" }}</a>{{ end }}
       <a href="{{ .URL "/reports" }}">{{ .T "nav.reports" }}</a>
+      {{ if .Identity.CanSystemWide "manage_tenants" }}<a href="{{ .URL "/tenants" }}">{{ .T "nav.tenants" }}</a>{{ end }}
+      {{ if .Identity.CanSystemWide "manage_roles" }}<a href="{{ .URL "/roles" }}">{{ .T "nav.roles" }}</a>{{ end }}
     </nav>
     <div class="topbar-right">
+      {{ if .AccessibleTenants }}
+        <form class="tenant-form" method="post" action="{{ .TenantSwitchURL }}">
+          <input type="hidden" name="return_to" value="{{ .CurrentPath }}">
+          <label class="visually-hidden" for="tenant-select">{{ .T "tenant.switch" }}</label>
+          <select id="tenant-select" name="tenant_id" data-autosubmit>
+            {{ range .AccessibleTenants }}
+              <option value="{{ .ID }}"{{ if .Selected }} selected{{ end }}>{{ .Name }}</option>
+            {{ end }}
+          </select>
+          <button type="submit">{{ $.T "tenant.switch" }}</button>
+        </form>
+      {{ end }}
       {{ if .Languages }}
         <form class="lang-form" method="post" action="{{ .LanguageURL }}">
           <input type="hidden" name="return_to" value="{{ .CurrentPath }}">

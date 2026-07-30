@@ -1,0 +1,36 @@
+{{ define "content" }}
+<div class="page-head">
+  <h1>{{ .T "tenant.heading" }}</h1>
+</div>
+
+{{ if not .Tenants }}
+  <p class="empty">{{ .T "tenant.none" }}</p>
+{{ else }}
+<table class="list">
+  <thead>
+    <tr>
+      <th scope="col">{{ .T "tenant.name" }}</th>
+      <th scope="col"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {{ $root := . }}
+    {{ range .Tenants }}
+      <tr>
+        <th scope="row">{{ .Name }}</th>
+        <td class="row-actions">
+          <a class="btn btn-quiet" href="{{ $root.URL "/tenants/%d/access" .ID }}">{{ $root.T "tenant.access" }}</a>
+        </td>
+      </tr>
+    {{ end }}
+  </tbody>
+</table>
+{{ end }}
+
+<h2>{{ .T "tenant.new" }}</h2>
+<form method="post" action="{{ .URL "/tenants" }}">
+  <label for="tenant-name">{{ .T "tenant.name" }}</label>
+  <input id="tenant-name" name="name" type="text" required>
+  <button class="btn btn-primary" type="submit">{{ .T "tenant.create" }}</button>
+</form>
+{{ end }}

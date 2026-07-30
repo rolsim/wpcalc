@@ -93,7 +93,13 @@ func (a *WordPress) Identify(r *http.Request) (Identity, error) {
 		return Identity{}, ErrUnauthenticated
 	}
 
-	return Identity{Username: user, Roles: splitRoles(roles)}, nil
+	// The plugin only proxies a request here once PHP's current_user_can(
+	// 'manage_options') has already passed, regardless of the caller's
+	// WordPress role name — a custom role granted that capability is just as
+	// trusted as "administrator". So every identity that reaches this point
+	// has full access; there is no lesser tier under WordPress mode, and
+	// nothing here needs the caller's actual WordPress role list.
+	return Identity{Username: user, FullAccess: true}, nil
 }
 
 // Sign produces the signature the PHP shim must send. Exported so the e2e test
@@ -111,18 +117,4 @@ func (a *WordPress) mac(user, roles, ts string) []byte {
 	m := hmac.New(sha256.New, a.secret)
 	fmt.Fprintf(m, "%s\n%s\n%s", user, roles, ts)
 	return m.Sum(nil)
-}
-
-func splitRoles(s string) []string {
-	if strings.TrimSpace(s) == "" {
-		return nil
-	}
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }

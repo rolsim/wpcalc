@@ -4,8 +4,6 @@ import (
 	"errors"
 	"testing"
 	"time"
-
-	"github.com/rolsim/wpcalc/internal/domain"
 )
 
 const goodPassword = "a-sufficiently-long-password"
@@ -14,7 +12,7 @@ func TestCreateAndAuthenticateUser(t *testing.T) {
 	db := testDB(t)
 	ctx := t.Context()
 
-	if _, err := db.CreateUser(ctx, "alice", goodPassword, domain.RoleAdmin); err != nil {
+	if _, err := db.CreateUser(ctx, "alice", goodPassword); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
@@ -22,8 +20,8 @@ func TestCreateAndAuthenticateUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
-	if u.Username != "alice" || !u.IsAdmin() {
-		t.Errorf("got %+v, want alice as admin", u)
+	if u.Username != "alice" {
+		t.Errorf("got %+v, want alice", u)
 	}
 
 	// The stored value must be a hash, never the password itself.
@@ -44,7 +42,7 @@ func TestAuthenticateDoesNotRevealWhetherUserExists(t *testing.T) {
 	// into a user enumerator. Both paths must run a bcrypt comparison.
 	db := testDB(t)
 	ctx := t.Context()
-	if _, err := db.CreateUser(ctx, "alice", goodPassword, domain.RoleUser); err != nil {
+	if _, err := db.CreateUser(ctx, "alice", goodPassword); err != nil {
 		t.Fatal(err)
 	}
 
@@ -73,10 +71,10 @@ func TestAuthenticateDoesNotRevealWhetherUserExists(t *testing.T) {
 func TestUsernamesAreCaseInsensitiveAndUnique(t *testing.T) {
 	db := testDB(t)
 	ctx := t.Context()
-	if _, err := db.CreateUser(ctx, "Alice", goodPassword, domain.RoleUser); err != nil {
+	if _, err := db.CreateUser(ctx, "Alice", goodPassword); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.CreateUser(ctx, "alice", goodPassword, domain.RoleUser); !errors.Is(err, ErrDuplicateUsername) {
+	if _, err := db.CreateUser(ctx, "alice", goodPassword); !errors.Is(err, ErrDuplicateUsername) {
 		t.Errorf("duplicate in different case: got %v, want ErrDuplicateUsername", err)
 	}
 	if _, err := db.Authenticate(ctx, "ALICE", goodPassword); err != nil {
@@ -87,15 +85,14 @@ func TestUsernamesAreCaseInsensitiveAndUnique(t *testing.T) {
 func TestCreateUserValidates(t *testing.T) {
 	db := testDB(t)
 	ctx := t.Context()
-	cases := []struct{ name, user, pw, role string }{
-		{"empty username", "", goodPassword, domain.RoleUser},
-		{"whitespace in username", "two words", goodPassword, domain.RoleUser},
-		{"short password", "bob", "short", domain.RoleUser},
-		{"unknown role", "bob", goodPassword, "superuser"},
+	cases := []struct{ name, user, pw string }{
+		{"empty username", "", goodPassword},
+		{"whitespace in username", "two words", goodPassword},
+		{"short password", "bob", "short"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if _, err := db.CreateUser(ctx, c.user, c.pw, c.role); err == nil {
+			if _, err := db.CreateUser(ctx, c.user, c.pw); err == nil {
 				t.Error("accepted an invalid account")
 			}
 		})
@@ -105,7 +102,7 @@ func TestCreateUserValidates(t *testing.T) {
 func TestSessionLifecycle(t *testing.T) {
 	db := testDB(t)
 	ctx := t.Context()
-	id, err := db.CreateUser(ctx, "alice", goodPassword, domain.RoleAdmin)
+	id, err := db.CreateUser(ctx, "alice", goodPassword)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,34 +110,76 @@ func TestSessionLifecycle(t *testing.T) {
 	if err := db.CreateSession(ctx, "token-abc", id, time.Now().Add(time.Hour)); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-	u, err := db.SessionUser(ctx, "token-abc")
+	u, activeTenantID, err := db.SessionByToken(ctx, "token-abc")
 	if err != nil {
-		t.Fatalf("SessionUser: %v", err)
+		t.Fatalf("SessionByToken: %v", err)
 	}
 	if u.Username != "alice" {
 		t.Errorf("session resolved to %q", u.Username)
+	}
+	if activeTenantID != nil {
+		t.Errorf("active tenant = %v before ever being set, want nil", activeTenantID)
 	}
 
 	if err := db.DeleteSession(ctx, "token-abc"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.SessionUser(ctx, "token-abc"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := db.SessionByToken(ctx, "token-abc"); !errors.Is(err, ErrNotFound) {
 		t.Error("revoked session still resolves; logging out does not log out")
 	}
-	if _, err := db.SessionUser(ctx, "never-existed"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := db.SessionByToken(ctx, "never-existed"); !errors.Is(err, ErrNotFound) {
 		t.Error("unknown token resolved to a user")
+	}
+}
+
+func TestSetActiveTenant(t *testing.T) {
+	db := testDB(t)
+	ctx := t.Context()
+	id, err := db.CreateUser(ctx, "alice", goodPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateSession(ctx, "tok", id, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	tenantID := int64(1)
+	if err := db.SetActiveTenant(ctx, "tok", &tenantID); err != nil {
+		t.Fatalf("SetActiveTenant: %v", err)
+	}
+	_, got, err := db.SessionByToken(ctx, "tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || *got != tenantID {
+		t.Errorf("active tenant = %v, want %d", got, tenantID)
+	}
+
+	if err := db.SetActiveTenant(ctx, "tok", nil); err != nil {
+		t.Fatalf("SetActiveTenant(nil): %v", err)
+	}
+	_, got, err = db.SessionByToken(ctx, "tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Errorf("active tenant after clearing = %v, want nil", got)
+	}
+
+	if err := db.SetActiveTenant(ctx, "no-such-token", &tenantID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("SetActiveTenant on an unknown token: got %v, want ErrNotFound", err)
 	}
 }
 
 func TestExpiredSessionIsRejectedAndCleanedUp(t *testing.T) {
 	db := testDB(t)
 	ctx := t.Context()
-	id, _ := db.CreateUser(ctx, "alice", goodPassword, domain.RoleUser)
+	id, _ := db.CreateUser(ctx, "alice", goodPassword)
 
 	if err := db.CreateSession(ctx, "stale", id, time.Now().Add(-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.SessionUser(ctx, "stale"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := db.SessionByToken(ctx, "stale"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expired session accepted: %v", err)
 	}
 
@@ -158,7 +197,7 @@ func TestChangingPasswordRevokesExistingSessions(t *testing.T) {
 	// Leaving the attacker's session working would defeat the point.
 	db := testDB(t)
 	ctx := t.Context()
-	id, _ := db.CreateUser(ctx, "alice", goodPassword, domain.RoleUser)
+	id, _ := db.CreateUser(ctx, "alice", goodPassword)
 	if err := db.CreateSession(ctx, "live-token", id, time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +206,7 @@ func TestChangingPasswordRevokesExistingSessions(t *testing.T) {
 		t.Fatalf("SetPassword: %v", err)
 	}
 
-	if _, err := db.SessionUser(ctx, "live-token"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := db.SessionByToken(ctx, "live-token"); !errors.Is(err, ErrNotFound) {
 		t.Error("session survived a password change")
 	}
 	if _, err := db.Authenticate(ctx, "alice", "a-brand-new-long-password"); err != nil {
@@ -181,7 +220,7 @@ func TestChangingPasswordRevokesExistingSessions(t *testing.T) {
 func TestDeletingUserCascadesToSessions(t *testing.T) {
 	db := testDB(t)
 	ctx := t.Context()
-	id, _ := db.CreateUser(ctx, "alice", goodPassword, domain.RoleUser)
+	id, _ := db.CreateUser(ctx, "alice", goodPassword)
 	if err := db.CreateSession(ctx, "tok", id, time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +244,7 @@ func TestHasUsersAndList(t *testing.T) {
 	if err != nil || has {
 		t.Fatalf("HasUsers on an empty database = (%v, %v), want (false, nil)", has, err)
 	}
-	if _, err := db.CreateUser(ctx, "alice", goodPassword, domain.RoleAdmin); err != nil {
+	if _, err := db.CreateUser(ctx, "alice", goodPassword); err != nil {
 		t.Fatal(err)
 	}
 	if has, _ := db.HasUsers(ctx); !has {
@@ -228,7 +267,7 @@ func TestHasUsersAndList(t *testing.T) {
 func TestPurgeExpiredSessions(t *testing.T) {
 	db := testDB(t)
 	ctx := t.Context()
-	id, _ := db.CreateUser(ctx, "alice", goodPassword, domain.RoleUser)
+	id, _ := db.CreateUser(ctx, "alice", goodPassword)
 	if err := db.CreateSession(ctx, "old", id, time.Now().Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -255,21 +294,21 @@ func TestWeakPasswordWaiverIsOptInOnly(t *testing.T) {
 	ctx := t.Context()
 
 	for _, pw := range []string{"admin", "user", "short"} {
-		if _, err := db.CreateUser(ctx, "someone", pw, domain.RoleUser); err == nil {
+		if _, err := db.CreateUser(ctx, "someone", pw); err == nil {
 			t.Errorf("CreateUser accepted the weak password %q", pw)
 		}
 	}
 
 	// And with the waiver, the same password is accepted and actually works.
-	if _, err := db.CreateUserWeak(ctx, "admin", "admin", domain.RoleAdmin, true); err != nil {
+	if _, err := db.CreateUserWeak(ctx, "admin", "admin", true); err != nil {
 		t.Fatalf("CreateUserWeak: %v", err)
 	}
 	u, err := db.Authenticate(ctx, "admin", "admin")
 	if err != nil {
 		t.Fatalf("Authenticate with the primed credentials: %v", err)
 	}
-	if !u.IsAdmin() {
-		t.Error("primed admin account does not hold the admin role")
+	if u.Username != "admin" {
+		t.Errorf("got %+v, want admin", u)
 	}
 	// Still a hash on disk — the waiver is about length, not about storage.
 	if u.PasswordHash == "admin" || len(u.PasswordHash) < 50 {
@@ -283,10 +322,10 @@ func TestEmptyPasswordIsRejectedEvenWithTheWaiver(t *testing.T) {
 	db := testDB(t)
 	ctx := t.Context()
 
-	if _, err := db.CreateUserWeak(ctx, "nobody", "", domain.RoleUser, true); err == nil {
+	if _, err := db.CreateUserWeak(ctx, "nobody", "", true); err == nil {
 		t.Error("CreateUserWeak accepted an empty password")
 	}
-	if _, err := db.CreateUserWeak(ctx, "someone", "x", domain.RoleUser, true); err != nil {
+	if _, err := db.CreateUserWeak(ctx, "someone", "x", true); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.SetPasswordWeak(ctx, "someone", "", true); err == nil {

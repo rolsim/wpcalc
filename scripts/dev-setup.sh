@@ -25,6 +25,9 @@ DB="${2:-.dev/wpcalc.db}"
 # --allow-weak-password explicitly rather than the minimum being lowered.
 ADMIN_NAME="admin"; ADMIN_PASS="admin"; ADMIN_LANG="en"
 USER_NAME="user";  USER_PASS="user";  USER_LANG="de-CH"
+# The sample employee "user" is scoped to — Muster A, id 1, created below by
+# sample-employees, which always assigns ids 1-4 in a fresh database.
+USER_EMPLOYEE_ID=1
 
 # ---- 1. port ------------------------------------------------------------
 
@@ -80,11 +83,16 @@ export GOPRIVATE='github.com/rolsim/*'
 # Placeholder employees so the grid has columns. No hours are recorded.
 go run ./cmd/wpcalc sample-employees --db "${DB}" --month "$(date +%Y-%m)"
 
-# serve refuses to start with an empty user table, so these are required, not a
-# convenience. One of each role, so both permission paths can be exercised.
+# serve refuses to start unless some account can manage the database, so
+# these are required, not a convenience. One system-wide admin and one
+# account scoped to a single employee, so both permission paths can be
+# exercised.
 printf '%s\n' "${ADMIN_PASS}" |
-	go run ./cmd/wpcalc user add "${ADMIN_NAME}" -role admin -lang "${ADMIN_LANG}" --allow-weak-password --db "${DB}" 2>/dev/null
-printf '%s\n' "${USER_PASS}" |
-	go run ./cmd/wpcalc user add "${USER_NAME}" -role user -lang "${USER_LANG}" --allow-weak-password --db "${DB}" 2>/dev/null
+	go run ./cmd/wpcalc user add "${ADMIN_NAME}" -lang "${ADMIN_LANG}" --allow-weak-password --db "${DB}" 2>/dev/null
+go run ./cmd/wpcalc user grant "${ADMIN_NAME}" --system -role super_admin --db "${DB}"
 
-echo "--- dev logins: ${ADMIN_NAME}/${ADMIN_PASS} (admin, ${ADMIN_LANG}), ${USER_NAME}/${USER_PASS} (user, ${USER_LANG}) ---"
+printf '%s\n' "${USER_PASS}" |
+	go run ./cmd/wpcalc user add "${USER_NAME}" -lang "${USER_LANG}" --allow-weak-password --db "${DB}" 2>/dev/null
+go run ./cmd/wpcalc user grant "${USER_NAME}" -employee "${USER_EMPLOYEE_ID}" -role editor --db "${DB}"
+
+echo "--- dev logins: ${ADMIN_NAME}/${ADMIN_PASS} (super_admin, ${ADMIN_LANG}), ${USER_NAME}/${USER_PASS} (editor on employee ${USER_EMPLOYEE_ID}, ${USER_LANG}) ---"

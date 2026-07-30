@@ -26,16 +26,6 @@ brief's number was not met and the file is bigger than "thin" suggests.
 Splitting the settings screen into its own file would bring the main one back
 near target without changing behaviour.
 
-**Roles are stored but not enforced.** `users.role` is `admin` or `user`,
-`Identity.IsAdmin()` exists, and the WordPress bridge passes roles through —
-but no route checks any of it. Every signed-in account can add, edit and
-delete employees and download every report. The gap matters more now that the
-dev setup primes a `user`/`user` account, which reads as restricted and is
-not. Both administrator guides carry the caveat. Fixing it means deciding what
-a plain user should actually be allowed to do — probably: enter hours, see the
-grid, download their own report, and nothing else — which is a product
-decision rather than a missing check.
-
 **No pagination or archiving on the employee list.** Every employee ever
 recorded appears on `/employees`, including long-departed ones. The *grid* is
 correctly filtered by month, which is what the brief specified; the management

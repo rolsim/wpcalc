@@ -6,22 +6,18 @@ import (
 	"strings"
 )
 
-// Roles a user may hold.
-const (
-	RoleAdmin = "admin"
-	RoleUser  = "user"
-)
-
 // User is an account that can sign in to the standalone server.
 //
 // Under WordPress this type is unused: identity comes from WordPress's own
 // user table via the signed headers, and maintaining a parallel account list
 // there would be a second, weaker way into the same data.
+//
+// An account's access is entirely derived from its UserRole rows (see
+// rbac.go) — there is no role or employee link on User itself.
 type User struct {
 	ID           int64
 	Username     string
 	PasswordHash string
-	Role         string
 
 	// Language is the interface locale this account prefers, or "" to follow
 	// the browser. It is deliberately not validated against the shipped
@@ -35,9 +31,6 @@ const LanguageAuto = ""
 
 // ErrInvalidUser is the sentinel for account validation failures.
 var ErrInvalidUser = errors.New("invalid user")
-
-// IsAdmin reports whether the account may manage employees and other users.
-func (u User) IsAdmin() bool { return u.Role == RoleAdmin }
 
 // ValidUsername checks the name is usable before it reaches the database.
 func ValidUsername(name string) error {
@@ -54,16 +47,6 @@ func ValidUsername(name string) error {
 		return fmt.Errorf("%w: username may not contain whitespace", ErrInvalidUser)
 	}
 	return nil
-}
-
-// ValidRole checks a role string.
-func ValidRole(role string) error {
-	switch role {
-	case RoleAdmin, RoleUser:
-		return nil
-	default:
-		return fmt.Errorf("%w: unknown role %q", ErrInvalidUser, role)
-	}
 }
 
 // MinPasswordLength is the shortest password the CLI will set.

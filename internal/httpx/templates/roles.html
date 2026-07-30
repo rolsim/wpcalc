@@ -1,0 +1,115 @@
+{{ define "content" }}
+<div class="page-head">
+  <h1>{{ .T "role.heading" }}</h1>
+</div>
+
+<table class="list">
+  <thead>
+    <tr>
+      <th scope="col">{{ .T "role.name" }}</th>
+      <th scope="col">{{ .T "role.scope" }}</th>
+      <th scope="col">{{ .T "role.permissions" }}</th>
+      <th scope="col"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {{ $root := . }}
+    {{ range .Roles }}
+      <tr>
+        <th scope="row">{{ .Name }} <code>{{ .ID }}</code></th>
+        <td>{{ .Scope }}</td>
+        <td>
+          {{ range .Permissions }}<code>{{ . }}</code> {{ end }}
+        </td>
+        <td class="row-actions">
+          <form method="post" action="{{ $root.URL "/roles/%s/delete" .ID }}"
+                data-confirm="{{ $root.T "role.delete_confirm" }}">
+            <button class="btn btn-danger" type="submit">{{ $root.T "role.delete" }}</button>
+          </form>
+        </td>
+      </tr>
+    {{ end }}
+  </tbody>
+</table>
+
+<h2>{{ .T "role.new" }}</h2>
+<form method="post" action="{{ .URL "/roles" }}">
+  <label for="role-id">{{ .T "role.id" }}</label>
+  <input id="role-id" name="id" type="text" required pattern="[a-z0-9_]+">
+
+  <label for="role-name">{{ .T "role.name" }}</label>
+  <input id="role-name" name="name" type="text" required>
+
+  <label for="role-scope">{{ .T "role.scope" }}</label>
+  <select id="role-scope" name="scope" required>
+    <option value="system">system</option>
+    <option value="tenant">tenant</option>
+    <option value="employee">employee</option>
+  </select>
+
+  <button class="btn btn-primary" type="submit">{{ .T "role.create" }}</button>
+</form>
+
+<h2>{{ .T "role.permissions" }}</h2>
+<form method="post" id="role-permission-form">
+  <label for="perm-role">{{ .T "role.heading" }}</label>
+  <select id="perm-role" name="role_id_display" onchange="document.getElementById('role-permission-form').action = '/roles/' + this.value + '/permissions'">
+    {{ range .Roles }}<option value="{{ .ID }}">{{ .Name }}</option>{{ end }}
+  </select>
+  <label for="perm-id">{{ .T "role.permission" }}</label>
+  <select id="perm-id" name="permission_id">
+    {{ range .Permissions }}<option value="{{ .ID }}">{{ .ID }} ({{ .MinScope }})</option>{{ end }}
+  </select>
+  <button class="btn btn-primary" type="submit">{{ .T "role.add_permission" }}</button>
+</form>
+<p class="empty">{{ .T "role.remove_permission_hint" }}</p>
+
+<h2>{{ .T "role.admin_assignments" }}</h2>
+{{ if not .Assignments }}
+  <p class="empty">{{ .T "role.admin_assignments_none" }}</p>
+{{ else }}
+<table class="list">
+  <thead>
+    <tr>
+      <th scope="col">{{ .T "tenant.user" }}</th>
+      <th scope="col">{{ .T "tenant.heading" }}</th>
+      <th scope="col">{{ .T "role.heading" }}</th>
+      <th scope="col"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {{ range .Assignments }}
+      <tr>
+        <th scope="row">{{ .Username }}</th>
+        <td>{{ if .TenantName }}{{ .TenantName }}{{ else }}—{{ end }}</td>
+        <td>{{ .RoleName }}</td>
+        <td class="row-actions">
+          <form method="post" action="{{ $root.URL "/roles/revoke" }}">
+            <input type="hidden" name="user_id" value="{{ .UserID }}">
+            {{ if .TenantID }}<input type="hidden" name="tenant_id" value="{{ .TenantID }}">{{ end }}
+            <button class="btn btn-danger" type="submit">{{ $root.T "tenant.revoke" }}</button>
+          </form>
+        </td>
+      </tr>
+    {{ end }}
+  </tbody>
+</table>
+{{ end }}
+
+<h2>{{ .T "role.assign" }}</h2>
+<form method="post" action="{{ .URL "/roles/assign" }}">
+  <label for="assign-username">{{ .T "tenant.user" }}</label>
+  <input id="assign-username" name="username" type="text" required>
+
+  <label for="assign-tenant">{{ .T "tenant.heading" }} ({{ .T "role.assign_tenant_hint" }})</label>
+  <select id="assign-tenant" name="tenant_id">
+    <option value="">{{ .T "role.assign_system" }}</option>
+    {{ range .Tenants }}<option value="{{ .ID }}">{{ .Name }}</option>{{ end }}
+  </select>
+
+  <label for="assign-role">{{ .T "role.heading" }}</label>
+  <input id="assign-role" name="role_id" type="text" required placeholder="super_admin / mandant_admin">
+
+  <button class="btn btn-primary" type="submit">{{ .T "role.assign" }}</button>
+</form>
+{{ end }}

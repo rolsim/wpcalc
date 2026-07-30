@@ -13,24 +13,34 @@ import (
 
 // fakeUserStore lets the account authenticator be tested without a database.
 type fakeUserStore struct {
-	users    map[string]domain.User
-	langs    map[int64]string
-	password string
-	sessions map[string]int64
-	expiries map[string]time.Time
-	failNext error
+	users        map[string]domain.User
+	userRoles    map[int64][]domain.UserRole
+	rolePerms    map[string][]string
+	langs        map[int64]string
+	password     string
+	sessions     map[string]int64
+	expiries     map[string]time.Time
+	activeTenant map[string]*int64
+	failNext     error
 }
 
 func newFakeStore() *fakeUserStore {
 	return &fakeUserStore{
 		users: map[string]domain.User{
-			"alice": {ID: 1, Username: "alice", Role: domain.RoleAdmin},
-			"bob":   {ID: 2, Username: "bob", Role: domain.RoleUser},
+			"alice": {ID: 1, Username: "alice"},
+			"bob":   {ID: 2, Username: "bob"},
 		},
-		password: "correct-horse-battery",
-		sessions: map[string]int64{},
-		expiries: map[string]time.Time{},
-		langs:    map[int64]string{},
+		userRoles: map[int64][]domain.UserRole{
+			1: {{ID: 1, UserID: 1, RoleID: "super_admin"}}, // system-scope: alice is the admin
+		},
+		rolePerms: map[string][]string{
+			"super_admin": {"manage_tenants", "manage_roles", "manage_employees", "manage_users", "read", "print", "write"},
+		},
+		password:     "correct-horse-battery",
+		sessions:     map[string]int64{},
+		expiries:     map[string]time.Time{},
+		activeTenant: map[string]*int64{},
+		langs:        map[int64]string{},
 	}
 }
 
@@ -42,20 +52,20 @@ func (f *fakeUserStore) Authenticate(_ context.Context, username, password strin
 	return u, nil
 }
 
-func (f *fakeUserStore) SessionUser(_ context.Context, token string) (domain.User, error) {
+func (f *fakeUserStore) SessionByToken(_ context.Context, token string) (domain.User, *int64, error) {
 	id, ok := f.sessions[token]
 	if !ok {
-		return domain.User{}, errors.New("no session")
+		return domain.User{}, nil, errors.New("no session")
 	}
 	if exp, ok := f.expiries[token]; ok && time.Now().After(exp) {
-		return domain.User{}, errors.New("expired")
+		return domain.User{}, nil, errors.New("expired")
 	}
 	for _, u := range f.users {
 		if u.ID == id {
-			return u, nil
+			return u, f.activeTenant[token], nil
 		}
 	}
-	return domain.User{}, errors.New("orphan session")
+	return domain.User{}, nil, errors.New("orphan session")
 }
 
 func (f *fakeUserStore) CreateSession(_ context.Context, token string, userID int64, expires time.Time) error {
@@ -81,9 +91,30 @@ func (f *fakeUserStore) SetUserLanguage(_ context.Context, userID int64, lang st
 	return errors.New("no such user")
 }
 
+func (f *fakeUserStore) SetActiveTenant(_ context.Context, token string, tenantID *int64) error {
+	if _, ok := f.sessions[token]; !ok {
+		return errors.New("no session")
+	}
+	f.activeTenant[token] = tenantID
+	return nil
+}
+
+func (f *fakeUserStore) UserRolesForUser(_ context.Context, userID int64) ([]domain.UserRole, error) {
+	return f.userRoles[userID], nil
+}
+
+func (f *fakeUserStore) RolePermissionsFor(_ context.Context, roleIDs []string) (map[string][]string, error) {
+	out := make(map[string][]string, len(roleIDs))
+	for _, id := range roleIDs {
+		out[id] = f.rolePerms[id]
+	}
+	return out, nil
+}
+
 func (f *fakeUserStore) DeleteSession(_ context.Context, token string) error {
 	delete(f.sessions, token)
 	delete(f.expiries, token)
+	delete(f.activeTenant, token)
 	return nil
 }
 
@@ -121,8 +152,8 @@ func TestAccountsLoginIssuesServerSideSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
-	if id.Username != "alice" || !id.IsAdmin() {
-		t.Errorf("got %+v, want alice as admin", id)
+	if id.Username != "alice" || !id.CanSystemWide("manage_tenants") {
+		t.Errorf("got %+v, want alice with manage_tenants", id)
 	}
 }
 
@@ -167,7 +198,7 @@ func TestAccountsTokensAreDistinct(t *testing.T) {
 	}
 }
 
-func TestAccountsRoleIsTakenFromTheStoreNotTheCookie(t *testing.T) {
+func TestAccountsPermissionsAreTakenFromTheStoreNotTheCookie(t *testing.T) {
 	// Privilege must come from the record, so it cannot be raised by editing
 	// anything the browser holds.
 	store := newFakeStore()
@@ -184,14 +215,14 @@ func TestAccountsRoleIsTakenFromTheStoreNotTheCookie(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id.IsAdmin() {
-		t.Error("a plain user was identified as admin")
+	if id.CanSystemWide("manage_tenants") {
+		t.Error("a plain user was identified as having system access")
 	}
 
-	// Promote in the store; the same cookie must now report admin.
-	store.users["bob"] = domain.User{ID: 2, Username: "bob", Role: domain.RoleAdmin}
-	if id, _ := a.Identify(r); !id.IsAdmin() {
-		t.Error("role change in the store did not reach the identity")
+	// Promote in the store; the same cookie must now report the new access.
+	store.userRoles[2] = []domain.UserRole{{ID: 2, UserID: 2, RoleID: "super_admin"}}
+	if id, _ := a.Identify(r); !id.CanSystemWide("manage_tenants") {
+		t.Error("a role change in the store did not reach the identity")
 	}
 }
 
@@ -275,7 +306,7 @@ func TestIdentityCarriesTheStoredLanguage(t *testing.T) {
 	// The preference has to reach the identity, or every handler would need a
 	// second query to find out which language to render in.
 	store := newFakeStore()
-	store.users["alice"] = domain.User{ID: 1, Username: "alice", Role: domain.RoleAdmin, Language: "en"}
+	store.users["alice"] = domain.User{ID: 1, Username: "alice", Language: "en"}
 	a := NewAccounts(store)
 
 	w := httptest.NewRecorder()
@@ -331,5 +362,43 @@ func TestSetLanguageRequiresASession(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/language", nil)
 	if err := a.SetLanguage(r, "en"); !errors.Is(err, ErrUnauthenticated) {
 		t.Errorf("SetLanguage with no session: %v, want ErrUnauthenticated", err)
+	}
+}
+
+func TestSetActiveTenantPersistsAndReachesIdentity(t *testing.T) {
+	store := newFakeStore()
+	a := NewAccounts(store)
+
+	w := httptest.NewRecorder()
+	if err := a.Login(w, "alice", store.password); err != nil {
+		t.Fatal(err)
+	}
+	cookie := w.Result().Cookies()[0]
+
+	req := func() *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/tenant", nil)
+		r.AddCookie(cookie)
+		return r
+	}
+
+	tenantID := int64(7)
+	if err := a.SetActiveTenant(req(), &tenantID); err != nil {
+		t.Fatalf("SetActiveTenant: %v", err)
+	}
+	id, err := a.Identify(req())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id.ActiveTenantID == nil || *id.ActiveTenantID != tenantID {
+		t.Errorf("ActiveTenantID = %v, want %d", id.ActiveTenantID, tenantID)
+	}
+}
+
+func TestSetActiveTenantRequiresASession(t *testing.T) {
+	a := NewAccounts(newFakeStore())
+	r := httptest.NewRequest(http.MethodPost, "/tenant", nil)
+	tenantID := int64(1)
+	if err := a.SetActiveTenant(r, &tenantID); !errors.Is(err, ErrUnauthenticated) {
+		t.Errorf("SetActiveTenant with no session: %v, want ErrUnauthenticated", err)
 	}
 }

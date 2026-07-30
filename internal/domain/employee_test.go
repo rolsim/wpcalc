@@ -124,7 +124,7 @@ func TestOpenEndedEmploymentHasNoUpperBound(t *testing.T) {
 }
 
 func TestEmployeeValidate(t *testing.T) {
-	valid := Employee{DisplayName: "Fine", StartDate: date(t, "2026-01-01")}
+	valid := Employee{TenantID: 1, DisplayName: "Fine", StartDate: date(t, "2026-01-01")}
 	if err := valid.Validate(); err != nil {
 		t.Errorf("valid employee rejected: %v", err)
 	}
@@ -133,10 +133,12 @@ func TestEmployeeValidate(t *testing.T) {
 		name string
 		emp  Employee
 	}{
-		{"empty name", Employee{DisplayName: "", StartDate: date(t, "2026-01-01")}},
-		{"blank name", Employee{DisplayName: "   ", StartDate: date(t, "2026-01-01")}},
-		{"no start date", Employee{DisplayName: "NoStart"}},
+		{"no tenant", Employee{DisplayName: "NoTenant", StartDate: date(t, "2026-01-01")}},
+		{"empty name", Employee{TenantID: 1, DisplayName: "", StartDate: date(t, "2026-01-01")}},
+		{"blank name", Employee{TenantID: 1, DisplayName: "   ", StartDate: date(t, "2026-01-01")}},
+		{"no start date", Employee{TenantID: 1, DisplayName: "NoStart"}},
 		{"end before start", Employee{
+			TenantID:    1,
 			DisplayName: "Backwards",
 			StartDate:   date(t, "2026-07-01"),
 			EndDate:     ptrDate(t, "2026-06-01"),
@@ -153,7 +155,7 @@ func TestEmployeeValidate(t *testing.T) {
 
 func TestEndDateEqualToStartDateIsOneDayOfEmployment(t *testing.T) {
 	d := date(t, "2026-07-14")
-	e := Employee{DisplayName: "SingleDay", StartDate: d, EndDate: &d}
+	e := Employee{TenantID: 1, DisplayName: "SingleDay", StartDate: d, EndDate: &d}
 	if err := e.Validate(); err != nil {
 		t.Fatalf("single-day employment rejected: %v", err)
 	}

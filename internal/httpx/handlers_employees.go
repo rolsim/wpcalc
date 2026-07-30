@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/store"
 )
@@ -38,14 +39,20 @@ type employeeFormView struct {
 }
 
 func (s *Server) handleEmployeeList(w http.ResponseWriter, r *http.Request) {
-	employees, err := s.db.Employees(r.Context())
+	tenantID, ok := s.requireTenantPermission(w, r, domain.PermManageEmployees)
+	if !ok {
+		return
+	}
+	employees, err := s.db.Employees(r.Context(), tenantID)
 	if err != nil {
 		s.log.Error("list employees", "error", err)
 		s.renderError(w, r, http.StatusInternalServerError, "error.server")
 		return
 	}
 
-	v := employeeListView{view: s.newView(r, "employee.heading"), NewURL: s.url("/employees/new")}
+	base := s.newView(r, "employee.heading")
+	base.TenantID = tenantID
+	v := employeeListView{view: base, NewURL: s.url("/employees/new")}
 	if key := r.URL.Query().Get("err"); key != "" {
 		v.Error = v.T(errorKey(key))
 	}
@@ -67,8 +74,14 @@ func (s *Server) handleEmployeeList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEmployeeNew(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := s.requireTenantPermission(w, r, domain.PermManageEmployees)
+	if !ok {
+		return
+	}
+	base := s.newView(r, "employee.new")
+	base.TenantID = tenantID
 	v := employeeFormView{
-		view:      s.newView(r, "employee.new"),
+		view:      base,
 		IsNew:     true,
 		StartDate: domain.Today().String(),
 		ActionURL: s.url("/employees"),
@@ -78,20 +91,28 @@ func (s *Server) handleEmployeeNew(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEmployeeCreate(w http.ResponseWriter, r *http.Request) {
-	e, errKey := s.employeeFromForm(r, 0)
+	tenantID, ok := s.requireTenantPermission(w, r, domain.PermManageEmployees)
+	if !ok {
+		return
+	}
+	e, errKey := s.employeeFromForm(r, 0, tenantID)
 	if errKey != "" {
-		s.redisplayEmployeeForm(w, r, 0, true, errKey)
+		s.redisplayEmployeeForm(w, r, tenantID, 0, true, errKey)
 		return
 	}
 	if _, err := s.db.CreateEmployee(r.Context(), e); err != nil {
 		s.log.Error("create employee", "error", err)
-		s.redisplayEmployeeForm(w, r, 0, true, mapEmployeeError(err))
+		s.redisplayEmployeeForm(w, r, tenantID, 0, true, mapEmployeeError(err))
 		return
 	}
 	http.Redirect(w, r, s.url("/employees"), http.StatusSeeOther)
 }
 
 func (s *Server) handleEmployeeEdit(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := s.requireTenantPermission(w, r, domain.PermManageEmployees)
+	if !ok {
+		return
+	}
 	id, ok := s.employeeIDFromPath(w, r)
 	if !ok {
 		return
@@ -101,9 +122,17 @@ func (s *Server) handleEmployeeEdit(w http.ResponseWriter, r *http.Request) {
 		s.employeeLookupError(w, r, err)
 		return
 	}
+	if e.TenantID != tenantID {
+		// Same response as "no such id" — a cross-tenant lookup must not
+		// distinguish "wrong tenant" from "doesn't exist" for the caller.
+		s.renderError(w, r, http.StatusNotFound, "error.not_found")
+		return
+	}
 
+	base := s.newView(r, "employee.edit")
+	base.TenantID = tenantID
 	v := employeeFormView{
-		view:      s.newView(r, "employee.edit"),
+		view:      base,
 		ID:        e.ID,
 		Name:      e.DisplayName,
 		StartDate: e.StartDate.String(),
@@ -117,13 +146,27 @@ func (s *Server) handleEmployeeEdit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEmployeeUpdate(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := s.requireTenantPermission(w, r, domain.PermManageEmployees)
+	if !ok {
+		return
+	}
 	id, ok := s.employeeIDFromPath(w, r)
 	if !ok {
 		return
 	}
-	e, errKey := s.employeeFromForm(r, id)
+	existing, err := s.db.Employee(r.Context(), id)
+	if err != nil {
+		s.employeeLookupError(w, r, err)
+		return
+	}
+	if existing.TenantID != tenantID {
+		s.renderError(w, r, http.StatusNotFound, "error.not_found")
+		return
+	}
+
+	e, errKey := s.employeeFromForm(r, id, tenantID)
 	if errKey != "" {
-		s.redisplayEmployeeForm(w, r, id, false, errKey)
+		s.redisplayEmployeeForm(w, r, tenantID, id, false, errKey)
 		return
 	}
 	if err := s.db.UpdateEmployee(r.Context(), e); err != nil {
@@ -132,15 +175,28 @@ func (s *Server) handleEmployeeUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.log.Error("update employee", "error", err)
-		s.redisplayEmployeeForm(w, r, id, false, mapEmployeeError(err))
+		s.redisplayEmployeeForm(w, r, tenantID, id, false, mapEmployeeError(err))
 		return
 	}
 	http.Redirect(w, r, s.url("/employees"), http.StatusSeeOther)
 }
 
 func (s *Server) handleEmployeeDelete(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := s.requireTenantPermission(w, r, domain.PermManageEmployees)
+	if !ok {
+		return
+	}
 	id, ok := s.employeeIDFromPath(w, r)
 	if !ok {
+		return
+	}
+	existing, err := s.db.Employee(r.Context(), id)
+	if err != nil {
+		s.employeeLookupError(w, r, err)
+		return
+	}
+	if existing.TenantID != tenantID {
+		s.renderError(w, r, http.StatusNotFound, "error.not_found")
 		return
 	}
 	if err := s.db.DeleteEmployee(r.Context(), id); err != nil {
@@ -155,10 +211,27 @@ func (s *Server) handleEmployeeDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, s.url("/employees"), http.StatusSeeOther)
 }
 
+// requireTenantPermission resolves the active tenant and checks the caller
+// holds this permission there, rendering the failure itself either way —
+// callers stop and return when ok is false, same shape as
+// resolveActiveTenant.
+func (s *Server) requireTenantPermission(w http.ResponseWriter, r *http.Request, permission string) (int64, bool) {
+	tenantID, ok := s.resolveActiveTenant(w, r)
+	if !ok {
+		return 0, false
+	}
+	id, _ := auth.IdentityFrom(r.Context())
+	if !id.CanInTenant(permission, tenantID) {
+		s.renderError(w, r, http.StatusForbidden, "error.forbidden")
+		return 0, false
+	}
+	return tenantID, true
+}
+
 // employeeFromForm parses and validates a submission, returning a catalog key
 // on failure rather than an error, because every failure here is a message
 // shown next to the form.
-func (s *Server) employeeFromForm(r *http.Request, id int64) (domain.Employee, string) {
+func (s *Server) employeeFromForm(r *http.Request, id, tenantID int64) (domain.Employee, string) {
 	if err := parseAnyForm(r); err != nil {
 		return domain.Employee{}, "error.invalid_input"
 	}
@@ -173,7 +246,7 @@ func (s *Server) employeeFromForm(r *http.Request, id int64) (domain.Employee, s
 		return domain.Employee{}, "error.invalid_date"
 	}
 
-	e := domain.Employee{ID: id, DisplayName: name, StartDate: start}
+	e := domain.Employee{ID: id, TenantID: tenantID, DisplayName: name, StartDate: start}
 
 	// An empty end date is the normal case: still employed.
 	if raw := strings.TrimSpace(r.PostFormValue("end_date")); raw != "" {
@@ -192,7 +265,7 @@ func (s *Server) employeeFromForm(r *http.Request, id int64) (domain.Employee, s
 
 // redisplayEmployeeForm re-renders the form with the submitted values intact
 // and the failure explained, rather than redirecting and losing the input.
-func (s *Server) redisplayEmployeeForm(w http.ResponseWriter, r *http.Request, id int64, isNew bool, errKey string) {
+func (s *Server) redisplayEmployeeForm(w http.ResponseWriter, r *http.Request, tenantID, id int64, isNew bool, errKey string) {
 	titleKey := "employee.edit"
 	action := s.url("/employees/%d", id)
 	if isNew {
@@ -200,8 +273,10 @@ func (s *Server) redisplayEmployeeForm(w http.ResponseWriter, r *http.Request, i
 		action = s.url("/employees")
 	}
 
+	base := s.newView(r, titleKey)
+	base.TenantID = tenantID
 	v := employeeFormView{
-		view:      s.newView(r, titleKey),
+		view:      base,
 		ID:        id,
 		Name:      r.PostFormValue("name"),
 		StartDate: r.PostFormValue("start_date"),

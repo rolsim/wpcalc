@@ -22,11 +22,11 @@ import (
 // Source is the slice of the store the reports need.
 type Source interface {
 	Employee(ctx context.Context, id int64) (domain.Employee, error)
-	EmployeesActiveIn(ctx context.Context, m domain.YearMonth) ([]domain.Employee, error)
-	Totals(ctx context.Context, m domain.YearMonth) (store.MonthTotals, error)
+	EmployeesActiveIn(ctx context.Context, tenantID int64, m domain.YearMonth) ([]domain.Employee, error)
+	Totals(ctx context.Context, tenantID int64, m domain.YearMonth) (store.MonthTotals, error)
 	EmployeeEntries(ctx context.Context, employeeID int64, from, to domain.Date) ([]domain.TimeEntry, error)
 	EmployeeRangeTotal(ctx context.Context, employeeID int64, from, to domain.Date) (domain.Centihours, error)
-	DayComments(ctx context.Context, m domain.YearMonth) (map[domain.Date]string, error)
+	DayComments(ctx context.Context, tenantID int64, m domain.YearMonth) (map[domain.Date]string, error)
 }
 
 // Renderer produces the PDFs for one locale.
@@ -185,13 +185,14 @@ func clip(s string, width float64) string {
 	return s[:maxChars-1] + "…"
 }
 
-// MonthSummary lists how many hours each employee booked in the month.
-func (r *Renderer) MonthSummary(ctx context.Context, m domain.YearMonth, w io.Writer) error {
-	employees, err := r.src.EmployeesActiveIn(ctx, m)
+// MonthSummary lists how many hours each employee booked in the month, for
+// one tenant.
+func (r *Renderer) MonthSummary(ctx context.Context, tenantID int64, m domain.YearMonth, w io.Writer) error {
+	employees, err := r.src.EmployeesActiveIn(ctx, tenantID, m)
 	if err != nil {
 		return err
 	}
-	totals, err := r.src.Totals(ctx, m)
+	totals, err := r.src.Totals(ctx, tenantID, m)
 	if err != nil {
 		return err
 	}
@@ -231,7 +232,7 @@ func (r *Renderer) EmployeeMonth(ctx context.Context, employeeID int64, m domain
 	if err != nil {
 		return err
 	}
-	comments, err := r.src.DayComments(ctx, m)
+	comments, err := r.src.DayComments(ctx, e.TenantID, m)
 	if err != nil {
 		return err
 	}
