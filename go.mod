@@ -1,8 +1,9 @@
-module source.simonet.internal/rolsim/wpcalc
+module github.com/rolsim/wpcalc
 
 go 1.26.5
 
 require (
+	github.com/chromedp/chromedp v0.16.0
 	github.com/go-pdf/fpdf v0.9.0
 	github.com/pressly/goose/v3 v3.27.3
 	golang.org/x/crypto v0.54.0
@@ -13,7 +14,6 @@ require (
 
 require (
 	github.com/chromedp/cdproto v0.0.0-20260714215040-dc233986426f // indirect
-	github.com/chromedp/chromedp v0.16.0 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68 // indirect

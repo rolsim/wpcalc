@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/domain"
-	"source.simonet.internal/rolsim/wpcalc/internal/store"
+	"github.com/rolsim/wpcalc/internal/domain"
+	"github.com/rolsim/wpcalc/internal/store"
 )
 
 // gridCell is one crossing point of day and employee.

@@ -11,7 +11,7 @@ import (
 	"path"
 	"path/filepath"
 
-	wpcalc "source.simonet.internal/rolsim/wpcalc"
+	wpcalc "github.com/rolsim/wpcalc"
 )
 
 // cmdPlugin writes the WordPress plugin out of the binary.

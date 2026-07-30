@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/domain"
-	"source.simonet.internal/rolsim/wpcalc/internal/i18n"
-	"source.simonet.internal/rolsim/wpcalc/internal/store"
+	"github.com/rolsim/wpcalc/internal/domain"
+	"github.com/rolsim/wpcalc/internal/i18n"
+	"github.com/rolsim/wpcalc/internal/store"
 )
 
 func newRenderer(t *testing.T) (*Renderer, *store.DB) {

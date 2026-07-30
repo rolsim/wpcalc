@@ -8,9 +8,9 @@ import (
 	"net/url"
 	"strings"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/auth"
-	"source.simonet.internal/rolsim/wpcalc/internal/domain"
-	"source.simonet.internal/rolsim/wpcalc/internal/i18n"
+	"github.com/rolsim/wpcalc/internal/auth"
+	"github.com/rolsim/wpcalc/internal/domain"
+	"github.com/rolsim/wpcalc/internal/i18n"
 )
 
 // pageTemplates are the content templates, each rendered inside base.html.

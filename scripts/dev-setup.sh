@@ -75,7 +75,7 @@ fi
 echo "preparing ${DB} …"
 
 export CGO_ENABLED=0
-export GOPRIVATE='source.simonet.internal/*'
+export GOPRIVATE='github.com/rolsim/*'
 
 # Placeholder employees so the grid has columns. No hours are recorded.
 go run ./cmd/wpcalc sample-employees --db "${DB}" --month "$(date +%Y-%m)"

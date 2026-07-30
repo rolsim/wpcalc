@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	wpcalc "source.simonet.internal/rolsim/wpcalc"
+	wpcalc "github.com/rolsim/wpcalc"
 )
 
 func TestPluginSourcesAreEmbedded(t *testing.T) {

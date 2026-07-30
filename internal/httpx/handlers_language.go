@@ -3,8 +3,8 @@ package httpx
 import (
 	"net/http"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/auth"
-	"source.simonet.internal/rolsim/wpcalc/internal/domain"
+	"github.com/rolsim/wpcalc/internal/auth"
+	"github.com/rolsim/wpcalc/internal/domain"
 )
 
 // handleSetLanguage stores the caller's interface language.

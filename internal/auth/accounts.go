@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/domain"
+	"github.com/rolsim/wpcalc/internal/domain"
 )
 
 // UserStore is the slice of persistence the account authenticator needs.

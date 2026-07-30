@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/domain"
-	"source.simonet.internal/rolsim/wpcalc/internal/store"
+	"github.com/rolsim/wpcalc/internal/domain"
+	"github.com/rolsim/wpcalc/internal/store"
 )
 
 type employeeRow struct {

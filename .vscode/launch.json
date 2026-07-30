@@ -28,7 +28,7 @@
 
       "env": {
         "CGO_ENABLED": "0",
-        "GOPRIVATE": "source.simonet.internal/*"
+        "GOPRIVATE": "github.com/rolsim/*"
       },
 
       // Must be internalConsole: serverReadyAction watches the debug console
@@ -62,7 +62,7 @@
       ],
       "env": {
         "CGO_ENABLED": "0",
-        "GOPRIVATE": "source.simonet.internal/*"
+        "GOPRIVATE": "github.com/rolsim/*"
       },
       "console": "internalConsole",
       "serverReadyAction": {
@@ -91,7 +91,7 @@
       ],
       "env": {
         "CGO_ENABLED": "0",
-        "GOPRIVATE": "source.simonet.internal/*",
+        "GOPRIVATE": "github.com/rolsim/*",
         "WPCALC_SECRET": "dev-only-shared-secret-not-for-real-use"
       },
       "console": "internalConsole"
@@ -102,7 +102,7 @@
       "request": "launch",
       "mode": "test",
       "program": "${fileDirname}",
-      "env": { "CGO_ENABLED": "0", "GOPRIVATE": "source.simonet.internal/*" }
+      "env": { "CGO_ENABLED": "0", "GOPRIVATE": "github.com/rolsim/*" }
     }
   ]
 }

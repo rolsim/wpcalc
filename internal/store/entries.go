@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/domain"
+	"github.com/rolsim/wpcalc/internal/domain"
 )
 
 // SetHours records an employee's hours for one day.

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/domain"
+	"github.com/rolsim/wpcalc/internal/domain"
 )
 
 // fakeUserStore lets the account authenticator be tested without a database.

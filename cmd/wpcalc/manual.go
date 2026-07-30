@@ -13,8 +13,8 @@ import (
 	"sort"
 	"strings"
 
-	wpcalc "source.simonet.internal/rolsim/wpcalc"
-	"source.simonet.internal/rolsim/wpcalc/internal/i18n"
+	wpcalc "github.com/rolsim/wpcalc"
+	"github.com/rolsim/wpcalc/internal/i18n"
 )
 
 // cmdManual prints an embedded manual, rendered with glow when it is available.

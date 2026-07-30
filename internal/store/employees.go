@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/domain"
+	"github.com/rolsim/wpcalc/internal/domain"
 )
 
 // ErrNotFound is returned when a lookup by id matches no row.

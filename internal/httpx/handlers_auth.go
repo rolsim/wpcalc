@@ -3,7 +3,7 @@ package httpx
 import (
 	"net/http"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/auth"
+	"github.com/rolsim/wpcalc/internal/auth"
 )
 
 type loginView struct {

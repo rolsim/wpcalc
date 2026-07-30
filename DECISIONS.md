@@ -5,7 +5,7 @@ it would take to reverse each. Newest last.
 
 ---
 
-**Module path is `source.simonet.internal/rolsim/wpcalc`, with `GOPRIVATE` set
+**Module path is `github.com/rolsim/wpcalc`, with `GOPRIVATE` set
 in the Makefile.** The host is not publicly resolvable, so any module-proxy or
 checksum-database lookup would hang or fail. Harmless for a main module today,
 but a stall at 2am with nobody watching is exactly what the setting prevents.

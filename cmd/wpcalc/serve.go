@@ -12,10 +12,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/auth"
-	"source.simonet.internal/rolsim/wpcalc/internal/httpx"
-	"source.simonet.internal/rolsim/wpcalc/internal/i18n"
-	"source.simonet.internal/rolsim/wpcalc/internal/store"
+	"github.com/rolsim/wpcalc/internal/auth"
+	"github.com/rolsim/wpcalc/internal/httpx"
+	"github.com/rolsim/wpcalc/internal/i18n"
+	"github.com/rolsim/wpcalc/internal/store"
 )
 
 func cmdServe(ctx context.Context, args []string) error {

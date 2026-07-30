@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	wpcalc "source.simonet.internal/rolsim/wpcalc"
-	"source.simonet.internal/rolsim/wpcalc/internal/i18n"
+	wpcalc "github.com/rolsim/wpcalc"
+	"github.com/rolsim/wpcalc/internal/i18n"
 )
 
 // TestEveryCatalogHasAManual keeps the manuals and the interface languages in

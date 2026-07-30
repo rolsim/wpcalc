@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/domain"
+	"github.com/rolsim/wpcalc/internal/domain"
 )
 
 const goodPassword = "a-sufficiently-long-password"

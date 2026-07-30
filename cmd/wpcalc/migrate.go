@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/store"
+	"github.com/rolsim/wpcalc/internal/store"
 )
 
 // defaultDBPath resolves where the database lives, in precedence order:

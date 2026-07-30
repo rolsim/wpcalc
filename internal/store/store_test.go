@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/domain"
+	"github.com/rolsim/wpcalc/internal/domain"
 )
 
 // testDB opens a real database in a temp file rather than :memory:.

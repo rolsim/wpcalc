@@ -17,9 +17,9 @@ import (
 	"net/http"
 	"strings"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/auth"
-	"source.simonet.internal/rolsim/wpcalc/internal/i18n"
-	"source.simonet.internal/rolsim/wpcalc/internal/store"
+	"github.com/rolsim/wpcalc/internal/auth"
+	"github.com/rolsim/wpcalc/internal/i18n"
+	"github.com/rolsim/wpcalc/internal/store"
 )
 
 //go:embed templates/*.html

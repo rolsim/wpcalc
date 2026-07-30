@@ -14,10 +14,10 @@ import (
 	"strings"
 	"testing"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/auth"
-	"source.simonet.internal/rolsim/wpcalc/internal/domain"
-	"source.simonet.internal/rolsim/wpcalc/internal/i18n"
-	"source.simonet.internal/rolsim/wpcalc/internal/store"
+	"github.com/rolsim/wpcalc/internal/auth"
+	"github.com/rolsim/wpcalc/internal/domain"
+	"github.com/rolsim/wpcalc/internal/i18n"
+	"github.com/rolsim/wpcalc/internal/store"
 )
 
 // stubAuth stands in for a real authenticator so handler tests exercise the

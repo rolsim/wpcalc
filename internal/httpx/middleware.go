@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/auth"
+	"github.com/rolsim/wpcalc/internal/auth"
 )
 
 // tagConn records which listener accepted the request.

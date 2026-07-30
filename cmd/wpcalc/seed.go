@@ -5,8 +5,8 @@ import (
 	"flag"
 	"fmt"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/domain"
-	"source.simonet.internal/rolsim/wpcalc/internal/store"
+	"github.com/rolsim/wpcalc/internal/domain"
+	"github.com/rolsim/wpcalc/internal/store"
 )
 
 // cmdSampleEmployees creates placeholder employment records so the grid has

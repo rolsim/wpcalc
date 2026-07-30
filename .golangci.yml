@@ -18,7 +18,7 @@ linters:
 
 linters-settings:
   goimports:
-    local-prefixes: source.simonet.internal/rolsim/wpcalc
+    local-prefixes: github.com/rolsim/wpcalc
   errcheck:
     check-type-assertions: true
   revive:

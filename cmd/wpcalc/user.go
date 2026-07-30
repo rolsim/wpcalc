@@ -11,8 +11,8 @@ import (
 
 	"golang.org/x/term"
 
-	"source.simonet.internal/rolsim/wpcalc/internal/domain"
-	"source.simonet.internal/rolsim/wpcalc/internal/store"
+	"github.com/rolsim/wpcalc/internal/domain"
+	"github.com/rolsim/wpcalc/internal/store"
 )
 
 func cmdUser(ctx context.Context, args []string) error {
