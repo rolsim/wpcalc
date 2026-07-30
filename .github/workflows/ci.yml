@@ -18,9 +18,10 @@ jobs:
           go-version: "1.26.5"
 
       - name: Install golangci-lint
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh |
-            sh -s -- -b "$(go env GOPATH)/bin" v1.64.8
+        # go install rather than the prebuilt-binary install script: the
+        # prebuilt v1.64.8 release was compiled with go1.24, which refuses to
+        # lint a go1.26 module. Building it locally uses the toolchain above.
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 
       - name: make check
         run: make check
