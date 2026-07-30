@@ -42,6 +42,8 @@ func run(args []string) error {
 		return cmdRole(ctx, args[1:])
 	case "permission":
 		return cmdPermission(ctx, args[1:])
+	case "token":
+		return cmdToken(ctx, args[1:])
 	case "sample-employees":
 		return cmdSampleEmployees(ctx, args[1:])
 	case "manual":
@@ -70,6 +72,7 @@ Usage:
   wpcalc tenant add|list|rename [--db PATH]
   wpcalc role add|list|delete|permissions [--db PATH] [-name N] [-scope S] [-add|-remove PERM]
   wpcalc permission list [--db PATH]
+  wpcalc token create|list|revoke [--db PATH] [-name N]
   wpcalc sample-employees [--db PATH] [--month YYYY-MM] [--tenant ID]
   wpcalc manual [user|admin|testing] [--lang de-CH|en] [--raw] [--list]
   wpcalc plugin export DIR [--force] [--php-only]

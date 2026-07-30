@@ -128,6 +128,7 @@ keine Stunden erfasst — siehe Hinweis oben.
 | `wpcalc user grant\|revoke <Name> [-system\|-tenant ID\|-employee ID] [-role ID]` | Rolle zuweisen oder entziehen |
 | `wpcalc tenant add\|list\|rename` | Mandanten verwalten |
 | `wpcalc role add\|list\|delete\|permissions` | Rollenkatalog verwalten |
+| `wpcalc token create\|list\|revoke` | Bearer-Tokens für `/api/v1` ausstellen, auflisten oder widerrufen |
 | `wpcalc sample-employees [--month YYYY-MM]` | Platzhalter-Mitarbeitende anlegen; erfasst keine Stunden |
 | `wpcalc manual [user\|admin] [--lang L] [--raw] [--list]` | ein eingebettetes Handbuch anzeigen, via glow sofern verfügbar |
 | `wpcalc plugin export DIR [--force] [--php-only]` | das WordPress-Plugin aus der Binärdatei schreiben |
@@ -143,6 +144,29 @@ Flags dürfen vor oder nach Positionsargumenten stehen.
 | `WPCALC_SECRET` | `serve --socket` | HMAC-Secret, geteilt mit dem WordPress-Plugin |
 | `WPCALC_BASE_PATH` | `serve` | URL-Präfix, oder vollständige Basis-URL mit `--link-param` |
 | `WPCALC_LINK_PARAM` | `serve` | trägt den App-Pfad in diesem Query-Parameter |
+
+## API
+
+Die HTML-Anwendung dokumentiert sich selbst — `GET /openapi.json`,
+`/openapi.yaml` und ein interaktives `/openapi.html` (Swagger UI, gebündelt
+mitgeliefert — kein CDN, funktioniert offline), ohne Sitzung erforderlich.
+
+Eine separate, zustandslose JSON-API spiegelt die meisten derselben
+Ressourcen unter `/api/v1` — für Skripte statt Browser. Sie authentifiziert
+mit einem Bearer-Token statt dem Sitzungs-Cookie, und jede Anfrage nennt
+ihren Mandanten explizit im Pfad — es gibt keine Sitzung, in der ein
+"aktiver Mandant" gehalten werden könnte:
+
+```sh
+./bin/wpcalc token create alice           # gibt einmalig ein Token aus — aufbewahren
+curl -H "Authorization: Bearer wpat_..." http://localhost:8080/api/v1/tenants
+```
+
+Sie dokumentiert sich auf dieselbe Weise, unter
+`/api/v1/openapi.{json,yaml,html}` — `/api/v1/openapi.html` im Browser
+öffnen, um jeden Endpunkt zu durchsuchen und über den
+"Authorize"-Button Anfragen mit einem via `wpcalc token create` erstellten
+Token direkt gegen den laufenden Server auszuprobieren.
 
 ## WordPress-Plugin installieren
 
@@ -213,7 +237,9 @@ cmd/wpcalc/        Subcommands und beide Listener
 internal/domain/   Kalender, Anstellung, Ganzzahlstunden — pur, ohne I/O
 internal/store/    SQLite; goose-Migrationen eingebettet; jede Query lebt hier
 internal/httpx/    ein Handler-Baum, in beiden Modi identisch bedient
-internal/auth/     Authenticator: lokale Konten, oder signierte WordPress-Header
+internal/apiv1/    generierter strict-JSON-Server für /api/v1, über denselben Store
+internal/specdoc/  liefert ein geparstes OpenAPI-3.1-Dokument als JSON, YAML und interaktives HTML (Swagger UI, eingebettet)
+internal/auth/     Authenticator: lokale Konten, Bearer-Tokens, oder signierte WordPress-Header
 internal/report/   die drei PDFs
 internal/i18n/     eingebettete Kataloge; de-CH Standard, en verfügbar
 wordpress/wpcalc/  der PHP-Shim

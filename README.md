@@ -122,6 +122,7 @@ see the note above.
 | `wpcalc user grant\|revoke <name> [-system\|-tenant ID\|-employee ID] [-role ID]` | assign or remove a role |
 | `wpcalc tenant add\|list\|rename` | manage tenants |
 | `wpcalc role add\|list\|delete\|permissions` | manage the role catalog |
+| `wpcalc token create\|list\|revoke` | issue, list, or revoke `/api/v1` bearer tokens |
 | `wpcalc sample-employees [--month YYYY-MM]` | create placeholder employees; records no hours |
 | `wpcalc manual [user\|admin] [--lang L] [--raw] [--list]` | show an embedded manual, via glow when available |
 | `wpcalc plugin export DIR [--force] [--php-only]` | write the WordPress plugin out of the binary |
@@ -137,6 +138,27 @@ Flags may appear before or after positional arguments.
 | `WPCALC_SECRET` | `serve --socket` | HMAC secret shared with the WordPress plugin |
 | `WPCALC_BASE_PATH` | `serve` | URL prefix, or full base URL with `--link-param` |
 | `WPCALC_LINK_PARAM` | `serve` | carry the app path in this query parameter |
+
+## API
+
+The HTML app documents itself — `GET /openapi.json`, `/openapi.yaml`, and an
+interactive `/openapi.html` (Swagger UI, vendored — no CDN, works offline),
+no session required.
+
+A separate, stateless JSON API mirrors most of the same resources at
+`/api/v1`, for scripts rather than browsers. It authenticates with a bearer
+token instead of the session cookie, and every request names its tenant
+explicitly in the path — there is no session to hold an "active tenant" in:
+
+```sh
+./bin/wpcalc token create alice           # prints a token once — store it
+curl -H "Authorization: Bearer wpat_..." http://localhost:8080/api/v1/tenants
+```
+
+It documents itself the same way, at `/api/v1/openapi.{json,yaml,html}` —
+open `/api/v1/openapi.html` in a browser to browse every endpoint and, via
+its "Authorize" button, try requests against the running server with a
+token from `wpcalc token create`.
 
 ## Install the WordPress plugin
 
@@ -199,7 +221,9 @@ cmd/wpcalc/        subcommands and both listeners
 internal/domain/   calendar, employment, integer hours — pure, no I/O
 internal/store/    SQLite; goose migrations embedded; every query lives here
 internal/httpx/    one handler tree, served identically in both modes
-internal/auth/     Authenticator: local accounts, or signed WordPress headers
+internal/apiv1/    generated strict JSON server for /api/v1, over the same store
+internal/specdoc/  serves a parsed OpenAPI 3.1 doc as JSON, YAML, and interactive HTML (Swagger UI, vendored)
+internal/auth/     Authenticator: local accounts, bearer tokens, or signed WordPress headers
 internal/report/   the three PDFs
 internal/i18n/     embedded catalogs; de-CH default, en available
 wordpress/wpcalc/  the PHP shim

@@ -260,6 +260,89 @@ Under **Auswertungen / Reports**, or directly:
 Every figure comes from the same queries the grid renders from, so a printed
 page cannot disagree with the screen.
 
+## API
+
+wpcalc documents its own HTTP surface — `GET /openapi.json`, `/openapi.yaml`,
+and `/openapi.html`, no session required. That covers this page's own
+routes: the HTML app, its form bodies, its redirects.
+
+`/openapi.html` is an interactive Swagger UI page — every operation,
+schema, and a live "Authorize" + "Try it out" flow — not just a static
+listing. Its JS/CSS (`internal/specdoc/vendor/swagger-ui/`, Apache-2.0) are
+vendored into the binary at a pinned version, not loaded from a CDN, so the
+page still renders with no outbound network access.
+
+A second, separate surface, `/api/v1`, mirrors most of the same resources
+(tenants, employees, the hours grid, day comments, reports, roles,
+permissions, role assignments) as a stateless JSON API — for scripts, not
+browsers. It documents itself the same way, under
+`/api/v1/openapi.{json,yaml,html}`.
+
+### Authentication
+
+`/api/v1` never accepts the `wpcalc_session` cookie, and the HTML app never
+accepts a bearer token — two separate `Authenticator`s, by construction.
+Issue a token from the CLI:
+
+```sh
+./bin/wpcalc token create alice -name ci    # prints the token once — store it now
+./bin/wpcalc token list alice               # id, name, created, last used, active/revoked
+./bin/wpcalc token revoke 3
+```
+
+The plaintext is shown exactly once, at creation; only its SHA-256 hash is
+ever stored. Revoking a token does not touch the account's password or any
+browser session, and takes effect on the very next request — nothing is
+cached.
+
+```sh
+curl -H "Authorization: Bearer wpat_..." http://localhost:8080/api/v1/tenants
+```
+
+### What differs from the HTML app
+
+- **Every request names its tenant explicitly in the path**
+  (`/api/v1/tenants/{tenantId}/...`) — a bearer token has no session to hold
+  an "active tenant" in, so there is no tenant switcher or chooser here.
+- **No login, logout, language-preference, or tenant-switch routes** —
+  meaningless for a stateless client.
+- Every response is JSON with a real status code — no `303` redirects, no
+  `?err=` query-string tokens.
+
+### Authorization
+
+Same RBAC96 model as the rest of the app (see
+[Multi-tenancy and roles](#multi-tenancy-and-roles) above) — a bearer token
+resolves to the same identity a session cookie would, so the same roles and
+permissions apply. Each operation documents which permission it requires
+and at what scope; a few examples:
+
+| Operation | Permission | Scope |
+|---|---|---|
+| `GET /api/v1/tenants` | `manage_tenants` | system |
+| `GET /api/v1/tenants/{tenantId}/employees` | `manage_employees` | tenant |
+| `GET /api/v1/tenants/{tenantId}/months/{ym}` | `read` | employee |
+| `PUT .../months/{ym}/entries` | `write` | employee |
+| `GET .../months/{ym}/report` | `print` | tenant or employee |
+| `POST /api/v1/roles` | `manage_roles` | system |
+
+The full, authoritative list — every operation, its request and response
+shapes, and its permission — is in `/api/v1/openapi.html`, generated from
+the same spec (`internal/apiv1/openapi.yaml`) that `oapi-codegen` built the
+server from.
+
+### Contract enforcement
+
+`openapi.yaml` isn't only documentation: every `/api/v1` request is validated
+against it before any handler runs — a missing required field, a value
+outside an enum, a string that doesn't match its declared pattern, a
+path parameter of the wrong type — and every response is validated against
+it too, before it reaches the client. A request that violates the spec gets
+a `400` with a message naming what failed, not a partial or best-effort
+attempt to handle it; a response that would violate the spec becomes a
+clean `500` rather than shipping a body a client's own generated types
+couldn't parse.
+
 ## WordPress
 
 The binary carries the plugin, so it can install itself:

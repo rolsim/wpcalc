@@ -1,0 +1,8 @@
+package: apiv1
+output: server.gen.go
+generate:
+  models: true
+  std-http-server: true
+  strict-server: true
+output-options:
+  skip-prune: false

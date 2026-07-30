@@ -279,6 +279,94 @@ Unter **Auswertungen**, oder direkt:
 Alle Zahlen stammen aus denselben Abfragen, aus denen das Raster gezeichnet
 wird — ein Ausdruck kann dem Bildschirm nicht widersprechen.
 
+## API
+
+wpcalc dokumentiert seine eigene HTTP-Oberfläche — `GET /openapi.json`,
+`/openapi.yaml` und `/openapi.html`, ohne Sitzung erforderlich. Das deckt
+die Routen dieser Seite ab: die HTML-Anwendung, ihre Formular-Bodies, ihre
+Weiterleitungen.
+
+`/openapi.html` ist eine interaktive Swagger-UI-Seite — jede Operation,
+jedes Schema und ein echter "Authorize"- und "Try it out"-Ablauf, nicht nur
+eine statische Auflistung. Ihr JS/CSS
+(`internal/specdoc/vendor/swagger-ui/`, Apache-2.0) ist in einer fixierten
+Version in die Binärdatei eingebettet, nicht von einem CDN geladen — die
+Seite rendert also auch ohne ausgehenden Netzwerkzugriff.
+
+Eine zweite, separate Oberfläche, `/api/v1`, spiegelt die meisten
+derselben Ressourcen (Mandanten, Mitarbeitende, das Stundenraster,
+Tageskommentare, Auswertungen, Rollen, Berechtigungen, Rollenzuweisungen)
+als zustandslose JSON-API — für Skripte, nicht für Browser. Sie
+dokumentiert sich auf dieselbe Weise, unter `/api/v1/openapi.{json,yaml,html}`.
+
+### Authentifizierung
+
+`/api/v1` akzeptiert nie das `wpcalc_session`-Cookie, und die
+HTML-Anwendung akzeptiert nie ein Bearer-Token — zwei getrennte
+`Authenticator` per Konstruktion. Ein Token über die CLI ausstellen:
+
+```sh
+./bin/wpcalc token create alice -name ci    # gibt das Token einmalig aus — jetzt aufbewahren
+./bin/wpcalc token list alice               # id, Name, erstellt, zuletzt verwendet, aktiv/widerrufen
+./bin/wpcalc token revoke 3
+```
+
+Der Klartext wird genau einmal angezeigt, bei der Erstellung; gespeichert
+wird nur sein SHA-256-Hash. Das Widerrufen eines Tokens berührt weder das
+Passwort des Kontos noch eine Browser-Sitzung und wirkt bereits bei der
+nächsten Anfrage — nichts wird zwischengespeichert.
+
+```sh
+curl -H "Authorization: Bearer wpat_..." http://localhost:8080/api/v1/tenants
+```
+
+### Unterschiede zur HTML-Anwendung
+
+- **Jede Anfrage nennt ihren Mandanten explizit im Pfad**
+  (`/api/v1/tenants/{tenantId}/...`) — ein Bearer-Token hat keine Sitzung,
+  in der ein "aktiver Mandant" gehalten werden könnte, also gibt es hier
+  keinen Mandanten-Umschalter und keine Auswahlseite.
+- **Keine Routen für Login, Logout, Spracheinstellung oder
+  Mandanten-Wechsel** — für einen zustandslosen Client bedeutungslos.
+- Jede Antwort ist JSON mit einem echten Statuscode — keine
+  `303`-Weiterleitungen, keine `?err=`-Query-String-Token.
+
+### Autorisierung
+
+Dasselbe RBAC96-Modell wie im Rest der Anwendung (siehe
+[Mandanten und Rollen](#mandanten-und-rollen) oben) — ein Bearer-Token löst
+sich zur selben Identität auf wie ein Sitzungs-Cookie, also gelten dieselben
+Rollen und Berechtigungen. Jede Operation dokumentiert, welche Berechtigung
+sie in welchem Geltungsbereich verlangt; einige Beispiele:
+
+| Operation | Berechtigung | Geltungsbereich |
+|---|---|---|
+| `GET /api/v1/tenants` | `manage_tenants` | system |
+| `GET /api/v1/tenants/{tenantId}/employees` | `manage_employees` | tenant |
+| `GET /api/v1/tenants/{tenantId}/months/{ym}` | `read` | employee |
+| `PUT .../months/{ym}/entries` | `write` | employee |
+| `GET .../months/{ym}/report` | `print` | tenant oder employee |
+| `POST /api/v1/roles` | `manage_roles` | system |
+
+Die vollständige, massgebliche Liste — jede Operation, ihre Anfrage- und
+Antwortformen sowie ihre Berechtigung — steht in `/api/v1/openapi.html`,
+erzeugt aus derselben Spezifikation (`internal/apiv1/openapi.yaml`), aus
+der `oapi-codegen` den Server gebaut hat.
+
+### Durchsetzung der Spezifikation
+
+`openapi.yaml` ist nicht nur Dokumentation: Jede `/api/v1`-Anfrage wird
+dagegen validiert, bevor irgendein Handler läuft — ein fehlendes
+Pflichtfeld, ein Wert ausserhalb eines Enums, eine Zeichenkette, die nicht
+zu ihrem deklarierten Muster passt, ein Pfadparameter falschen Typs. Auch
+jede Antwort wird dagegen validiert, bevor sie den Client erreicht. Eine
+Anfrage, die der Spezifikation widerspricht, erhält ein `400` mit einer
+Meldung, was genau fehlgeschlagen ist — kein teilweiser oder
+Best-Effort-Versuch, sie trotzdem zu verarbeiten; eine Antwort, die der
+Spezifikation widersprechen würde, wird zu einem sauberen `500`, statt
+einen Body auszuliefern, den die generierten Typen eines Clients gar nicht
+erst parsen könnten.
+
 ## WordPress
 
 Die Binärdatei enthält das Plugin und kann sich selbst installieren:

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} — {{.Version}}</title>
+<link rel="stylesheet" href="openapi-assets/swagger-ui.css">
+<style>
+  /* Swagger UI's own topbar is a search form for loading an arbitrary
+     remote spec URL — meaningless here, where the spec is fixed and
+     embedded in the binary, so it's hidden rather than left as a dead
+     control. */
+  .swagger-ui .topbar { display: none; }
+  body { margin: 0; background: #fafafa; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1b1b1b; }
+  }
+</style>
+</head>
+<body>
+<div id="swagger-ui"></div>
+<script src="openapi-assets/swagger-ui-bundle.js"></script>
+<script src="openapi-assets/swagger-ui-standalone-preset.js"></script>
+<script>
+  window.onload = function () {
+    window.ui = SwaggerUIBundle({
+      url: "openapi.json",
+      dom_id: "#swagger-ui",
+      presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+      plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+      layout: "StandaloneLayout",
+      docExpansion: "list",
+      persistAuthorization: true
+    });
+  };
+</script>
+</body>
+</html>

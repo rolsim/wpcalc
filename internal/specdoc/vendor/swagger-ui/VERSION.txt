@@ -1,0 +1,12 @@
+swagger-ui v5.32.11
+Source: https://github.com/swagger-api/swagger-ui/tree/v5.32.11/dist
+License: Apache-2.0 (see LICENSE in this directory)
+
+Vendored files (unmodified, straight from the tagged dist/ directory):
+  swagger-ui-bundle.js
+  swagger-ui-standalone-preset.js
+  swagger-ui.css
+
+To upgrade: pick a new tag, re-download those three files plus LICENSE from
+the same path, and update this file. No build step — the dist/ files are
+already built.

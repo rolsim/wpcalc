@@ -108,6 +108,38 @@ func (s *Server) requireSystemPermission(permission string, next http.Handler) h
 	})
 }
 
+// requireBearerAuth is requireAuth's counterpart for /api/v1: every failure
+// is a JSON 401, never a redirect — a script calling a JSON API has nowhere
+// useful to follow an HTML login page to. `openapi.json`/`.yaml`/`.html`,
+// its Swagger UI assets, and `healthz` are exempted (checked against the
+// path with the /api/v1 prefix already stripped, since that is what this
+// middleware wraps), matching the root app's own `/healthz` being
+// reachable without a session — Swagger UI's own page load (fetching the
+// spec and its JS/CSS) must work before anyone has a token to authorize
+// with.
+func (s *Server) requireBearerAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/healthz", "/openapi.json", "/openapi.yaml", "/openapi.html":
+			next.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/openapi-assets/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		id, err := s.apiAuthn.Identify(r)
+		if err != nil || id.IsZero() {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthenticated"}`))
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(auth.WithIdentity(r.Context(), id)))
+	})
+}
+
 // wantsJSON reports whether the caller is a script rather than a navigating
 // browser, so failures can be reported in a form it can act on.
 func wantsJSON(r *http.Request) bool {

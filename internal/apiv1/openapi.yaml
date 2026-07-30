@@ -1,0 +1,784 @@
+openapi: 3.1.0
+info:
+  title: wpcalc API v1
+  version: "1.0.0"
+  description: |
+    A stateless JSON REST mirror of wpcalc's server-rendered app, for
+    programmatic clients. Authenticated with a bearer API token (`wpcalc
+    token create <username>` on the CLI), not the browser session cookie —
+    there is no login/logout/tenant-switch operation here, because a bearer
+    token is not a session: every request names its tenant explicitly in
+    the path instead of relying on a server-side "active tenant".
+
+    This document is generated code's source of truth (`internal/apiv1` is
+    generated from it via oapi-codegen) and is itself served by the API at
+    `GET /api/v1/openapi.json` and `GET /api/v1/openapi.yaml`.
+
+    Authorization mirrors the RBAC96 model exactly: every operation below
+    carries `x-required-permission`/`x-permission-scope`, checked the same
+    way as the HTML app (`Identity.CanSystemWide`/`CanInTenant`/`Can`) —
+    see `internal/httpx/openapi.yaml` (served at `GET /openapi.json` /
+    `/openapi.yaml` / `/openapi.html` by the HTML app) for the full RBAC96
+    write-up.
+  license:
+    name: MIT
+    url: https://github.com/rolsim/wpcalc/blob/main/LICENSE
+
+servers:
+  - url: /api/v1
+
+security:
+  - bearerToken: []
+
+paths:
+  /healthz:
+    get:
+      operationId: healthz
+      summary: Liveness probe
+      security: []
+      x-required-permission: null
+      x-permission-scope: null
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /tenants:
+    get:
+      operationId: listTenants
+      summary: List every tenant
+      x-required-permission: manage_tenants
+      x-permission-scope: system
+      responses:
+        "200":
+          description: Every tenant.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Tenant" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createTenant
+      summary: Create a tenant
+      x-required-permission: manage_tenants
+      x-permission-scope: system
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TenantCreate" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tenant" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /tenants/{tenantId}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      operationId: getTenant
+      summary: Fetch one tenant
+      x-required-permission: manage_tenants
+      x-permission-scope: system
+      responses:
+        "200":
+          description: The tenant.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tenant" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /tenants/{tenantId}/employees:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      operationId: listEmployees
+      summary: List a tenant's employees
+      x-required-permission: manage_employees
+      x-permission-scope: tenant
+      responses:
+        "200":
+          description: Every employee in the tenant.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Employee" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createEmployee
+      summary: Create an employee
+      x-required-permission: manage_employees
+      x-permission-scope: tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmployeeCreate" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Employee" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /tenants/{tenantId}/employees/{employeeId}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/EmployeeId"
+    get:
+      operationId: getEmployee
+      summary: Fetch one employee
+      x-required-permission: manage_employees
+      x-permission-scope: tenant
+      responses:
+        "200":
+          description: The employee.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Employee" }
+        default: { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateEmployee
+      summary: Update an employee
+      x-required-permission: manage_employees
+      x-permission-scope: tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmployeeUpdate" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Employee" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteEmployee
+      summary: Delete an employee
+      description: Cascades to every recorded hour of theirs. No undo.
+      x-required-permission: manage_employees
+      x-permission-scope: tenant
+      responses:
+        "204":
+          description: Deleted.
+        default: { $ref: "#/components/responses/Error" }
+
+  /tenants/{tenantId}/months/{ym}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/YearMonth"
+    get:
+      operationId: getMonthGrid
+      summary: The month's hours grid
+      description: >-
+        Employees the caller holds no permission on at all are omitted from
+        `employees` entirely, exactly like the HTML grid's column
+        visibility rule.
+      x-required-permission: read
+      x-permission-scope: employee
+      responses:
+        "200":
+          description: The grid.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MonthGrid" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /tenants/{tenantId}/months/{ym}/entries:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/YearMonth"
+    put:
+      operationId: setHours
+      summary: Record one cell's hours
+      description: "`hours: 0` clears the cell."
+      x-required-permission: write
+      x-permission-scope: employee
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetHoursRequest" }
+      responses:
+        "200":
+          description: Stored; recomputed totals returned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HoursResult" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /tenants/{tenantId}/months/{ym}/comment:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/YearMonth"
+    put:
+      operationId: setComment
+      summary: Set or clear one day's shared comment
+      description: An empty `comment` clears it. Tenant-wide state, not per-employee.
+      x-required-permission: write
+      x-permission-scope: tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetCommentRequest" }
+      responses:
+        "204":
+          description: Stored.
+        default: { $ref: "#/components/responses/Error" }
+
+  /tenants/{tenantId}/months/{ym}/report:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/YearMonth"
+    get:
+      operationId: getTenantMonthReport
+      summary: Whole-tenant month summary PDF
+      x-required-permission: print
+      x-permission-scope: tenant
+      responses:
+        "200":
+          description: The PDF.
+          content:
+            application/pdf:
+              schema: { type: string, contentMediaType: application/pdf, contentEncoding: binary }
+        default: { $ref: "#/components/responses/Error" }
+
+  /tenants/{tenantId}/employees/{employeeId}/months/{ym}/report:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/EmployeeId"
+      - $ref: "#/components/parameters/YearMonth"
+    get:
+      operationId: getEmployeeMonthReport
+      summary: One employee's month timesheet PDF
+      x-required-permission: print
+      x-permission-scope: employee
+      responses:
+        "200":
+          description: The PDF.
+          content:
+            application/pdf:
+              schema: { type: string, contentMediaType: application/pdf, contentEncoding: binary }
+        default: { $ref: "#/components/responses/Error" }
+
+  /tenants/{tenantId}/employees/{employeeId}/years/{year}/report:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/EmployeeId"
+      - $ref: "#/components/parameters/Year"
+    get:
+      operationId: getEmployeeYearReport
+      summary: One employee's year-total PDF
+      x-required-permission: print
+      x-permission-scope: employee
+      responses:
+        "200":
+          description: The PDF.
+          content:
+            application/pdf:
+              schema: { type: string, contentMediaType: application/pdf, contentEncoding: binary }
+        default: { $ref: "#/components/responses/Error" }
+
+  /tenants/{tenantId}/employee-role-assignments:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      operationId: listEmployeeRoleAssignments
+      summary: List employee-scope role assignments in this tenant
+      x-required-permission: manage_users
+      x-permission-scope: tenant
+      responses:
+        "200":
+          description: Every employee-scope assignment in the tenant.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/EmployeeRoleAssignment" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: grantEmployeeRole
+      summary: Grant an employee-scope role
+      x-required-permission: manage_users
+      x-permission-scope: tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmployeeRoleGrant" }
+      responses:
+        "204":
+          description: Granted.
+        default: { $ref: "#/components/responses/Error" }
+
+  /tenants/{tenantId}/employee-role-assignments/revoke:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    post:
+      operationId: revokeEmployeeRole
+      summary: Revoke an employee-scope role
+      x-required-permission: manage_users
+      x-permission-scope: tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmployeeRoleRevoke" }
+      responses:
+        "204":
+          description: Revoked.
+        default: { $ref: "#/components/responses/Error" }
+
+  /permissions:
+    get:
+      operationId: listPermissions
+      summary: The fixed permission catalog
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      responses:
+        "200":
+          description: Every permission.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Permission" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /roles:
+    get:
+      operationId: listRoles
+      summary: The role catalog
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      responses:
+        "200":
+          description: Every role, with its permissions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Role" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createRole
+      summary: Create a role
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoleCreate" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Role" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /roles/{roleId}:
+    parameters:
+      - $ref: "#/components/parameters/RoleId"
+    delete:
+      operationId: deleteRole
+      summary: Delete a role
+      description: Fails while still referenced by any assignment or permission grant.
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      responses:
+        "204":
+          description: Deleted.
+        default: { $ref: "#/components/responses/Error" }
+
+  /roles/{roleId}/permissions:
+    parameters:
+      - $ref: "#/components/parameters/RoleId"
+    post:
+      operationId: addRolePermission
+      summary: Grant a role a permission
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RolePermissionGrant" }
+      responses:
+        "204":
+          description: Granted.
+        default: { $ref: "#/components/responses/Error" }
+
+  /roles/{roleId}/permissions/{permissionId}:
+    parameters:
+      - $ref: "#/components/parameters/RoleId"
+      - $ref: "#/components/parameters/PermissionId"
+    delete:
+      operationId: removeRolePermission
+      summary: Revoke a permission from a role
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      responses:
+        "204":
+          description: Revoked.
+        default: { $ref: "#/components/responses/Error" }
+
+  /role-assignments:
+    get:
+      operationId: listRoleAssignments
+      summary: List every system- and tenant-scope role assignment
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      responses:
+        "200":
+          description: Every system-/tenant-scope assignment.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AdminRoleAssignment" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: grantRole
+      summary: Grant a system- or tenant-scope role
+      description: "`tenantId` present means tenant scope; absent means system scope."
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoleGrant" }
+      responses:
+        "204":
+          description: Granted.
+        default: { $ref: "#/components/responses/Error" }
+
+  /role-assignments/revoke:
+    post:
+      operationId: revokeRole
+      summary: Revoke a system- or tenant-scope role
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoleRevoke" }
+      responses:
+        "204":
+          description: Revoked.
+        default: { $ref: "#/components/responses/Error" }
+
+components:
+  securitySchemes:
+    bearerToken:
+      type: http
+      scheme: bearer
+      description: >-
+        An API token minted by `wpcalc token create <username>`. Sent as
+        `Authorization: Bearer <token>`. Tokens are opaque, hashed at rest
+        (SHA-256), shown in full only once (at creation time), and can be
+        revoked individually without touching the account's password or any
+        browser session.
+
+  parameters:
+    TenantId:
+      name: tenantId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    EmployeeId:
+      name: employeeId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    RoleId:
+      name: roleId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[a-z0-9_]+$' }
+    PermissionId:
+      name: permissionId
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/PermissionKey" }
+    YearMonth:
+      name: ym
+      in: path
+      required: true
+      schema: { type: string, pattern: '^\d{4}-\d{2}$' }
+      example: "2026-07"
+    Year:
+      name: year
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1000, maximum: 9999 }
+      example: 2026
+
+  responses:
+    Error:
+      description: An error, at any non-2xx status.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: A short, stable machine-readable error code (not localized).
+          examples: ["not_found"]
+        message:
+          type: string
+          description: >-
+            Optional diagnostic detail — which field failed validation and
+            why, a decode error, and the like. Not stable, not localized,
+            not meant to be pattern-matched by a client; `error` is the
+            field to branch on.
+
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, const: ok }
+
+    Date:
+      type: string
+      format: date
+      pattern: '^\d{4}-\d{2}-\d{2}$'
+      examples: ["2026-07-14"]
+
+    Tenant:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+
+    TenantCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+
+    Employee:
+      type: object
+      required: [id, tenantId, name, startDate]
+      properties:
+        id: { type: integer, format: int64 }
+        tenantId: { type: integer, format: int64 }
+        name: { type: string }
+        startDate: { $ref: "#/components/schemas/Date" }
+        endDate:
+          oneOf:
+            - $ref: "#/components/schemas/Date"
+            - type: "null"
+          description: "null means still employed."
+
+    EmployeeCreate:
+      type: object
+      required: [name, startDate]
+      properties:
+        name: { type: string, minLength: 1 }
+        startDate: { $ref: "#/components/schemas/Date" }
+        endDate:
+          oneOf:
+            - $ref: "#/components/schemas/Date"
+            - type: "null"
+
+    EmployeeUpdate:
+      type: object
+      required: [name, startDate]
+      properties:
+        name: { type: string, minLength: 1 }
+        startDate: { $ref: "#/components/schemas/Date" }
+        endDate:
+          oneOf:
+            - $ref: "#/components/schemas/Date"
+            - type: "null"
+
+    GridCell:
+      type: object
+      required: [employeeId, hours, locked]
+      properties:
+        employeeId: { type: integer, format: int64 }
+        hours:
+          type: string
+          description: Decimal hours, `.` separator, e.g. "7.75".
+        locked:
+          type: boolean
+          description: Outside employment, or the caller lacks write on this employee.
+
+    GridDay:
+      type: object
+      required: [date, cells, total]
+      properties:
+        date: { $ref: "#/components/schemas/Date" }
+        comment: { type: string }
+        cells:
+          type: array
+          items: { $ref: "#/components/schemas/GridCell" }
+        total: { type: string }
+
+    MonthGrid:
+      type: object
+      required: [employees, days, employeeTotals, grandTotal]
+      properties:
+        employees:
+          type: array
+          items: { $ref: "#/components/schemas/Employee" }
+        days:
+          type: array
+          items: { $ref: "#/components/schemas/GridDay" }
+        employeeTotals:
+          type: object
+          description: Employee id (as a string key) to that employee's month total.
+          additionalProperties: { type: string }
+        grandTotal: { type: string }
+
+    SetHoursRequest:
+      type: object
+      required: [employeeId, date, hours]
+      properties:
+        employeeId: { type: integer, format: int64 }
+        date: { $ref: "#/components/schemas/Date" }
+        hours:
+          type: string
+          description: Decimal hours, `.` or `,` separator; "0" clears the cell.
+
+    HoursResult:
+      type: object
+      required: [employeeTotal, dayTotal, grandTotal]
+      properties:
+        employeeTotal: { type: string }
+        dayTotal: { type: string }
+        grandTotal: { type: string }
+
+    SetCommentRequest:
+      type: object
+      required: [date]
+      properties:
+        date: { $ref: "#/components/schemas/Date" }
+        comment: { type: string, description: Empty clears it. }
+
+    PermissionKey:
+      type: string
+      enum:
+        - manage_tenants
+        - manage_roles
+        - manage_employees
+        - manage_users
+        - read
+        - print
+        - write
+
+    Scope:
+      type: string
+      enum: [system, tenant, employee]
+
+    Permission:
+      type: object
+      required: [id, minScope]
+      properties:
+        id: { $ref: "#/components/schemas/PermissionKey" }
+        minScope: { $ref: "#/components/schemas/Scope" }
+
+    Role:
+      type: object
+      required: [id, name, scope, permissions]
+      properties:
+        id: { type: string, pattern: '^[a-z0-9_]+$' }
+        name: { type: string }
+        scope: { $ref: "#/components/schemas/Scope" }
+        permissions:
+          type: array
+          items: { $ref: "#/components/schemas/PermissionKey" }
+
+    RoleCreate:
+      type: object
+      required: [id, name, scope]
+      properties:
+        id: { type: string, pattern: '^[a-z0-9_]+$' }
+        name: { type: string, minLength: 1 }
+        scope: { $ref: "#/components/schemas/Scope" }
+
+    RolePermissionGrant:
+      type: object
+      required: [permissionId]
+      properties:
+        permissionId: { $ref: "#/components/schemas/PermissionKey" }
+
+    EmployeeRoleAssignment:
+      type: object
+      required: [userId, username, employeeId, employeeName, roleId, roleName]
+      properties:
+        userId: { type: integer, format: int64 }
+        username: { type: string }
+        employeeId: { type: integer, format: int64 }
+        employeeName: { type: string }
+        roleId: { type: string }
+        roleName: { type: string }
+
+    EmployeeRoleGrant:
+      type: object
+      required: [username, employeeId, roleId]
+      properties:
+        username: { type: string }
+        employeeId: { type: integer, format: int64 }
+        roleId: { type: string }
+
+    EmployeeRoleRevoke:
+      type: object
+      required: [userId, employeeId]
+      properties:
+        userId: { type: integer, format: int64 }
+        employeeId: { type: integer, format: int64 }
+
+    AdminRoleAssignment:
+      type: object
+      required: [userId, username, roleId, roleName]
+      properties:
+        userId: { type: integer, format: int64 }
+        username: { type: string }
+        tenantId:
+          oneOf: [{ type: integer, format: int64 }, { type: "null" }]
+        tenantName: { type: string }
+        roleId: { type: string }
+        roleName: { type: string }
+
+    RoleGrant:
+      type: object
+      required: [username, roleId]
+      properties:
+        username: { type: string }
+        roleId: { type: string }
+        tenantId:
+          type: integer
+          format: int64
+          description: Present means tenant scope; absent means system scope.
+
+    RoleRevoke:
+      type: object
+      required: [userId]
+      properties:
+        userId: { type: integer, format: int64 }
+        tenantId:
+          type: integer
+          format: int64
+          description: Present means the tenant-scope grant; absent means the system-scope grant.

@@ -17,9 +17,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/rolsim/wpcalc/internal/apiv1"
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/i18n"
+	"github.com/rolsim/wpcalc/internal/specdoc"
 	"github.com/rolsim/wpcalc/internal/store"
 )
 
@@ -29,6 +31,14 @@ var templatesFS embed.FS
 //go:embed static/*
 var staticFS embed.FS
 
+//go:embed openapi.yaml
+var appSpecYAML []byte
+
+// appSpec documents the HTML app itself (this package) — a separate,
+// larger document from internal/apiv1's, since almost none of these routes
+// return JSON or take a JSON body the way /api/v1's do.
+var appSpec = specdoc.MustParse(appSpecYAML)
+
 // Server holds the dependencies shared by every handler.
 type Server struct {
 	db       *store.DB
@@ -37,6 +47,12 @@ type Server struct {
 	log      *slog.Logger
 	pages    map[string]*template.Template
 	connKind auth.ConnKind
+
+	// api and apiAuthn back /api/v1 — a separate, stateless, bearer-token
+	// authenticated JSON front end onto the same store, mounted alongside
+	// the HTML app rather than replacing any of it.
+	api      *apiv1.API
+	apiAuthn auth.Authenticator
 
 	// linkParam, when set, makes generated links carry the application path
 	// as a query parameter instead of as a path prefix. WordPress addresses
@@ -89,6 +105,8 @@ func New(cfg Config) (*Server, error) {
 		log:       cfg.Logger,
 		connKind:  cfg.ConnKind,
 		linkParam: cfg.LinkParam,
+		api:       apiv1.New(cfg.DB, cfg.Bundle, cfg.Logger),
+		apiAuthn:  auth.NewBearerTokens(cfg.DB),
 	}
 
 	// A query-parameter base is a full URL with its own query string, so it
@@ -125,11 +143,51 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /login", s.handleLoginSubmit)
 	mux.HandleFunc("POST /logout", s.handleLogout)
 
+	// The app's own OpenAPI document — documentation, so it needs no
+	// identity any more than /healthz does. /openapi.html is interactive
+	// (Swagger UI, vendored — see internal/specdoc); its JS/CSS live under
+	// /openapi-assets/, the sibling path ServeHTML's page expects.
+	mux.HandleFunc("GET /openapi.json", appSpec.ServeJSON)
+	mux.HandleFunc("GET /openapi.yaml", appSpec.ServeYAML)
+	mux.HandleFunc("GET /openapi.html", appSpec.ServeHTML)
+	mux.Handle("GET /openapi-assets/", http.StripPrefix("/openapi-assets/", specdoc.AssetsHandler()))
+
 	static, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		panic("httpx: static assets missing: " + err.Error())
 	}
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
+
+	// /api/v1: a stateless JSON mirror of the app, authenticated with a
+	// bearer token instead of the session cookie. Mounted as its own
+	// sub-tree — requireBearerAuth, not requireAuth, wraps it — so a
+	// bearer token never grants access to the HTML app and a session
+	// cookie is never accepted here.
+	//
+	// The generated layer alone only decodes JSON structurally and
+	// type-coerces path/query params — nothing in it enforces `required`,
+	// `pattern`, `enum`, or any other constraint openapi.yaml declares, and
+	// its default error responses are plain text, not JSON. Both gaps are
+	// closed here: apiv1.RequestValidator rejects a request that does not
+	// conform to the spec before any handler runs, s.api.ResponseValidator
+	// verifies a response does either, and every generated-layer error hook
+	// is pointed at apiv1.RequestErrorHandler so a failure at any layer
+	// comes back as the same {"error": "..."} shape a handler's own errors
+	// already used.
+	strict := apiv1.NewStrictHandlerWithOptions(s.api, nil, apiv1.StrictHTTPServerOptions{
+		RequestErrorHandlerFunc:  apiv1.RequestErrorHandler,
+		ResponseErrorHandlerFunc: apiv1.RequestErrorHandler,
+	})
+	generated := apiv1.HandlerWithOptions(strict, apiv1.StdHTTPServerOptions{
+		ErrorHandlerFunc: apiv1.RequestErrorHandler,
+	})
+	apiMux := http.NewServeMux()
+	apiMux.Handle("/", s.api.ResponseValidator(apiv1.RequestValidator()(generated)))
+	apiMux.HandleFunc("GET /openapi.json", func(w http.ResponseWriter, r *http.Request) { apiv1.ServeSpecJSON(w, r) })
+	apiMux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) { apiv1.ServeSpecYAML(w, r) })
+	apiMux.HandleFunc("GET /openapi.html", func(w http.ResponseWriter, r *http.Request) { apiv1.ServeSpecHTML(w, r) })
+	apiMux.Handle("GET /openapi-assets/", http.StripPrefix("/openapi-assets/", specdoc.AssetsHandler()))
+	mux.Handle("/api/v1/", http.StripPrefix("/api/v1", s.requireBearerAuth(apiMux)))
 
 	// Everything else requires an identity.
 	protected := http.NewServeMux()

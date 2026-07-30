@@ -1,0 +1,1537 @@
+openapi: 3.1.0
+jsonSchemaDialect: "https://json-schema.org/draft/2020-12/schema"
+
+info:
+  title: wpcalc HTTP surface
+  version: "1.0.0"
+  description: |
+    wpcalc is a monthly employee working-hours grid, shipped as one static Go
+    binary that serves this HTTP surface either standalone (TCP) or as a
+    WordPress sidecar (unix socket, behind the `wordpress/wpcalc` PHP shim).
+    Both modes serve the *same* handler tree — this document describes that
+    tree, not two different APIs.
+
+    **This is a server-rendered application, not a JSON REST API.** Almost
+    every endpoint returns a full HTML page (Go `html/template`) and expects
+    `application/x-www-form-urlencoded` or `multipart/form-data` bodies, the
+    way an ordinary browser form does. Two endpoints — `POST /m/{ym}/hours`
+    and `POST /m/{ym}/comment` — are dual-mode: a plain form post gets an
+    HTML redirect (progressive enhancement / no-JS baseline), while a request
+    carrying `X-Requested-With: XMLHttpRequest` gets a small JSON body
+    instead, which is what the bundled `app.js` uses. This is documented
+    precisely per operation below.
+
+    This document is served by the app itself, unauthenticated, at
+    `GET /openapi.json`, `GET /openapi.yaml`, and `GET /openapi.html` — the
+    same three formats `/api/v1`'s own, separate, JSON-first document is
+    served at under `/api/v1/openapi.*` (see `internal/apiv1/openapi.yaml`
+    for that one; it covers a narrower, stateless, bearer-token-authenticated
+    mirror of a subset of these resources, not these routes themselves).
+
+    ## Authentication
+
+    Standalone mode uses a server-side session, opaque token in the
+    `wpcalc_session` cookie (see `securitySchemes.sessionCookie`). WordPress
+    mode never talks to this HTTP surface directly from a browser — the PHP
+    shim asserts identity to the sidecar via HMAC-signed headers
+    (`X-Wpcalc-User`, `X-Wpcalc-Roles`, `X-Wpcalc-Timestamp`,
+    `X-Wpcalc-Signature`) over a unix socket only, which is out of scope for
+    a browser-facing API document and is **not modeled here** as a security
+    scheme — see `internal/auth/wordpress.go` for that protocol. Every
+    WordPress-asserted identity is treated as having full access, because the
+    PHP shim already required `manage_options` before proxying the request.
+
+    ## Authorization (RBAC96)
+
+    Every protected operation below carries two extensions:
+
+    - `x-required-permission`: the permission id checked (`read`, `print`,
+      `write`, `manage_employees`, `manage_users`, `manage_tenants`,
+      `manage_roles`), or `null` if the operation only requires *some*
+      authenticated identity.
+    - `x-permission-scope`: `system` (checked via `Identity.CanSystemWide`),
+      `tenant` (`Identity.CanInTenant`, against the caller's *active*
+      tenant unless noted), or `employee` (`Identity.Can`, against the
+      `{id}` employee in the path).
+
+    Permissions, roles, and role assignments are themselves fully
+    reconfigurable data (see `GET /roles`) — the five seeded roles
+    (`super_admin`, `mandant_admin`, `viewer`, `reporter`, `editor`) are a
+    starting point, not a fixed enum enforced anywhere in code.
+
+    ## Multi-tenancy
+
+    Several companies ("Mandanten") can share one database, fully isolated.
+    Most operations act on the caller's *active tenant* — resolved from the
+    session if already chosen, auto-selected if the account can reach
+    exactly one tenant, or requiring a visit to `GET /tenants/choose` if it
+    can reach several and hasn't chosen yet (`303` redirect there instead of
+    guessing).
+  license:
+    name: MIT
+    url: https://github.com/rolsim/wpcalc/blob/main/LICENSE
+
+servers:
+  - url: http://localhost:8080
+    description: >-
+      Standalone mode on the default port used throughout the testing
+      manual. `wpcalc serve --addr :8080 --db wpcalc.db`.
+  - url: http://localhost:8080/{basePath}
+    description: >-
+      Standalone mode behind a reverse proxy, or WordPress mode's
+      *path-prefix* link style (`WPCALC_BASE_PATH` set, `WPCALC_LINK_PARAM`
+      unset). Every path below is appended to `basePath` unchanged.
+    variables:
+      basePath:
+        default: ""
+        description: e.g. an empty string, or a reverse-proxy prefix.
+
+security:
+  - sessionCookie: []
+
+tags:
+  - name: system
+    description: Health check and static assets — no authentication.
+  - name: auth
+    description: Standalone session login/logout.
+  - name: grid
+    description: The monthly hours grid and the two write endpoints behind it.
+  - name: employees
+    description: Employee ("Mitarbeitende") records, scoped to the active tenant.
+  - name: reports
+    description: PDF timesheet exports.
+  - name: language
+    description: Per-account interface language preference.
+  - name: tenants
+    description: Multi-tenant switcher and tenant/employee-scope access management.
+  - name: roles
+    description: RBAC96 role catalog, permissions, and system/tenant-scope grants.
+
+paths:
+  # ---------------------------------------------------------------------
+  # System
+  # ---------------------------------------------------------------------
+  /healthz:
+    get:
+      tags: [system]
+      operationId: getHealthz
+      summary: Liveness probe
+      description: >-
+        Polled by the WordPress PHP shim to decide whether the sidecar
+        process needs restarting. Always `200` if the process can answer at
+        all; there is no deeper readiness check (e.g. no DB ping).
+      security: []
+      x-required-permission: null
+      x-permission-scope: null
+      responses:
+        "200":
+          description: The process is up.
+          content:
+            text/plain:
+              schema:
+                type: string
+                const: "ok"
+              example: "ok"
+
+  /static/{path}:
+    get:
+      tags: [system]
+      operationId: getStaticAsset
+      summary: Static assets (CSS, JS)
+      description: >-
+        `app.css` and `app.js`, served from an embedded filesystem
+        (`internal/httpx/static`). Under WordPress mode the plugin enqueues
+        these separately through its own proxy rather than fetching them
+        from here.
+      security: []
+      x-required-permission: null
+      x-permission-scope: null
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema: { type: string }
+          example: app.css
+      responses:
+        "200":
+          description: The asset.
+          content:
+            text/css: { schema: { type: string } }
+            text/javascript: { schema: { type: string } }
+        "404":
+          $ref: "#/components/responses/PlainNotFound"
+
+  # ---------------------------------------------------------------------
+  # Auth
+  # ---------------------------------------------------------------------
+  /login:
+    get:
+      tags: [auth]
+      operationId: getLoginForm
+      summary: Login form
+      description: >-
+        Standalone mode only — `404` under WordPress, which owns identity
+        and offering a second login here would be a weaker second door into
+        the same data (checked via a type assertion on the configured
+        `Authenticator`, not a route flag). Redirects to `/` if already
+        signed in.
+      security: []
+      x-required-permission: null
+      x-permission-scope: null
+      responses:
+        "200":
+          description: The login page.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "303":
+          description: Already signed in; redirected to `/`.
+          headers:
+            Location: { schema: { type: string }, example: /m/2026-07 }
+        "404":
+          description: WordPress mode — there is no standalone login here.
+          content: { text/plain: { schema: { type: string } } }
+    post:
+      tags: [auth]
+      operationId: postLogin
+      summary: Submit credentials
+      description: >-
+        On success, sets the `wpcalc_session` cookie (`HttpOnly`,
+        `SameSite=Lax`, `Secure` if `--secure-cookies`, 12-hour expiry) and
+        redirects to `/`. On failure the response is deliberately identical
+        for "no such user" and "wrong password" — distinguishing them would
+        make this an account-enumeration oracle.
+      security: []
+      x-required-permission: null
+      x-permission-scope: null
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/LoginForm" }
+      responses:
+        "303":
+          description: Signed in; session cookie set.
+          headers:
+            Set-Cookie: { schema: { type: string } }
+            Location: { schema: { type: string }, example: / }
+        "401":
+          description: Unknown username or wrong password (same message either way).
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "404":
+          description: WordPress mode — there is no standalone login here.
+          content: { text/plain: { schema: { type: string } } }
+
+  /logout:
+    post:
+      tags: [auth]
+      operationId: postLogout
+      summary: Sign out
+      description: >-
+        Revokes the session server-side (not just the cookie — a copied
+        token must stop working immediately) and expires the cookie. Safe to
+        call with no session at all; always redirects to `/login`. Public:
+        this route sits outside the `requireAuth` wrapper, since proving who
+        you are is not a precondition for clearing a cookie.
+      security: []
+      x-required-permission: null
+      x-permission-scope: null
+      responses:
+        "303":
+          description: Always. Redirects to `/login`.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: Cleared (`Max-Age=0`).
+            Location: { schema: { type: string }, example: /login }
+
+  # ---------------------------------------------------------------------
+  # Grid
+  # ---------------------------------------------------------------------
+  /:
+    get:
+      tags: [grid]
+      operationId: getIndex
+      summary: Redirect to the current month
+      x-required-permission: null
+      x-permission-scope: null
+      responses:
+        "303":
+          description: Redirects to `/m/{currentYearMonth}`.
+          headers:
+            Location: { schema: { type: string }, example: /m/2026-07 }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
+  /m/{ym}:
+    get:
+      tags: [grid]
+      operationId: getGrid
+      summary: The monthly hours grid
+      description: >-
+        Renders every day of the month as a row and every employee the
+        caller holds at least `read` on as a column (an employee with *no*
+        grant at all is omitted as a column entirely — not merely locked).
+        A cell is locked (rendered disabled) unless the caller additionally
+        holds `write` on that employee, on top of the employment-period
+        lock. Resolves the active tenant first (see the multi-tenancy note
+        above), which is the source of the `303`/`403` alternates below.
+      x-required-permission: read
+      x-permission-scope: employee
+      parameters:
+        - $ref: "#/components/parameters/YearMonthPath"
+        - $ref: "#/components/parameters/ErrQuery"
+        - $ref: "#/components/parameters/FragmentHeader"
+      responses:
+        "200":
+          description: "The grid page (or a fragment under `X-Wpcalc-Fragment: 1`)."
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "303":
+          description: >-
+            Active tenant not yet resolved and the account can reach several
+            — redirects to `GET /tenants/choose`.
+          headers:
+            Location: { schema: { type: string }, example: /tenants/choose }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: The account can reach no tenant at all (`error.no_tenant_access`).
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "404":
+          description: "`{ym}` does not parse as `YYYY-MM`."
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "500":
+          $ref: "#/components/responses/ServerErrorHtml"
+
+  /m/{ym}/hours:
+    post:
+      tags: [grid]
+      operationId: postSetHours
+      summary: Record one cell's hours
+      description: >-
+        Dual-mode. A plain form post (no-JS baseline, which must always
+        work) gets a `303` back to the grid, carrying a validation failure
+        in `?err=` if any. A request sending
+        `X-Requested-With: XMLHttpRequest` (what `app.js` sends) instead
+        gets a JSON body with the freshly recomputed totals, so the browser
+        never adds up numbers itself. `0` clears the cell (deletes the row)
+        rather than storing a zero.
+      x-required-permission: write
+      x-permission-scope: employee
+      parameters:
+        - $ref: "#/components/parameters/YearMonthPath"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/SetHoursForm" }
+          multipart/form-data:
+            schema: { $ref: "#/components/schemas/SetHoursForm" }
+      responses:
+        "200":
+          description: Stored (form post → redirect; XHR → JSON with totals).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SetHoursResult" }
+          headers:
+            Location:
+              description: Form-post variant only.
+              schema: { type: string }
+              example: /m/2026-07
+        "303":
+          description: Form-post variant, on both success and failure.
+          headers:
+            Location:
+              schema: { type: string }
+              example: "/m/2026-07?err=not_employed"
+        "400":
+          description: Malformed body, or `employee_id`/`date` do not parse.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/SetHoursResult" } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: Caller lacks `write` on this employee.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/SetHoursResult" } }
+        "404":
+          description: The employee id does not exist (`error.not_found`).
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/SetHoursResult" } }
+        "422":
+          description: >-
+            `hours` fails `domain.ParseHours` (`error.invalid_hours` /
+            `error.hours_range`, 0.00–24.00), or the day is outside the
+            employee's employment period despite the template disabling it
+            (`error.not_employed` — the server re-checks; a disabled input is
+            only a suggestion).
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/SetHoursResult" } }
+        "500":
+          description: Unexpected store error.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/SetHoursResult" } }
+
+  /m/{ym}/comment:
+    post:
+      tags: [grid]
+      operationId: postSetComment
+      summary: Set or clear the shared note for one day
+      description: >-
+        One free-text comment per calendar day, belonging to the day itself
+        (shared, tenant-wide state) rather than to any employee — unlike the
+        hours cell, this needs `write` on the whole active tenant, not on
+        one employee. An empty or whitespace-only `comment` clears it. Same
+        dual-mode (form-post redirect vs. XHR JSON) as `POST /m/{ym}/hours`.
+      x-required-permission: write
+      x-permission-scope: tenant
+      parameters:
+        - $ref: "#/components/parameters/YearMonthPath"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/SetCommentForm" }
+          multipart/form-data:
+            schema: { $ref: "#/components/schemas/SetCommentForm" }
+      responses:
+        "200":
+          description: Stored.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/SetHoursResult" } }
+        "303":
+          description: Form-post variant.
+          headers:
+            Location: { schema: { type: string }, example: /m/2026-07 }
+        "400":
+          description: Malformed body or unparseable `date`.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/SetHoursResult" } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: Caller lacks tenant-wide `write`.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/SetHoursResult" } }
+        "500":
+          description: Unexpected store error.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/SetHoursResult" } }
+
+  # ---------------------------------------------------------------------
+  # Employees
+  # ---------------------------------------------------------------------
+  /employees:
+    get:
+      tags: [employees]
+      operationId: getEmployeeList
+      summary: List the active tenant's employees
+      x-required-permission: manage_employees
+      x-permission-scope: tenant
+      parameters:
+        - $ref: "#/components/parameters/ErrQuery"
+      responses:
+        "200":
+          description: The employee list page.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "303":
+          description: Active tenant not yet resolved and several are reachable.
+          headers: { Location: { schema: { type: string }, example: /tenants/choose } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+        "500":
+          $ref: "#/components/responses/ServerErrorHtml"
+    post:
+      tags: [employees]
+      operationId: postEmployeeCreate
+      summary: Create an employee
+      description: >-
+        Created in the caller's active tenant. On a rejected submission the
+        form is redisplayed (`422`) with the input intact rather than
+        discarded.
+      x-required-permission: manage_employees
+      x-permission-scope: tenant
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/EmployeeFormInput" }
+          multipart/form-data:
+            schema: { $ref: "#/components/schemas/EmployeeFormInput" }
+      responses:
+        "303":
+          description: Created; redirects to `/employees`.
+          headers: { Location: { schema: { type: string }, example: /employees } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+        "422":
+          description: >-
+            Validation failed (`error.name_required`, `error.invalid_date`,
+            `error.end_before_start`) — the create form is redisplayed with
+            the submitted values.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "500":
+          $ref: "#/components/responses/ServerErrorHtml"
+
+  /employees/new:
+    get:
+      tags: [employees]
+      operationId: getEmployeeNewForm
+      summary: New-employee form
+      x-required-permission: manage_employees
+      x-permission-scope: tenant
+      responses:
+        "200":
+          description: The blank create form (`start_date` defaulted to today).
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+
+  /employees/{id}/edit:
+    get:
+      tags: [employees]
+      operationId: getEmployeeEditForm
+      summary: Edit-employee form
+      x-required-permission: manage_employees
+      x-permission-scope: tenant
+      parameters:
+        - $ref: "#/components/parameters/EmployeeIdPath"
+      responses:
+        "200":
+          description: The pre-filled edit form.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+        "404":
+          description: >-
+            No such employee, **or** it belongs to a different tenant — the
+            two are deliberately indistinguishable, so a cross-tenant probe
+            cannot confirm an id exists elsewhere.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+
+  /employees/{id}:
+    post:
+      tags: [employees]
+      operationId: postEmployeeUpdate
+      summary: Update an employee
+      description: >-
+        Shortening the employment period does not delete hours already
+        recorded outside the new dates — they stop being visible/editable
+        but remain in the database.
+      x-required-permission: manage_employees
+      x-permission-scope: tenant
+      parameters:
+        - $ref: "#/components/parameters/EmployeeIdPath"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/EmployeeFormInput" }
+          multipart/form-data:
+            schema: { $ref: "#/components/schemas/EmployeeFormInput" }
+      responses:
+        "303":
+          description: Updated; redirects to `/employees`.
+          headers: { Location: { schema: { type: string }, example: /employees } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+        "404":
+          description: No such employee, or it belongs to a different tenant.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "422":
+          description: Validation failed; the edit form is redisplayed.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "500":
+          $ref: "#/components/responses/ServerErrorHtml"
+
+  /employees/{id}/delete:
+    post:
+      tags: [employees]
+      operationId: postEmployeeDelete
+      summary: Delete an employee
+      description: >-
+        Deletes all of that employee's recorded hours by cascade. No undo.
+      x-required-permission: manage_employees
+      x-permission-scope: tenant
+      parameters:
+        - $ref: "#/components/parameters/EmployeeIdPath"
+      responses:
+        "303":
+          description: Deleted; redirects to `/employees`.
+          headers: { Location: { schema: { type: string }, example: /employees } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+        "404":
+          description: No such employee, or it belongs to a different tenant.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "500":
+          $ref: "#/components/responses/ServerErrorHtml"
+
+  # ---------------------------------------------------------------------
+  # Reports
+  # ---------------------------------------------------------------------
+  /reports:
+    get:
+      tags: [reports]
+      operationId: getReportIndex
+      summary: Report index for the active tenant
+      description: >-
+        The same route serves two audiences without splitting into two
+        pages: a mandant-admin (or anyone with tenant-wide `print`) sees
+        every employee and a whole-tenant month PDF link; anyone else sees
+        only the employees they individually hold `print`-or-above on
+        (typically zero or one).
+      x-required-permission: null
+      x-permission-scope: null
+      parameters:
+        - $ref: "#/components/parameters/MonthQuery"
+      responses:
+        "200":
+          description: The report index.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "303":
+          description: Active tenant not yet resolved and several are reachable.
+          headers: { Location: { schema: { type: string }, example: /tenants/choose } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          description: "`m` does not parse as `YYYY-MM`."
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "500":
+          $ref: "#/components/responses/ServerErrorHtml"
+
+  /report/month/{ym}:
+    get:
+      tags: [reports]
+      operationId: getReportMonth
+      summary: Whole-tenant month summary PDF
+      description: >-
+        One row per employee active that month, hours summed exactly as the
+        grid sums them — printed and on-screen totals cannot disagree,
+        because both come from `internal/store.DB.Totals`. The trailing
+        `.pdf` is optional; the router strips it (Go's mux cannot express
+        a partial path segment).
+      x-required-permission: print
+      x-permission-scope: tenant
+      parameters:
+        - $ref: "#/components/parameters/YearMonthDottedPdfPath"
+      responses:
+        "200":
+          description: The PDF.
+          content:
+            application/pdf: { schema: { $ref: "#/components/schemas/PdfDocument" } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+        "404":
+          description: "`{ym}` does not parse."
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "500":
+          $ref: "#/components/responses/ServerErrorHtml"
+
+  /report/employee/{id}/month/{ym}:
+    get:
+      tags: [reports]
+      operationId: getReportEmployeeMonth
+      summary: One employee's month timesheet PDF
+      description: >-
+        Every day of the month within the employment period, including
+        empty ones — a timesheet with silently omitted gaps cannot be
+        checked against a calendar. Authorization is checked against the
+        target employee's *own* tenant, independent of the caller's
+        currently active tenant — an account with a grant in more than one
+        tenant can follow a direct link into any of them without switching
+        first.
+      x-required-permission: print
+      x-permission-scope: employee
+      parameters:
+        - $ref: "#/components/parameters/EmployeeIdPath"
+        - $ref: "#/components/parameters/YearMonthDottedPdfPath"
+      responses:
+        "200":
+          description: The PDF.
+          content:
+            application/pdf: { schema: { $ref: "#/components/schemas/PdfDocument" } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+        "404":
+          description: No such employee, or `{ym}` does not parse.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "500":
+          $ref: "#/components/responses/ServerErrorHtml"
+
+  /report/employee/{id}/year/{year}:
+    get:
+      tags: [reports]
+      operationId: getReportEmployeeYear
+      summary: One employee's year-total PDF
+      description: >-
+        One row per month; a month outside the employment period prints an
+        en dash rather than `0.00`, so "not employed" and "employed, booked
+        nothing" stay visually distinct.
+      x-required-permission: print
+      x-permission-scope: employee
+      parameters:
+        - $ref: "#/components/parameters/EmployeeIdPath"
+        - name: year
+          in: path
+          required: true
+          description: >-
+            Trailing `.pdf` optional and stripped. Parsed with `strconv.Atoi`
+            and range-checked 1000–9999 — not calendar-validated beyond that.
+          schema: { type: string, pattern: '^\d{4}(\.pdf)?$' }
+          example: "2026.pdf"
+      responses:
+        "200":
+          description: The PDF.
+          content:
+            application/pdf: { schema: { $ref: "#/components/schemas/PdfDocument" } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+        "404":
+          description: No such employee, or `{year}` is out of range / unparseable.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "500":
+          $ref: "#/components/responses/ServerErrorHtml"
+
+  # ---------------------------------------------------------------------
+  # Language
+  # ---------------------------------------------------------------------
+  /language:
+    post:
+      tags: [language]
+      operationId: postSetLanguage
+      summary: Set or clear the caller's interface language
+      description: >-
+        `404` when the authenticator cannot persist a preference (WordPress
+        mode — it owns the user record, so the app follows the WordPress
+        profile locale instead and hides its own selector, checked via a
+        type assertion, not a route flag). An empty `lang` means "follow the
+        browser". `return_to` is validated against open-redirect (must be a
+        same-site absolute path; anything else falls back to `/`).
+      x-required-permission: null
+      x-permission-scope: null
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/LanguageForm" }
+      responses:
+        "303":
+          description: Stored; redirects to `return_to` or `/`.
+          headers: { Location: { schema: { type: string }, example: /m/2026-07 } }
+        "400":
+          description: Malformed body.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          description: WordPress mode — the authenticator cannot persist a language.
+          content: { text/plain: { schema: { type: string } } }
+        "422":
+          description: >-
+            `lang` names a locale that is not one of the shipped catalogs
+            (`de-CH`, `en`) and is not empty.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "500":
+          $ref: "#/components/responses/ServerErrorHtml"
+
+  # ---------------------------------------------------------------------
+  # Tenants
+  # ---------------------------------------------------------------------
+  /tenants/choose:
+    get:
+      tags: [tenants]
+      operationId: getTenantChoose
+      summary: Tenant chooser
+      description: >-
+        RBAC96 session role-activation as a page: shown when the account can
+        reach several tenants and none is active yet. Redirects to `/` if
+        the account can now reach one or fewer (e.g. reloaded after a role
+        change).
+      x-required-permission: null
+      x-permission-scope: null
+      responses:
+        "200":
+          description: The chooser, listing every reachable tenant.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "303":
+          description: Zero or one reachable tenant; redirects to `/`.
+          headers: { Location: { schema: { type: string }, example: / } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "500":
+          $ref: "#/components/responses/ServerErrorHtml"
+
+  /tenant:
+    post:
+      tags: [tenants]
+      operationId: postTenantSwitch
+      summary: Activate a tenant for this session
+      description: >-
+        RBAC96 session role-activation. Rejected if `tenant_id` is not one
+        the caller can actually reach — this endpoint narrows to a tenant
+        already permitted elsewhere, it does not itself grant access to a
+        new one. A no-op (still `303`) under WordPress mode, which has no
+        session of its own to persist the choice in.
+      x-required-permission: null
+      x-permission-scope: null
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/TenantSwitchForm" }
+      responses:
+        "303":
+          description: Activated; redirects to `return_to` or `/`.
+          headers: { Location: { schema: { type: string }, example: /m/2026-07 } }
+        "400":
+          description: Malformed body or `tenant_id` does not parse.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: "`tenant_id` is not one the caller can reach."
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "500":
+          $ref: "#/components/responses/ServerErrorHtml"
+
+  /tenants:
+    get:
+      tags: [tenants]
+      operationId: getTenantList
+      summary: List every tenant (system-wide)
+      x-required-permission: manage_tenants
+      x-permission-scope: system
+      parameters:
+        - $ref: "#/components/parameters/ErrQuery"
+      responses:
+        "200":
+          description: Every tenant, plus a create form.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+        "500":
+          $ref: "#/components/responses/ServerErrorHtml"
+    post:
+      tags: [tenants]
+      operationId: postTenantCreate
+      summary: Create a tenant
+      x-required-permission: manage_tenants
+      x-permission-scope: system
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/TenantFormInput" }
+      responses:
+        "303":
+          description: Created; redirects to `/tenants`.
+          headers: { Location: { schema: { type: string }, example: /tenants } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+        "500":
+          description: >-
+            Also the redirect target on any store-level failure, including a
+            duplicate `name` — redirects to `/tenants?err=invalid_input`
+            rather than returning a body-carrying error status.
+          headers: { Location: { schema: { type: string }, example: "/tenants?err=invalid_input" } }
+
+  /tenants/{id}/access:
+    get:
+      tags: [tenants]
+      operationId: getTenantAccess
+      summary: Employee-scope role matrix for one tenant
+      description: >-
+        Where `viewer`/`reporter`/`editor` (or any custom employee-scope
+        role) grants are made. Deliberately cannot touch `mandant_admin` or
+        `super_admin` themselves — see `POST /roles/assign` — so a
+        mandant-admin can reach this page without being able to mint more
+        mandant-admins, including for themselves.
+      x-required-permission: manage_users
+      x-permission-scope: tenant
+      parameters:
+        - $ref: "#/components/parameters/TenantIdPath"
+        - $ref: "#/components/parameters/ErrQuery"
+      responses:
+        "200":
+          description: The tenant's current employee-scope assignments, plus a grant form.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: >-
+            Caller lacks `manage_users` **for this specific `{id}`** — this
+            is the tenant-isolation boundary: a mandant-admin of tenant A
+            gets this, not a 404, when naming tenant B (existence of a
+            *tenant* id is not considered sensitive the way an employee id
+            inside one is).
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "404":
+          description: No such tenant.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "500":
+          $ref: "#/components/responses/ServerErrorHtml"
+    post:
+      tags: [tenants]
+      operationId: postTenantAccessGrant
+      summary: Grant an employee-scope role
+      description: >-
+        `username`'s account must already exist (`user add`); this only
+        creates the `user_roles` row. `employee_id` must belong to `{id}`.
+        Idempotent for an identical `(username, employee_id, role_id)`;
+        rejected (redirect with `?err=invalid_input`) if that employee
+        already holds a *different* role — revoke first.
+      x-required-permission: manage_users
+      x-permission-scope: tenant
+      parameters:
+        - $ref: "#/components/parameters/TenantIdPath"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/EmployeeGrantForm" }
+      responses:
+        "303":
+          description: >-
+            Granted, or rejected — both redirect to
+            `/tenants/{id}/access`, with `?err=...` on failure rather than a
+            body-carrying error status.
+          headers:
+            Location:
+              schema: { type: string }
+              example: "/tenants/2/access?err=invalid_input"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+
+  /tenants/{id}/access/revoke:
+    post:
+      tags: [tenants]
+      operationId: postTenantAccessRevoke
+      summary: Revoke an employee-scope role
+      x-required-permission: manage_users
+      x-permission-scope: tenant
+      parameters:
+        - $ref: "#/components/parameters/TenantIdPath"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/EmployeeRevokeForm" }
+      responses:
+        "303":
+          description: Revoked, or rejected; redirects to `/tenants/{id}/access`.
+          headers:
+            Location:
+              schema: { type: string }
+              example: "/tenants/2/access?err=not_found"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+
+  # ---------------------------------------------------------------------
+  # Roles
+  # ---------------------------------------------------------------------
+  /roles:
+    get:
+      tags: [roles]
+      operationId: getRoleList
+      summary: Role catalog and system/tenant-scope assignments (system-wide)
+      description: >-
+        The one page that can create another `super_admin` or
+        `mandant_admin` — a mandant-admin cannot reach it. Also where roles
+        themselves (not just who holds them) are defined: their name, their
+        scope, and which permissions they bundle.
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      parameters:
+        - $ref: "#/components/parameters/ErrQuery"
+      responses:
+        "200":
+          description: >-
+            Every role with its permissions, the fixed permission catalog,
+            every tenant (for the assignment form), and every system-/
+            tenant-scope assignment.
+          content: { text/html: { schema: { $ref: "#/components/schemas/HtmlPage" } } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+        "500":
+          $ref: "#/components/responses/ServerErrorHtml"
+    post:
+      tags: [roles]
+      operationId: postRoleCreate
+      summary: Create a role
+      description: >-
+        Roles are fully custom data — this is not restricted to the five
+        seeded ones. `id` must be lowercase letters, digits, or underscores.
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/RoleFormInput" }
+      responses:
+        "303":
+          description: Created, or rejected (e.g. duplicate `id`); redirects to `/roles`.
+          headers:
+            Location:
+              schema: { type: string }
+              example: "/roles?err=invalid_input"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+
+  /roles/{id}/delete:
+    post:
+      tags: [roles]
+      operationId: postRoleDelete
+      summary: Delete a role
+      description: >-
+        Fails (redirect with `?err=invalid_input`) while the role is still
+        referenced by any `user_roles` or `role_permissions` row — a role in
+        use is never silently orphaned or cascade-deleted.
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      parameters:
+        - $ref: "#/components/parameters/RoleIdPath"
+      responses:
+        "303":
+          description: Deleted, or rejected; redirects to `/roles`.
+          headers: { Location: { schema: { type: string }, example: "/roles?err=invalid_input" } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+
+  /roles/{id}/permissions:
+    post:
+      tags: [roles]
+      operationId: postRolePermissionAdd
+      summary: Grant a role a permission
+      description: >-
+        Rejected if the role's `scope` is narrower than the permission's
+        `min_scope` — e.g. a `tenant`-scope role cannot hold
+        `manage_tenants` (`min_scope: system`). Enforced twice: here, and
+        again by a database trigger underneath.
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      parameters:
+        - $ref: "#/components/parameters/RoleIdPath"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/RolePermissionForm" }
+      responses:
+        "303":
+          description: Granted, or rejected (scope too narrow); redirects to `/roles`.
+          headers: { Location: { schema: { type: string }, example: "/roles?err=invalid_input" } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+
+  /roles/{id}/permissions/remove:
+    post:
+      tags: [roles]
+      operationId: postRolePermissionRemove
+      summary: Revoke a permission from a role
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      parameters:
+        - $ref: "#/components/parameters/RoleIdPath"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/RolePermissionForm" }
+      responses:
+        "303":
+          description: Revoked; redirects to `/roles`.
+          headers: { Location: { schema: { type: string }, example: /roles } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+
+  /roles/assign:
+    post:
+      tags: [roles]
+      operationId: postRoleAssign
+      summary: Grant a system- or tenant-scope role
+      description: >-
+        `tenant_id` present means a tenant-scope role for that tenant;
+        absent (or empty) means a system-scope role. This is the only route
+        that can mint another `super_admin` or `mandant_admin` — deliberately
+        separate from `POST /tenants/{id}/access`, which a mandant-admin can
+        reach but this route is `manage_roles`-gated (system-wide), so they
+        cannot use it even for their own tenant.
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/RoleAssignForm" }
+      responses:
+        "303":
+          description: Granted, or rejected; redirects to `/roles`.
+          headers: { Location: { schema: { type: string }, example: "/roles?err=invalid_input" } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+
+  /roles/revoke:
+    post:
+      tags: [roles]
+      operationId: postRoleRevoke
+      summary: Revoke a system- or tenant-scope role
+      description: Same `tenant_id` present/absent convention as `POST /roles/assign`.
+      x-required-permission: manage_roles
+      x-permission-scope: system
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/RoleRevokeForm" }
+      responses:
+        "303":
+          description: Revoked, or rejected; redirects to `/roles`.
+          headers: { Location: { schema: { type: string }, example: "/roles?err=invalid_input" } }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/ForbiddenHtml"
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: wpcalc_session
+      description: >-
+        Opaque, unguessable (32 random bytes, base64url) server-side session
+        token. Set by `POST /login`; revoked immediately by `POST /logout`
+        or `POST /user/passwd` on the CLI (a password change kills every
+        existing session for that account). 12-hour expiry
+        (`auth.SessionTTL`), refreshed only by logging in again. Not present
+        or checked in WordPress sidecar mode — see the module description.
+
+  parameters:
+    YearMonthPath:
+      name: ym
+      in: path
+      required: true
+      description: Calendar month, `YYYY-MM`. Parsed by `domain.ParseYearMonth`.
+      schema: { type: string, pattern: '^\d{4}-\d{2}$' }
+      example: "2026-07"
+
+    YearMonthDottedPdfPath:
+      name: ym
+      in: path
+      required: true
+      description: >-
+        `YYYY-MM`, optionally suffixed with `.pdf` (Go's mux cannot match a
+        partial path segment, so the handler strips the suffix itself; both
+        forms route identically).
+      schema: { type: string, pattern: '^\d{4}-\d{2}(\.pdf)?$' }
+      example: "2026-07.pdf"
+
+    EmployeeIdPath:
+      name: id
+      in: path
+      required: true
+      description: Employee id. Global — unique across every tenant.
+      schema: { type: integer, format: int64, minimum: 1 }
+      example: 3
+
+    TenantIdPath:
+      name: id
+      in: path
+      required: true
+      description: Tenant id.
+      schema: { type: integer, format: int64, minimum: 1 }
+      example: 2
+
+    RoleIdPath:
+      name: id
+      in: path
+      required: true
+      description: Role id (slug).
+      schema: { type: string, pattern: '^[a-z0-9_]+$' }
+      example: mandant_admin
+
+    ErrQuery:
+      name: err
+      in: query
+      required: false
+      description: >-
+        A short, whitelisted token naming a validation failure to display,
+        set by a redirect from a failed write on the same resource (e.g.
+        `POST /employees` → `303` to `/employees?err=name_required`).
+        Anything not in the whitelist falls back to a generic message —
+        this is client-visible input, so it is mapped through a fixed table
+        rather than concatenated into a translation key.
+      schema:
+        type: string
+        enum:
+          - invalid_input
+          - invalid_hours
+          - hours_range
+          - not_employed
+          - invalid_date
+          - invalid_month
+          - not_found
+          - name_required
+          - end_before_start
+          - server
+          - forbidden
+      example: name_required
+
+    MonthQuery:
+      name: m
+      in: query
+      required: false
+      description: Month to filter the report index by. Defaults to the current month.
+      schema: { type: string, pattern: '^\d{4}-\d{2}$' }
+      example: "2026-07"
+
+    FragmentHeader:
+      name: X-Wpcalc-Fragment
+      in: header
+      required: false
+      description: >-
+        `1` asks for the page content alone, without the surrounding
+        `<html>`/`<head>`/`<body>` shell — used by the WordPress plugin,
+        which renders the app inside WordPress's own admin chrome and would
+        otherwise nest two documents.
+      schema: { type: string, enum: ["1"] }
+
+  responses:
+    Unauthenticated:
+      description: >-
+        No valid session. A navigating browser gets `303` to `/login`
+        instead; a request that looks programmatic
+        (`X-Requested-With: XMLHttpRequest`, or an `Accept` naming
+        `application/json` but not `text/html`) gets a bare `401` with a
+        `text/plain` body instead of an HTML page it cannot usefully render.
+      content:
+        text/plain:
+          schema: { type: string, const: unauthenticated }
+      headers:
+        Location:
+          description: Present only on the `303` (browser) variant.
+          schema: { type: string }
+          example: /login
+
+    ForbiddenHtml:
+      description: >-
+        Authenticated, but the identity does not hold the permission this
+        operation's `x-required-permission`/`x-permission-scope` names.
+      content:
+        text/html:
+          schema: { $ref: "#/components/schemas/HtmlPage" }
+
+    ServerErrorHtml:
+      description: Unexpected failure (store error, template error).
+      content:
+        text/html:
+          schema: { $ref: "#/components/schemas/HtmlPage" }
+
+    PlainNotFound:
+      description: Not found.
+      content:
+        text/plain:
+          schema: { type: string }
+
+  schemas:
+    HtmlPage:
+      type: string
+      contentMediaType: text/html
+      description: >-
+        A complete server-rendered page (Go `html/template`, `internal/httpx/
+        templates/*.html`), or — when `X-Wpcalc-Fragment: 1` was sent — the
+        page content alone. Not further specified as JSON Schema; see the
+        template source for exact markup. Every string interpolated into it
+        is escaped by `html/template` and passed through the active i18n
+        catalog (`internal/i18n/catalogs/{de-CH,en}.json`).
+
+    PdfDocument:
+      type: string
+      contentMediaType: application/pdf
+      contentEncoding: base64
+      description: >-
+        Rendered with `github.com/go-pdf/fpdf`. Every figure comes from the
+        same store queries the grid renders from, so a printed total cannot
+        disagree with the screen.
+
+    Date:
+      type: string
+      format: date
+      pattern: '^\d{4}-\d{2}-\d{2}$'
+      description: ISO 8601 calendar date.
+      examples: ["2026-07-14"]
+
+    LoginForm:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, description: Case-insensitive. }
+        password: { type: string, format: password }
+
+    SetHoursForm:
+      type: object
+      required: [employee_id, date, hours]
+      properties:
+        employee_id: { type: string, description: "Integer, as a form field." }
+        date: { $ref: "#/components/schemas/Date" }
+        hours:
+          type: string
+          description: >-
+            Decimal hours; `.` or `,` both accepted as the separator (a
+            Swiss-German keyboard produces `,`). `7:45` (colon) is rejected
+            outright rather than silently read as `7` — a visible error beats
+            a silently wrong number.
+          examples: ["7.75"]
+
+    SetCommentForm:
+      type: object
+      required: [date]
+      properties:
+        date: { $ref: "#/components/schemas/Date" }
+        comment:
+          type: string
+          description: Empty or whitespace-only clears the day's comment.
+
+    SetHoursResult:
+      type: object
+      required: [ok]
+      description: >-
+        The JSON body `POST /m/{ym}/hours` and `POST /m/{ym}/comment` return
+        to an XHR caller. Every field except `ok` is `omitempty` on the Go
+        side, so it is absent from the JSON rather than `null`.
+      properties:
+        ok: { type: boolean }
+        value:
+          type: string
+          description: The stored value, formatted — only on a successful hours write.
+          examples: ["7.75"]
+        error:
+          type: string
+          description: Localized, human-readable failure message.
+        employeeTotal: { type: string, description: "Recomputed, this employee's month total." }
+        dayTotal: { type: string, description: "Recomputed, this day's total across employees." }
+        grandTotal: { type: string, description: "Recomputed, the whole month's total." }
+
+    Employee:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        tenantId: { type: integer, format: int64 }
+        displayName: { type: string }
+        startDate: { $ref: "#/components/schemas/Date" }
+        endDate:
+          oneOf:
+            - $ref: "#/components/schemas/Date"
+            - type: "null"
+          description: "`null`/absent means still employed."
+
+    EmployeeFormInput:
+      type: object
+      required: [name, start_date]
+      properties:
+        name: { type: string, minLength: 1 }
+        start_date: { $ref: "#/components/schemas/Date" }
+        end_date:
+          type: string
+          description: Empty string means still employed (the normal case).
+
+    Tenant:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+
+    TenantFormInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+
+    TenantSwitchForm:
+      type: object
+      required: [tenant_id]
+      properties:
+        tenant_id: { type: string, description: "Integer, as a form field." }
+        return_to:
+          type: string
+          description: Same-site absolute path to redirect back to; anything else is ignored in favor of `/`.
+
+    LanguageForm:
+      type: object
+      properties:
+        lang:
+          type: string
+          description: >-
+            A shipped catalog tag (`de-CH`, `en`; POSIX spelling `de_CH`
+            also accepted), or empty for "follow the browser".
+          enum: ["", "de-CH", "en", "de_CH"]
+        return_to:
+          type: string
+          description: Same-site absolute path to redirect back to; anything else is ignored in favor of `/`.
+
+    RoleScope:
+      type: string
+      enum: [system, tenant, employee]
+      description: >-
+        How broad a role assignment of this role is. `system` is broadest
+        (covers every tenant), `employee` narrowest (one employee only).
+
+    PermissionId:
+      type: string
+      enum:
+        - manage_tenants
+        - manage_roles
+        - manage_employees
+        - manage_users
+        - read
+        - print
+        - write
+      description: >-
+        The fixed, code-defined permission catalog — every route guard in
+        this document checks one of these. Not user-extensible: a
+        permission is only real if some handler actually checks for it.
+
+    Permission:
+      type: object
+      properties:
+        id: { $ref: "#/components/schemas/PermissionId" }
+        minScope:
+          allOf: [{ $ref: "#/components/schemas/RoleScope" }]
+          description: >-
+            The narrowest scope a role must have to hold this permission —
+            e.g. `manage_tenants` requires `system`; `read` can be held by a
+            role of any scope.
+
+    Role:
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z0-9_]+$'
+          description: >-
+            Fully custom, not restricted to the seeded set. Seeded roles:
+            `super_admin` (system), `mandant_admin` (tenant), `viewer`,
+            `reporter`, `editor` (employee).
+        name: { type: string }
+        scope: { $ref: "#/components/schemas/RoleScope" }
+        permissions:
+          type: array
+          items: { $ref: "#/components/schemas/PermissionId" }
+
+    RoleFormInput:
+      type: object
+      required: [id, name, scope]
+      properties:
+        id: { type: string, pattern: '^[a-z0-9_]+$' }
+        name: { type: string, minLength: 1 }
+        scope: { $ref: "#/components/schemas/RoleScope" }
+
+    RolePermissionForm:
+      type: object
+      required: [permission_id]
+      properties:
+        permission_id: { $ref: "#/components/schemas/PermissionId" }
+
+    EmployeeGrantForm:
+      type: object
+      required: [username, employee_id, role_id]
+      description: >-
+        Grants an *employee-scope* role only — `role_id` naming a
+        `system`- or `tenant`-scope role is rejected (a database trigger is
+        the final authority; the handler surfaces its rejection as a
+        redirect with `?err=invalid_input`).
+      properties:
+        username: { type: string }
+        employee_id: { type: string, description: "Integer, as a form field; must belong to the `{id}` tenant." }
+        role_id: { type: string, pattern: '^[a-z0-9_]+$' }
+
+    EmployeeRevokeForm:
+      type: object
+      required: [user_id, employee_id]
+      properties:
+        user_id: { type: string, description: "Integer, as a form field." }
+        employee_id: { type: string, description: "Integer, as a form field; must belong to the `{id}` tenant." }
+
+    RoleAssignForm:
+      type: object
+      required: [username, role_id]
+      properties:
+        username: { type: string }
+        role_id: { type: string, pattern: '^[a-z0-9_]+$' }
+        tenant_id:
+          type: string
+          description: >-
+            Integer, as a form field. Present (non-empty) → tenant-scope
+            grant for that tenant; absent/empty → system-scope grant.
+
+    RoleRevokeForm:
+      type: object
+      required: [user_id]
+      properties:
+        user_id: { type: string, description: "Integer, as a form field." }
+        tenant_id:
+          type: string
+          description: Integer, as a form field. Present → revoke the tenant-scope role; absent → revoke the system-scope role.
+
+    AdminRoleAssignment:
+      type: object
+      description: One `system`- or `tenant`-scope `user_roles` row, joined with display names — what `GET /roles` lists.
+      properties:
+        userId: { type: integer, format: int64 }
+        username: { type: string }
+        tenantId:
+          oneOf: [{ type: integer, format: int64 }, { type: "null" }]
+        tenantName:
+          type: string
+          description: Empty for a system-scope assignment.
+        roleId: { type: string }
+        roleName: { type: string }
+
+    EmployeeRoleAssignment:
+      type: object
+      description: One employee-scope `user_roles` row, joined with display names — what `GET /tenants/{id}/access` lists.
+      properties:
+        userId: { type: integer, format: int64 }
+        username: { type: string }
+        employeeId: { type: integer, format: int64 }
+        employeeName: { type: string }
+        roleId: { type: string }
+        roleName: { type: string }
