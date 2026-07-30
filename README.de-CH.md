@@ -177,6 +177,27 @@ Sie dokumentiert sich auf dieselbe Weise, unter
 "Authorize"-Button Anfragen mit einem via `wpcalc token create` erstellten
 Token direkt gegen den laufenden Server auszuprobieren.
 
+### Go-SDK
+
+[`sdk/go`](sdk/go) ist ein typisierter Go-Client für `/api/v1` — aus
+derselben Spezifikation generiert, plus transparentem
+Access-Token-Refresh, als eigenes Go-Modul, damit das Einbinden nicht die
+eigenen Abhängigkeiten des Servers mitzieht:
+
+```sh
+go get github.com/rolsim/wpcalc/sdk/go
+```
+
+```go
+sess, _ := wpcalc.New("http://localhost:8080/api/v1", wpcalc.TokenPair{
+    AccessToken: "wpat_...", RefreshToken: "wprt_...",
+})
+resp, _ := sess.ListAccessibleTenantsWithResponse(ctx)
+```
+
+Die vollständige Anleitung steht in [`sdk/go/README.md`](sdk/go/README.md)
+(Englisch).
+
 ## WordPress-Plugin installieren
 
 Die Binärdatei trägt das Plugin in sich und installiert sich selbst:
@@ -252,6 +273,7 @@ internal/auth/     Authenticator: lokale Konten, Bearer-Tokens, oder signierte W
 internal/report/   die drei PDFs
 internal/i18n/     eingebettete Kataloge; de-CH Standard, en verfügbar
 wordpress/wpcalc/  der PHP-Shim
+sdk/go/            typisierter Go-Client für /api/v1 — eigenes Go-Modul, aus derselben Spezifikation generiert
 ```
 
 Zwei Eigenschaften sind wissenswert, bevor etwas geändert wird:

@@ -20,7 +20,7 @@ ifneq ($(VERSION),)
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 endif
 
-.PHONY: all build vet lint test check e2e e2e-wp fmt tidy clean
+.PHONY: all build vet lint test check sdk-check e2e e2e-wp fmt tidy clean
 
 all: check
 
@@ -38,6 +38,11 @@ test:
 
 # The gate every commit must pass.
 check: build vet lint test
+
+# sdk/go is its own Go module (so consuming it doesn't pull in the
+# server's dependencies) and so isn't covered by `check` above.
+sdk-check:
+	cd sdk/go && go build ./... && go vet ./... && golangci-lint run && go test ./...
 
 # Browser e2e against the headless-shell container.
 e2e:

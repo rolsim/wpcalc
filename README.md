@@ -169,6 +169,25 @@ open `/api/v1/openapi.html` in a browser to browse every endpoint and, via
 its "Authorize" button, try requests against the running server with a
 token from `wpcalc token create`.
 
+### Go SDK
+
+[`sdk/go`](sdk/go) is a typed Go client for `/api/v1` — generated from the
+same spec, plus transparent access-token refresh, as its own Go module so
+consuming it doesn't pull in the server's own dependencies:
+
+```sh
+go get github.com/rolsim/wpcalc/sdk/go
+```
+
+```go
+sess, _ := wpcalc.New("http://localhost:8080/api/v1", wpcalc.TokenPair{
+    AccessToken: "wpat_...", RefreshToken: "wprt_...",
+})
+resp, _ := sess.ListAccessibleTenantsWithResponse(ctx)
+```
+
+See [`sdk/go/README.md`](sdk/go/README.md) for the full guide.
+
 ## Install the WordPress plugin
 
 The binary carries the plugin and installs itself:
@@ -236,6 +255,7 @@ internal/auth/     Authenticator: local accounts, bearer tokens, or signed WordP
 internal/report/   the three PDFs
 internal/i18n/     embedded catalogs; de-CH default, en available
 wordpress/wpcalc/  the PHP shim
+sdk/go/            typed Go client for /api/v1 — its own Go module, generated from the same spec
 ```
 
 Two properties are worth knowing before changing anything:
