@@ -88,3 +88,18 @@ func (a *API) GetTenant(ctx context.Context, request GetTenantRequestObject) (Ge
 	}
 	return GetTenant200JSONResponse(toAPITenant(t)), nil
 }
+
+func (a *API) UpdateTenant(ctx context.Context, request UpdateTenantRequestObject) (UpdateTenantResponseObject, error) {
+	id, ok := auth.IdentityFrom(ctx)
+	if !ok || !id.CanSystemWide(domain.PermManageTenants) {
+		return UpdateTenantdefaultJSONResponse{Body: Error{Error: codeForbidden}, StatusCode: 403}, nil
+	}
+	if request.Body == nil {
+		return UpdateTenantdefaultJSONResponse{Body: Error{Error: codeBadRequest}, StatusCode: 400}, nil
+	}
+	if err := a.db.RenameTenant(ctx, request.TenantId, request.Body.Name); err != nil {
+		status, code := mapStoreErr(err)
+		return UpdateTenantdefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
+	}
+	return UpdateTenant200JSONResponse{Id: request.TenantId, Name: request.Body.Name}, nil
+}

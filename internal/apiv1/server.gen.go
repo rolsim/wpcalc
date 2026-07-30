@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -94,6 +95,31 @@ type AdminRoleAssignment struct {
 	TenantName *string `json:"tenantName,omitempty"`
 	UserId     int64   `json:"userId"`
 	Username   string  `json:"username"`
+}
+
+// ApiToken defines model for ApiToken.
+type ApiToken struct {
+	CreatedAt  time.Time  `json:"createdAt"`
+	Id         int64      `json:"id"`
+	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+	Name       string     `json:"name"`
+
+	// RevokedAt Present once revoked. A revoked token still appears here (an audit trail), it just no longer authenticates.
+	RevokedAt *time.Time `json:"revokedAt,omitempty"`
+}
+
+// ApiTokenCreate defines model for ApiTokenCreate.
+type ApiTokenCreate struct {
+	Name string `json:"name"`
+}
+
+// ApiTokenCreated defines model for ApiTokenCreated.
+type ApiTokenCreated struct {
+	Id   int64  `json:"id"`
+	Name string `json:"name"`
+
+	// Token The bearer secret, in full. Shown here once — store it now; it is not recoverable afterward, only revocable.
+	Token string `json:"token"`
 }
 
 // Date Examples: 2026-07-14
@@ -199,6 +225,12 @@ type HoursResult struct {
 	GrandTotal    string `json:"grandTotal"`
 }
 
+// LanguageUpdate defines model for LanguageUpdate.
+type LanguageUpdate struct {
+	// Lang Empty (or omitted) means "follow the browser".
+	Lang *string `json:"lang,omitempty"`
+}
+
 // MonthGrid defines model for MonthGrid.
 type MonthGrid struct {
 	Days []GridDay `json:"days"`
@@ -207,6 +239,11 @@ type MonthGrid struct {
 	EmployeeTotals map[string]string `json:"employeeTotals"`
 	Employees      []Employee        `json:"employees"`
 	GrandTotal     string            `json:"grandTotal"`
+}
+
+// PasswordUpdate defines model for PasswordUpdate.
+type PasswordUpdate struct {
+	Password string `json:"password"`
 }
 
 // Permission defines model for Permission.
@@ -287,6 +324,32 @@ type TenantCreate struct {
 	Name string `json:"name"`
 }
 
+// User defines model for User.
+type User struct {
+	Id int64 `json:"id"`
+
+	// Language Empty means "follow the browser" — the same default `wpcalc user add` leaves it at.
+	Language string `json:"language"`
+	Username string `json:"username"`
+}
+
+// UserCreate defines model for UserCreate.
+type UserCreate struct {
+	// Password Minimum length enforced the same way as `wpcalc user add` without `--allow-weak-password`.
+	Password string `json:"password"`
+	Username string `json:"username"`
+}
+
+// UserRoleAssignment defines model for UserRoleAssignment.
+type UserRoleAssignment struct {
+	// EmployeeId Present for an employee-scope assignment.
+	EmployeeId *int64 `json:"employeeId,omitempty"`
+	RoleId     string `json:"roleId"`
+
+	// TenantId Present for a tenant-scope assignment.
+	TenantId *int64 `json:"tenantId,omitempty"`
+}
+
 // EmployeeId defines model for EmployeeId.
 type EmployeeId = int64
 
@@ -298,6 +361,9 @@ type RoleId = string
 
 // TenantId defines model for TenantId.
 type TenantId = int64
+
+// Username defines model for Username.
+type Username = string
 
 // Year defines model for Year.
 type Year = int
@@ -320,6 +386,9 @@ type AddRolePermissionJSONRequestBody = RolePermissionGrant
 // CreateTenantJSONRequestBody defines body for CreateTenant for application/json ContentType.
 type CreateTenantJSONRequestBody = TenantCreate
 
+// UpdateTenantJSONRequestBody defines body for UpdateTenant for application/json ContentType.
+type UpdateTenantJSONRequestBody = TenantCreate
+
 // GrantEmployeeRoleJSONRequestBody defines body for GrantEmployeeRole for application/json ContentType.
 type GrantEmployeeRoleJSONRequestBody = EmployeeRoleGrant
 
@@ -337,6 +406,18 @@ type SetCommentJSONRequestBody = SetCommentRequest
 
 // SetHoursJSONRequestBody defines body for SetHours for application/json ContentType.
 type SetHoursJSONRequestBody = SetHoursRequest
+
+// CreateTokenJSONRequestBody defines body for CreateToken for application/json ContentType.
+type CreateTokenJSONRequestBody = ApiTokenCreate
+
+// CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
+type CreateUserJSONRequestBody = UserCreate
+
+// SetUserLanguageJSONRequestBody defines body for SetUserLanguage for application/json ContentType.
+type SetUserLanguageJSONRequestBody = LanguageUpdate
+
+// SetUserPasswordJSONRequestBody defines body for SetUserPassword for application/json ContentType.
+type SetUserPasswordJSONRequestBody = PasswordUpdate
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -382,6 +463,9 @@ type ServerInterface interface {
 	// GetTenant Fetch one tenant
 	// (GET /tenants/{tenantId})
 	GetTenant(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// UpdateTenant Rename a tenant
+	// (PATCH /tenants/{tenantId})
+	UpdateTenant(w http.ResponseWriter, r *http.Request, tenantId TenantId)
 	// ListEmployeeRoleAssignments List employee-scope role assignments in this tenant
 	// (GET /tenants/{tenantId}/employee-role-assignments)
 	ListEmployeeRoleAssignments(w http.ResponseWriter, r *http.Request, tenantId TenantId)
@@ -424,6 +508,30 @@ type ServerInterface interface {
 	// GetTenantMonthReport Whole-tenant month summary PDF
 	// (GET /tenants/{tenantId}/months/{ym}/report)
 	GetTenantMonthReport(w http.ResponseWriter, r *http.Request, tenantId TenantId, ym YearMonth)
+	// ListTokens List the caller's own bearer tokens
+	// (GET /tokens)
+	ListTokens(w http.ResponseWriter, r *http.Request)
+	// CreateToken Mint an additional bearer token for the caller's own account
+	// (POST /tokens)
+	CreateToken(w http.ResponseWriter, r *http.Request)
+	// RevokeToken Revoke one of the caller's own bearer tokens
+	// (DELETE /tokens/{tokenId})
+	RevokeToken(w http.ResponseWriter, r *http.Request, tokenId int64)
+	// ListUsers List every account
+	// (GET /users)
+	ListUsers(w http.ResponseWriter, r *http.Request)
+	// CreateUser Create an account
+	// (POST /users)
+	CreateUser(w http.ResponseWriter, r *http.Request)
+	// SetUserLanguage Set an account's interface language preference
+	// (PUT /users/{username}/language)
+	SetUserLanguage(w http.ResponseWriter, r *http.Request, username Username)
+	// SetUserPassword Set an account's password
+	// (PUT /users/{username}/password)
+	SetUserPassword(w http.ResponseWriter, r *http.Request, username Username)
+	// GetUserRoles List an account's role assignments across every scope
+	// (GET /users/{username}/roles)
+	GetUserRoles(w http.ResponseWriter, r *http.Request, username Username)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -679,6 +787,32 @@ func (siw *ServerInterfaceWrapper) GetTenant(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetTenant(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateTenant operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTenant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateTenant(w, r, tenantId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1151,6 +1285,166 @@ func (siw *ServerInterfaceWrapper) GetTenantMonthReport(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// ListTokens operation middleware
+func (siw *ServerInterfaceWrapper) ListTokens(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTokens(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateToken operation middleware
+func (siw *ServerInterfaceWrapper) CreateToken(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateToken(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeToken operation middleware
+func (siw *ServerInterfaceWrapper) RevokeToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tokenId" -------------
+	var tokenId int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tokenId", r.PathValue("tokenId"), &tokenId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tokenId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeToken(w, r, tokenId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListUsers operation middleware
+func (siw *ServerInterfaceWrapper) ListUsers(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUsers(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateUser operation middleware
+func (siw *ServerInterfaceWrapper) CreateUser(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetUserLanguage operation middleware
+func (siw *ServerInterfaceWrapper) SetUserLanguage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "username" -------------
+	var username Username
+
+	err = runtime.BindStyledParameterWithOptions("simple", "username", r.PathValue("username"), &username, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "username", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetUserLanguage(w, r, username)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetUserPassword operation middleware
+func (siw *ServerInterfaceWrapper) SetUserPassword(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "username" -------------
+	var username Username
+
+	err = runtime.BindStyledParameterWithOptions("simple", "username", r.PathValue("username"), &username, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "username", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetUserPassword(w, r, username)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetUserRoles operation middleware
+func (siw *ServerInterfaceWrapper) GetUserRoles(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "username" -------------
+	var username Username
+
+	err = runtime.BindStyledParameterWithOptions("simple", "username", r.PathValue("username"), &username, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "username", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUserRoles(w, r, username)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1276,6 +1570,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants", wrapper.CreateTenant)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/accessible", wrapper.ListAccessibleTenants)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}", wrapper.GetTenant)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/tenants/{tenantId}", wrapper.UpdateTenant)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/employees", wrapper.ListEmployees)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/employees", wrapper.CreateEmployee)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/tenants/{tenantId}/employees/{employeeId}", wrapper.DeleteEmployee)
@@ -1291,6 +1586,14 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/employee-role-assignments", wrapper.GrantEmployeeRole)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/employee-role-assignments/revoke", wrapper.RevokeEmployeeRole)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/permissions", wrapper.ListPermissions)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users", wrapper.ListUsers)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/users", wrapper.CreateUser)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{username}/roles", wrapper.GetUserRoles)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/users/{username}/password", wrapper.SetUserPassword)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/users/{username}/language", wrapper.SetUserLanguage)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tokens", wrapper.ListTokens)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tokens", wrapper.CreateToken)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/tokens/{tokenId}", wrapper.RevokeToken)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/roles", wrapper.ListRoles)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/roles", wrapper.CreateRole)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/roles/{roleId}", wrapper.DeleteRole)
@@ -1789,6 +2092,46 @@ type GetTenantdefaultJSONResponse struct {
 }
 
 func (response GetTenantdefaultJSONResponse) VisitGetTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Body     *UpdateTenantJSONRequestBody
+}
+
+type UpdateTenantResponseObject interface {
+	VisitUpdateTenantResponse(w http.ResponseWriter) error
+}
+
+type UpdateTenant200JSONResponse Tenant
+
+func (response UpdateTenant200JSONResponse) VisitUpdateTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UpdateTenantdefaultJSONResponse) VisitUpdateTenantResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -2357,6 +2700,300 @@ func (response GetTenantMonthReportdefaultJSONResponse) VisitGetTenantMonthRepor
 	return err
 }
 
+type ListTokensRequestObject struct {
+}
+
+type ListTokensResponseObject interface {
+	VisitListTokensResponse(w http.ResponseWriter) error
+}
+
+type ListTokens200JSONResponse []ApiToken
+
+func (response ListTokens200JSONResponse) VisitListTokensResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTokensdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListTokensdefaultJSONResponse) VisitListTokensResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTokenRequestObject struct {
+	Body *CreateTokenJSONRequestBody
+}
+
+type CreateTokenResponseObject interface {
+	VisitCreateTokenResponse(w http.ResponseWriter) error
+}
+
+type CreateToken201JSONResponse ApiTokenCreated
+
+func (response CreateToken201JSONResponse) VisitCreateTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTokendefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateTokendefaultJSONResponse) VisitCreateTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTokenRequestObject struct {
+	TokenId int64 `json:"tokenId"`
+}
+
+type RevokeTokenResponseObject interface {
+	VisitRevokeTokenResponse(w http.ResponseWriter) error
+}
+
+type RevokeToken204Response struct {
+}
+
+func (response RevokeToken204Response) VisitRevokeTokenResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeTokendefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RevokeTokendefaultJSONResponse) VisitRevokeTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUsersRequestObject struct {
+}
+
+type ListUsersResponseObject interface {
+	VisitListUsersResponse(w http.ResponseWriter) error
+}
+
+type ListUsers200JSONResponse []User
+
+func (response ListUsers200JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUsersdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListUsersdefaultJSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateUserRequestObject struct {
+	Body *CreateUserJSONRequestBody
+}
+
+type CreateUserResponseObject interface {
+	VisitCreateUserResponse(w http.ResponseWriter) error
+}
+
+type CreateUser201JSONResponse User
+
+func (response CreateUser201JSONResponse) VisitCreateUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateUserdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateUserdefaultJSONResponse) VisitCreateUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetUserLanguageRequestObject struct {
+	Username Username `json:"username"`
+	Body     *SetUserLanguageJSONRequestBody
+}
+
+type SetUserLanguageResponseObject interface {
+	VisitSetUserLanguageResponse(w http.ResponseWriter) error
+}
+
+type SetUserLanguage204Response struct {
+}
+
+func (response SetUserLanguage204Response) VisitSetUserLanguageResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SetUserLanguagedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetUserLanguagedefaultJSONResponse) VisitSetUserLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetUserPasswordRequestObject struct {
+	Username Username `json:"username"`
+	Body     *SetUserPasswordJSONRequestBody
+}
+
+type SetUserPasswordResponseObject interface {
+	VisitSetUserPasswordResponse(w http.ResponseWriter) error
+}
+
+type SetUserPassword204Response struct {
+}
+
+func (response SetUserPassword204Response) VisitSetUserPasswordResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SetUserPassworddefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetUserPassworddefaultJSONResponse) VisitSetUserPasswordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUserRolesRequestObject struct {
+	Username Username `json:"username"`
+}
+
+type GetUserRolesResponseObject interface {
+	VisitGetUserRolesResponse(w http.ResponseWriter) error
+}
+
+type GetUserRoles200JSONResponse []UserRoleAssignment
+
+func (response GetUserRoles200JSONResponse) VisitGetUserRolesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUserRolesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetUserRolesdefaultJSONResponse) VisitGetUserRolesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// Healthz Liveness probe
@@ -2401,6 +3038,9 @@ type StrictServerInterface interface {
 	// GetTenant Fetch one tenant
 	// (GET /tenants/{tenantId})
 	GetTenant(ctx context.Context, request GetTenantRequestObject) (GetTenantResponseObject, error)
+	// UpdateTenant Rename a tenant
+	// (PATCH /tenants/{tenantId})
+	UpdateTenant(ctx context.Context, request UpdateTenantRequestObject) (UpdateTenantResponseObject, error)
 	// ListEmployeeRoleAssignments List employee-scope role assignments in this tenant
 	// (GET /tenants/{tenantId}/employee-role-assignments)
 	ListEmployeeRoleAssignments(ctx context.Context, request ListEmployeeRoleAssignmentsRequestObject) (ListEmployeeRoleAssignmentsResponseObject, error)
@@ -2443,6 +3083,30 @@ type StrictServerInterface interface {
 	// GetTenantMonthReport Whole-tenant month summary PDF
 	// (GET /tenants/{tenantId}/months/{ym}/report)
 	GetTenantMonthReport(ctx context.Context, request GetTenantMonthReportRequestObject) (GetTenantMonthReportResponseObject, error)
+	// ListTokens List the caller's own bearer tokens
+	// (GET /tokens)
+	ListTokens(ctx context.Context, request ListTokensRequestObject) (ListTokensResponseObject, error)
+	// CreateToken Mint an additional bearer token for the caller's own account
+	// (POST /tokens)
+	CreateToken(ctx context.Context, request CreateTokenRequestObject) (CreateTokenResponseObject, error)
+	// RevokeToken Revoke one of the caller's own bearer tokens
+	// (DELETE /tokens/{tokenId})
+	RevokeToken(ctx context.Context, request RevokeTokenRequestObject) (RevokeTokenResponseObject, error)
+	// ListUsers List every account
+	// (GET /users)
+	ListUsers(ctx context.Context, request ListUsersRequestObject) (ListUsersResponseObject, error)
+	// CreateUser Create an account
+	// (POST /users)
+	CreateUser(ctx context.Context, request CreateUserRequestObject) (CreateUserResponseObject, error)
+	// SetUserLanguage Set an account's interface language preference
+	// (PUT /users/{username}/language)
+	SetUserLanguage(ctx context.Context, request SetUserLanguageRequestObject) (SetUserLanguageResponseObject, error)
+	// SetUserPassword Set an account's password
+	// (PUT /users/{username}/password)
+	SetUserPassword(ctx context.Context, request SetUserPasswordRequestObject) (SetUserPasswordResponseObject, error)
+	// GetUserRoles List an account's role assignments across every scope
+	// (GET /users/{username}/roles)
+	GetUserRoles(ctx context.Context, request GetUserRolesRequestObject) (GetUserRolesResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -2864,6 +3528,39 @@ func (sh *strictHandler) GetTenant(w http.ResponseWriter, r *http.Request, tenan
 	}
 }
 
+// UpdateTenant operation middleware
+func (sh *strictHandler) UpdateTenant(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request UpdateTenantRequestObject
+
+	request.TenantId = tenantId
+
+	var body UpdateTenantJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateTenant(ctx, request.(UpdateTenantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateTenant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateTenantResponseObject); ok {
+		if err := validResponse.VisitUpdateTenantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListEmployeeRoleAssignments operation middleware
 func (sh *strictHandler) ListEmployeeRoleAssignments(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
 	var request ListEmployeeRoleAssignmentsRequestObject
@@ -3274,6 +3971,234 @@ func (sh *strictHandler) GetTenantMonthReport(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetTenantMonthReportResponseObject); ok {
 		if err := validResponse.VisitGetTenantMonthReportResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTokens operation middleware
+func (sh *strictHandler) ListTokens(w http.ResponseWriter, r *http.Request) {
+	var request ListTokensRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTokens(ctx, request.(ListTokensRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTokens")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTokensResponseObject); ok {
+		if err := validResponse.VisitListTokensResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateToken operation middleware
+func (sh *strictHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
+	var request CreateTokenRequestObject
+
+	var body CreateTokenJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateToken(ctx, request.(CreateTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateTokenResponseObject); ok {
+		if err := validResponse.VisitCreateTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeToken operation middleware
+func (sh *strictHandler) RevokeToken(w http.ResponseWriter, r *http.Request, tokenId int64) {
+	var request RevokeTokenRequestObject
+
+	request.TokenId = tokenId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeToken(ctx, request.(RevokeTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeTokenResponseObject); ok {
+		if err := validResponse.VisitRevokeTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListUsers operation middleware
+func (sh *strictHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	var request ListUsersRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListUsers(ctx, request.(ListUsersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListUsers")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListUsersResponseObject); ok {
+		if err := validResponse.VisitListUsersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateUser operation middleware
+func (sh *strictHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
+	var request CreateUserRequestObject
+
+	var body CreateUserJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateUser(ctx, request.(CreateUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateUserResponseObject); ok {
+		if err := validResponse.VisitCreateUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetUserLanguage operation middleware
+func (sh *strictHandler) SetUserLanguage(w http.ResponseWriter, r *http.Request, username Username) {
+	var request SetUserLanguageRequestObject
+
+	request.Username = username
+
+	var body SetUserLanguageJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetUserLanguage(ctx, request.(SetUserLanguageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetUserLanguage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetUserLanguageResponseObject); ok {
+		if err := validResponse.VisitSetUserLanguageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetUserPassword operation middleware
+func (sh *strictHandler) SetUserPassword(w http.ResponseWriter, r *http.Request, username Username) {
+	var request SetUserPasswordRequestObject
+
+	request.Username = username
+
+	var body SetUserPasswordJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetUserPassword(ctx, request.(SetUserPasswordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetUserPassword")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetUserPasswordResponseObject); ok {
+		if err := validResponse.VisitSetUserPasswordResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetUserRoles operation middleware
+func (sh *strictHandler) GetUserRoles(w http.ResponseWriter, r *http.Request, username Username) {
+	var request GetUserRolesRequestObject
+
+	request.Username = username
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetUserRoles(ctx, request.(GetUserRolesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetUserRoles")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetUserRolesResponseObject); ok {
+		if err := validResponse.VisitGetUserRolesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

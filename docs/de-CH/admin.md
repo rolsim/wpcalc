@@ -326,10 +326,47 @@ curl -H "Authorization: Bearer wpat_..." http://localhost:8080/api/v1/tenants
   (`/api/v1/tenants/{tenantId}/...`) — ein Bearer-Token hat keine Sitzung,
   in der ein "aktiver Mandant" gehalten werden könnte, also gibt es hier
   keinen Mandanten-Umschalter und keine Auswahlseite.
-- **Keine Routen für Login, Logout, Spracheinstellung oder
-  Mandanten-Wechsel** — für einen zustandslosen Client bedeutungslos.
+- **Keine Routen für Login, Logout oder Mandanten-Wechsel** — für einen
+  zustandslosen Client bedeutungslos. Eine Spracheinstellung *gibt* es
+  (`PUT /api/v1/users/{username}/language`), nennt aber aus demselben
+  Grund das Zielkonto explizit, statt "die aktuelle Sitzung" zu ändern.
 - Jede Antwort ist JSON mit einem echten Statuscode — keine
   `303`-Weiterleitungen, keine `?err=`-Query-String-Token.
+
+### Konten und Tokens
+
+Alles, was `wpcalc user` und `wpcalc token` auf der CLI können, hat eine
+Entsprechung unter `/api/v1` — mit einer notwendigen Ausnahme: das erste
+Token eines Kontos kann nur von der CLI kommen (ein Endpunkt, der ein
+Bearer-Token verlangt, kann nicht der Weg sein, das erste zu erhalten).
+
+| CLI | API |
+|---|---|
+| `wpcalc user add` | `POST /api/v1/users` |
+| `wpcalc user list` | `GET /api/v1/users` |
+| `wpcalc user passwd <Name>` | `PUT /api/v1/users/{username}/password` |
+| `wpcalc user lang <Name>` | `PUT /api/v1/users/{username}/language` |
+| `wpcalc user roles <Name>` | `GET /api/v1/users/{username}/roles` |
+| `wpcalc token create` | `POST /api/v1/tokens` (für sich selbst, sobald man eines hat) |
+| `wpcalc token list` | `GET /api/v1/tokens` (nur eigene) |
+| `wpcalc token revoke` | `DELETE /api/v1/tokens/{tokenId}` (nur eigene) |
+
+Zwei Zugriffsregeln gelten durchgehend für die `/users/{username}/*`-Routen:
+system-weites `manage_users` wirkt auf jedes Konto (der unbeschränkte,
+operative Zugriff der CLI), und **ein Konto darf immer auf sich selbst
+einwirken** — passend zum eigenen Self-Service-Sprachwechsel der
+HTML-Anwendung. Ein Nicht-Admin, der ein fremdes Konto nennt, oder eines,
+das nicht existiert, erhält in beiden Fällen dasselbe `403`; dies kann
+niemals dazu benutzt werden, herauszufinden, welche Benutzernamen
+existieren.
+
+Die `/tokens*`-Routen sind noch enger begrenzt: ausschliesslich
+Self-Service. Es gibt keinen Weg — auch nicht für einen
+`manage_users`-Admin —, über die API die Tokens eines *anderen* Kontos
+aufzulisten oder zu widerrufen; eine `tokenId`, die jemand anderem gehört,
+liest sich als `404`, nicht als `403`, sodass sie auch nicht zum
+Ausprobieren existierender Token-IDs dienen kann. Die CLI, mit direktem
+Datenbankzugriff, ist nicht auf diese Weise begrenzt.
 
 ### Autorisierung
 

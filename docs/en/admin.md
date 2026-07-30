@@ -304,10 +304,46 @@ curl -H "Authorization: Bearer wpat_..." http://localhost:8080/api/v1/tenants
 - **Every request names its tenant explicitly in the path**
   (`/api/v1/tenants/{tenantId}/...`) — a bearer token has no session to hold
   an "active tenant" in, so there is no tenant switcher or chooser here.
-- **No login, logout, language-preference, or tenant-switch routes** —
-  meaningless for a stateless client.
+- **No login, logout, or tenant-switch routes** — meaningless for a
+  stateless client. Setting a language preference *does* exist
+  (`PUT /api/v1/users/{username}/language`), but names the target account
+  explicitly rather than acting on "the current session", for the same
+  reason.
 - Every response is JSON with a real status code — no `303` redirects, no
   `?err=` query-string tokens.
+
+### Users and tokens
+
+Everything `wpcalc user` and `wpcalc token` can do on the CLI has an
+`/api/v1` equivalent, with one necessary difference: an account's very
+first token can only come from the CLI (an endpoint that requires a bearer
+token cannot be how you get your first one).
+
+| CLI | API |
+|---|---|
+| `wpcalc user add` | `POST /api/v1/users` |
+| `wpcalc user list` | `GET /api/v1/users` |
+| `wpcalc user passwd <name>` | `PUT /api/v1/users/{username}/password` |
+| `wpcalc user lang <name>` | `PUT /api/v1/users/{username}/language` |
+| `wpcalc user roles <name>` | `GET /api/v1/users/{username}/roles` |
+| `wpcalc token create` | `POST /api/v1/tokens` (self, once you have one) |
+| `wpcalc token list` | `GET /api/v1/tokens` (self only) |
+| `wpcalc token revoke` | `DELETE /api/v1/tokens/{tokenId}` (self only) |
+
+Two access rules apply consistently across the `/users/{username}/*`
+routes: `manage_users` system-wide acts on any account (the CLI's
+unscoped, operator-level access), and **any account may always act on
+itself** — matching the HTML app's own self-service language switch. A
+non-admin naming someone else's account, or one that doesn't exist, gets
+an identical `403` either way; this can never be used to test which
+usernames exist.
+
+The `/tokens*` routes are scoped even tighter: self-service only, full
+stop. There is no way for anyone — including a `manage_users` admin — to
+list or revoke *another* account's tokens through the API; a `tokenId`
+belonging to someone else reads as `404`, not `403`, so it cannot be used
+to probe which token ids exist either. The CLI, with direct database
+access, is not scoped this way.
 
 ### Authorization
 

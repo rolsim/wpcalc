@@ -116,6 +116,23 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Tenant" }
         default: { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateTenant
+      summary: Rename a tenant
+      x-required-permission: manage_tenants
+      x-permission-scope: system
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TenantCreate" }
+      responses:
+        "200":
+          description: Renamed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tenant" }
+        default: { $ref: "#/components/responses/Error" }
 
   /tenants/{tenantId}/employees:
     parameters:
@@ -379,6 +396,181 @@ paths:
                 items: { $ref: "#/components/schemas/Permission" }
         default: { $ref: "#/components/responses/Error" }
 
+  /users:
+    get:
+      operationId: listUsers
+      summary: List every account
+      description: Matches `wpcalc user list`.
+      x-required-permission: manage_users
+      x-permission-scope: system
+      responses:
+        "200":
+          description: Every account. Never includes password hashes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/User" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createUser
+      summary: Create an account
+      description: >-
+        Matches `wpcalc user add`. The new account holds no roles — grant
+        one separately via `POST /role-assignments` or
+        `POST /tenants/{tenantId}/employee-role-assignments`, same as the
+        CLI two-step (`user add` then `user grant`).
+      x-required-permission: manage_users
+      x-permission-scope: system
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserCreate" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /users/{username}/roles:
+    parameters:
+      - $ref: "#/components/parameters/Username"
+    get:
+      operationId: getUserRoles
+      summary: List an account's role assignments across every scope
+      description: >-
+        Matches `wpcalc user roles <name>`. Requires `manage_users`
+        system-wide, or that the caller is asking about their own account
+        — matching how the HTML app already lets any signed-in account see
+        its own access.
+      x-required-permission: manage_users
+      x-permission-scope: system
+      responses:
+        "200":
+          description: Every role this account holds, at every scope.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/UserRoleAssignment" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /users/{username}/password:
+    parameters:
+      - $ref: "#/components/parameters/Username"
+    put:
+      operationId: setUserPassword
+      summary: Set an account's password
+      description: >-
+        Matches `wpcalc user passwd`. Requires `manage_users` system-wide,
+        or that the caller is changing their own password. Revokes every
+        existing session for the account (not its API tokens, which are a
+        separate credential).
+      x-required-permission: manage_users
+      x-permission-scope: system
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PasswordUpdate" }
+      responses:
+        "204":
+          description: Changed.
+        default: { $ref: "#/components/responses/Error" }
+
+  /users/{username}/language:
+    parameters:
+      - $ref: "#/components/parameters/Username"
+    put:
+      operationId: setUserLanguage
+      summary: Set an account's interface language preference
+      description: >-
+        Matches `wpcalc user lang`. Requires `manage_users` system-wide, or
+        that the caller is setting their own preference.
+      x-required-permission: manage_users
+      x-permission-scope: system
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LanguageUpdate" }
+      responses:
+        "204":
+          description: Set.
+        default: { $ref: "#/components/responses/Error" }
+
+  /tokens:
+    get:
+      operationId: listTokens
+      summary: List the caller's own bearer tokens
+      description: >-
+        Matches `wpcalc token list <name>`, scoped to the token's own
+        account — there is no way to list another account's tokens via the
+        API (the CLI, with direct database access, is not scoped this way).
+        Never includes the token secret itself, only metadata: only
+        `POST /tokens` (and `wpcalc token create`) ever show that, once.
+      x-required-permission: null
+      x-permission-scope: null
+      responses:
+        "200":
+          description: The caller's own tokens.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ApiToken" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createToken
+      summary: Mint an additional bearer token for the caller's own account
+      description: >-
+        Matches `wpcalc token create`, self-service: any authenticated
+        token can mint another one for the same account (e.g. one token
+        per script, individually revocable) without needing the CLI. The
+        very first token for an account still has to come from the CLI —
+        this endpoint requires a bearer token to call, so it cannot
+        bootstrap the first one.
+      x-required-permission: null
+      x-permission-scope: null
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApiTokenCreate" }
+      responses:
+        "201":
+          description: >-
+            Created. token is shown here in full, once — it is not
+            recoverable afterward, only revocable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiTokenCreated" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /tokens/{tokenId}:
+    parameters:
+      - name: tokenId
+        in: path
+        required: true
+        schema: { type: integer, format: int64, minimum: 1 }
+    delete:
+      operationId: revokeToken
+      summary: Revoke one of the caller's own bearer tokens
+      description: >-
+        Matches `wpcalc token revoke`, scoped to the caller's own
+        account — `tokenId` naming a token belonging to a different
+        account reads as 404, not 403, so this cannot be used to probe
+        which token ids exist.
+      x-required-permission: null
+      x-permission-scope: null
+      responses:
+        "204":
+          description: Revoked.
+        default: { $ref: "#/components/responses/Error" }
+
   /roles:
     get:
       operationId: listRoles
@@ -550,6 +742,11 @@ components:
       required: true
       schema: { type: integer, minimum: 1000, maximum: 9999 }
       example: 2026
+    Username:
+      name: username
+      in: path
+      required: true
+      schema: { type: string }
 
   responses:
     Error:
@@ -805,3 +1002,80 @@ components:
           type: integer
           format: int64
           description: Present means the tenant-scope grant; absent means the system-scope grant.
+
+    User:
+      type: object
+      required: [id, username, language]
+      properties:
+        id: { type: integer, format: int64 }
+        username: { type: string }
+        language:
+          type: string
+          description: Empty means "follow the browser" — the same default `wpcalc user add` leaves it at.
+
+    UserCreate:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, minLength: 1 }
+        password:
+          type: string
+          format: password
+          minLength: 10
+          description: Minimum length enforced the same way as `wpcalc user add` without `--allow-weak-password`.
+
+    PasswordUpdate:
+      type: object
+      required: [password]
+      properties:
+        password: { type: string, format: password, minLength: 10 }
+
+    LanguageUpdate:
+      type: object
+      properties:
+        lang:
+          type: string
+          description: Empty (or omitted) means "follow the browser".
+
+    UserRoleAssignment:
+      type: object
+      required: [roleId]
+      properties:
+        roleId: { type: string }
+        tenantId:
+          type: integer
+          format: int64
+          description: Present for a tenant-scope assignment.
+        employeeId:
+          type: integer
+          format: int64
+          description: Present for an employee-scope assignment.
+
+    ApiToken:
+      type: object
+      required: [id, name, createdAt]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: string, format: date-time }
+        revokedAt:
+          type: string
+          format: date-time
+          description: Present once revoked. A revoked token still appears here (an audit trail), it just no longer authenticates.
+
+    ApiTokenCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+
+    ApiTokenCreated:
+      type: object
+      required: [id, name, token]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        token:
+          type: string
+          description: The bearer secret, in full. Shown here once — store it now; it is not recoverable afterward, only revocable.
