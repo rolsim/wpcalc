@@ -284,9 +284,11 @@ auch im Fehlerfall.
 
 ## Releases
 
-Jeder Push nach `main` und jeder Pull Request führt `make check` über
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) aus. Ein Release zu
-erstellen ist danach nur noch ein Tag:
+Jeder Push nach `main` und jeder Pull Request führt `make check-all` über
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) aus — das Wurzelmodul,
+[`sdk/go`](sdk/go) und [`cmd/wpcalcctl`](cmd/wpcalcctl) je einzeln geprüft,
+da alle drei eigenständige Go-Module sind. Ein Release zu erstellen ist
+danach nur noch ein Tag:
 
 ```sh
 git tag v0.1.0        # oder v0.1.0-alpha, v0.1.0-rc.1, ...
@@ -295,14 +297,15 @@ git push origin v0.1.0
 
 Das Pushen eines Tags nach dem Muster `v*` führt
 [`.github/workflows/release.yml`](.github/workflows/release.yml) aus: führt
-zuerst `make check` auf dem getaggten Commit aus — ein Tag auf einem
+zuerst `make check-all` auf dem getaggten Commit aus — ein Tag auf einem
 kaputten Commit wird hier erneut geprüft, statt sich darauf zu verlassen,
 dass die CI für genau diesen Commit bereits erfolgreich war — und baut erst
-danach
-`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64` und
-`windows/amd64` aus einem einzigen Linux-Runner (kein cgo, also kein
-Runner pro Betriebssystem nötig), stempelt `-X main.version=<Tag>` und
-veröffentlicht ein GitHub-Release mit je einem Archiv pro Plattform sowie
+danach sowohl `wpcalc` als auch `wpcalcctl` für `linux/amd64`,
+`linux/arm64`, `darwin/amd64`, `darwin/arm64` und `windows/amd64` aus einem
+einzigen Linux-Runner (kein cgo, also kein Runner pro Betriebssystem nötig),
+stempelt `-X main.version=<Tag>` in `wpcalc` und veröffentlicht ein
+GitHub-Release mit je einem Archiv pro Binärdatei und Plattform
+(`wpcalc-<Tag>-<os>-<arch>` und `wpcalcctl-<Tag>-<os>-<arch>`) sowie
 `checksums.txt`.
 
 Ein Tag mit angehängtem Bindestrich-Suffix (`-alpha`, `-beta`, `-rc.1`, ...)
@@ -323,7 +326,7 @@ internal/report/   die drei PDFs
 internal/i18n/     eingebettete Kataloge; de-CH Standard, en verfügbar
 wordpress/wpcalc/  der PHP-Shim
 sdk/go/            typisierter Go-Client für /api/v1 — eigenes Go-Modul, aus derselben Spezifikation generiert
-cmd/wpcalcctl/    CLI zur Fernverwaltung — eigenes Go-Modul, nur sdk/go und die Standardbibliothek
+cmd/wpcalcctl/     CLI zur Fernverwaltung — eigenes Go-Modul, nur sdk/go und die Standardbibliothek
 ```
 
 Zwei Eigenschaften sind wissenswert, bevor etwas geändert wird:

@@ -83,8 +83,8 @@ bottom and on the right must move immediately, without a page reload.
 stored as `7` — a visible message is better than a silently altered number.
 
 **Locked cells.** The grey cells with a dot lie outside the employment period
-and accept nothing. "Sample C" starts on the 15th, where the difference is
-easy to see; "Sample D" left in the previous month and so does not appear at
+and accept nothing. "Muster C" starts on the 15th, where the difference is
+easy to see; "Muster D" left in the previous month and so does not appear at
 all. Weekends are shaded.
 
 **Crossing months.** Page across a year boundary with the arrows, e.g. from
@@ -93,13 +93,25 @@ December to January.
 **Reports.** Download the three PDFs and check them — the numbers inside must
 match the screen.
 
-**Roles.** Create a tenant and a second, employee-scoped account (`user add
-name`, then `user grant name -employee ID -role viewer`) and sign in as it:
-the "Employees" nav link is gone, `/employees` and the whole-tenant month PDF
-come back forbidden, and only that one employee's cells are visible at all —
-every other employee is missing from the grid entirely, not merely locked.
-`editor` can write those cells; `viewer` cannot. `/reports` still opens, but
-lists only that one employee.
+**Roles.** Create a second, employee-scoped account and grant it a role on
+one of the four sample employees — they already belong to the Default
+tenant (id 1) every fresh database starts with, so no tenant needs creating
+for this:
+
+```sh
+./wpcalc user add watcher -lang en --db test.db
+./wpcalc user grant watcher -employee 1 -role viewer --db test.db
+```
+
+Sign in as `watcher`: the "Employees" nav link is gone, `/employees` and the
+whole-tenant month PDF come back forbidden, and only that one employee's
+cells are visible at all — every other employee is missing from the grid
+entirely, not merely locked. `editor` can write those cells; `viewer`
+cannot. `/reports` still opens, but lists only that one employee.
+
+Creating a second tenant, and everything else about accounts and roles
+beyond this first bootstrap one, happens remotely through `wpcalcctl` — see
+[docs/en/admin.md](admin.md#multi-tenancy-and-roles).
 
 Two things that are easy to miss. The language selector in the top right is
 stored with the account, so it also applies when you sign in from a different
@@ -145,10 +157,11 @@ missing path.
 
 ## Automated
 
-Source tree only. Three commands:
+Source tree only. Four commands:
 
 ```sh
-make check     # build, linter and around 130 tests — seconds
+make check     # build, linter and around 130 tests for wpcalc itself — seconds
+make check-all # the same, plus sdk/go and wpcalcctl, each their own module — seconds
 make e2e       # a real browser in a container — around 10 seconds
 make e2e-wp    # WordPress, MariaDB and the plugin in containers — around 45 seconds
 ```

@@ -268,8 +268,10 @@ HTTP. It tears the stack down on every exit path including failure.
 
 ## Releases
 
-Every push to `main` and every pull request runs `make check` via
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml). Cutting a release is
+Every push to `main` and every pull request runs `make check-all` via
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) — the root module,
+[`sdk/go`](sdk/go), and [`cmd/wpcalcctl`](cmd/wpcalcctl) each gated
+separately, since all three are independent Go modules. Cutting a release is
 then just tagging:
 
 ```sh
@@ -279,12 +281,14 @@ git push origin v0.1.0
 
 Pushing a tag matching `v*` runs
 [`.github/workflows/release.yml`](.github/workflows/release.yml), which first
-runs `make check` on the tagged commit — a tag on a broken commit is built and
-checked again here rather than trusted to have already passed CI — and only
-then cross-compiles `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`,
-and `windows/amd64` from one Linux runner (no cgo, so no per-OS runner is
-needed), stamps `-X main.version=<tag>`, and publishes a GitHub release with
-one archive per platform plus `checksums.txt`.
+runs `make check-all` on the tagged commit — a tag on a broken commit is built
+and checked again here rather than trusted to have already passed CI — and
+only then cross-compiles both `wpcalc` and `wpcalcctl` for `linux/amd64`,
+`linux/arm64`, `darwin/amd64`, `darwin/arm64`, and `windows/amd64` from one
+Linux runner (no cgo, so no per-OS runner is needed), stamps
+`-X main.version=<tag>` into `wpcalc`, and publishes a GitHub release with one
+archive per binary per platform (`wpcalc-<tag>-<os>-<arch>` and
+`wpcalcctl-<tag>-<os>-<arch>`) plus `checksums.txt`.
 
 A tag with a hyphenated suffix (`-alpha`, `-beta`, `-rc.1`, ...) is published
 as a GitHub prerelease automatically; a plain `vX.Y.Z` is a stable release.
@@ -303,7 +307,7 @@ internal/report/   the three PDFs
 internal/i18n/     embedded catalogs; de-CH default, en available
 wordpress/wpcalc/  the PHP shim
 sdk/go/            typed Go client for /api/v1 — its own Go module, generated from the same spec
-cmd/wpcalcctl/    remote admin CLI — its own Go module, sdk/go and the standard library only
+cmd/wpcalcctl/     remote admin CLI — its own Go module, sdk/go and the standard library only
 ```
 
 Two properties are worth knowing before changing anything:

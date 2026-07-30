@@ -99,14 +99,26 @@ von Dezember auf Januar.
 **Auswertungen.** Laden Sie die drei PDFs herunter und schauen Sie hinein — die
 Zahlen darin müssen mit dem Bildschirm übereinstimmen.
 
-**Rollen.** Legen Sie einen Mandanten und ein zweites, mitarbeiterbezogenes
-Konto an (`user add name`, dann `user grant name -employee ID -role viewer`)
-und melden Sie sich damit an: Der Menüpunkt «Mitarbeitende» fehlt,
+**Rollen.** Legen Sie ein zweites, mitarbeiterbezogenes Konto an und weisen
+Sie ihm eine Rolle für eine der vier Platzhalter-Mitarbeitenden zu — sie
+gehören bereits dem Default-Mandanten (id 1) an, mit dem jede frische
+Datenbank startet, es braucht also keinen eigenen Mandanten dafür:
+
+```sh
+./wpcalc user add watcher -lang de-CH --db test.db
+./wpcalc user grant watcher -employee 1 -role viewer --db test.db
+```
+
+Melden Sie sich als `watcher` an: Der Menüpunkt «Mitarbeitende» fehlt,
 `/employees` und die monatliche Gesamtübersicht als PDF liefern «keine
 Berechtigung», und nur die Zellen dieser einen Person sind überhaupt
 sichtbar — jede andere Person fehlt vollständig im Raster, nicht nur
 gesperrt. `editor` kann diese Zellen beschreiben, `viewer` nicht. `/reports`
 öffnet sich weiterhin, zeigt aber nur diese eine Person.
+
+Einen zweiten Mandanten anzulegen, und alles rund um Konten und Rollen
+darüber hinaus, geschieht remote über `wpcalcctl` — siehe
+[docs/de-CH/admin.md](admin.md#mandanten-und-rollen).
 
 Zwei Dinge, die leicht übersehen werden. Die Sprachauswahl oben rechts bleibt
 beim Konto gespeichert, gilt also auch, wenn Sie sich in einem anderen Browser
@@ -152,10 +164,11 @@ Hinweis, der den fehlenden Pfad nennt.
 
 ## Automatisiert
 
-Nur mit dem Quellcode. Drei Befehle:
+Nur mit dem Quellcode. Vier Befehle:
 
 ```sh
-make check     # Bau, Linter und rund 130 Tests — Sekunden
+make check     # Bau, Linter und rund 130 Tests für wpcalc selbst — Sekunden
+make check-all # dasselbe, plus sdk/go und wpcalcctl, je ihr eigenes Modul — Sekunden
 make e2e       # echter Browser in einem Container — rund 10 Sekunden
 make e2e-wp    # WordPress, MariaDB und das Plugin in Containern — rund 45 Sekunden
 ```
