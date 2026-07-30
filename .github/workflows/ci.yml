@@ -23,5 +23,5 @@ jobs:
         # lint a go1.26 module. Building it locally uses the toolchain above.
         run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 
-      - name: make check
-        run: make check
+      - name: make check-all
+        run: make check-all

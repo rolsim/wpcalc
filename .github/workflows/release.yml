@@ -29,8 +29,8 @@ jobs:
         # lint a go1.26 module. Building it locally uses the toolchain above.
         run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 
-      - name: make check
-        run: make check
+      - name: make check-all
+        run: make check-all
 
   build:
     needs: check
@@ -64,15 +64,17 @@ jobs:
           set -eu
           ext=""
           if [ "${GOOS}" = "windows" ]; then ext=".exe"; fi
-          out="wpcalc${ext}"
-          go build -ldflags "-X main.version=${GITHUB_REF_NAME}" -o "${out}" ./cmd/wpcalc
+          out_server="wpcalc${ext}"
+          out_cli="wpcalcctl${ext}"
+          go build -ldflags "-X main.version=${GITHUB_REF_NAME}" -o "${out_server}" ./cmd/wpcalc
+          (cd cmd/wpcalcctl && go build -o "../../${out_cli}" .)
 
           archive="wpcalc-${GITHUB_REF_NAME}-${GOOS}-${GOARCH}"
           if [ "${GOOS}" = "windows" ]; then
-            zip "${archive}.zip" "${out}"
+            zip "${archive}.zip" "${out_server}" "${out_cli}"
             echo "ASSET=${archive}.zip" >> "$GITHUB_ENV"
           else
-            tar -czf "${archive}.tar.gz" "${out}"
+            tar -czf "${archive}.tar.gz" "${out_server}" "${out_cli}"
             echo "ASSET=${archive}.tar.gz" >> "$GITHUB_ENV"
           fi
 
