@@ -102,14 +102,23 @@ func (db *DB) SetPasswordWeak(ctx context.Context, username, password string, al
 		return fmt.Errorf("store: set password for %q: %w", username, ErrNotFound)
 	}
 
-	// Changing a password revokes every existing session for that account.
-	// Otherwise a password change in response to a suspected compromise would
-	// leave the attacker's session working.
+	// Changing a password revokes every existing session for that account,
+	// and every refresh token — otherwise a password change in response to
+	// a suspected compromise would leave the attacker's session working, or
+	// able to keep renewing an API access token for another 30 days.
+	// Already-issued access tokens are left alone: they expire on their own
+	// within the hour (domain.AccessTokenTTL) regardless.
 	if _, err := db.ExecContext(ctx,
 		`DELETE FROM sessions
 		  WHERE user_id IN (SELECT id FROM users WHERE username = ?)`,
 		strings.TrimSpace(username)); err != nil {
 		return fmt.Errorf("store: revoke sessions: %w", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`UPDATE refresh_tokens SET revoked_at = datetime('now')
+		  WHERE user_id IN (SELECT id FROM users WHERE username = ?) AND revoked_at IS NULL AND used_at IS NULL`,
+		strings.TrimSpace(username)); err != nil {
+		return fmt.Errorf("store: revoke refresh tokens: %w", err)
 	}
 	return nil
 }

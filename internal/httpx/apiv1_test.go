@@ -24,7 +24,7 @@ func (ts *testServer) bearer(t *testing.T, username string) string {
 	if err := ts.db.GrantUserRole(t.Context(), uid, nil, nil, domain.RoleSuperAdmin); err != nil {
 		t.Fatalf("GrantUserRole: %v", err)
 	}
-	token, _, err := ts.db.CreateAPIToken(t.Context(), uid, "test")
+	token, _, _, err := ts.db.CreateAPIToken(t.Context(), uid, "test")
 	if err != nil {
 		t.Fatalf("CreateAPIToken: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestAPIv1EmployeeScopedTokenCannotListTenants(t *testing.T) {
 	if err := ts.db.GrantUserRole(t.Context(), uid, nil, &empID, domain.RoleViewer); err != nil {
 		t.Fatalf("GrantUserRole: %v", err)
 	}
-	token, _, err := ts.db.CreateAPIToken(t.Context(), uid, "test")
+	token, _, _, err := ts.db.CreateAPIToken(t.Context(), uid, "test")
 	if err != nil {
 		t.Fatalf("CreateAPIToken: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestAPIv1ListAccessibleTenantsIsScopedForANonAdminToken(t *testing.T) {
 	if err := ts.db.GrantUserRole(t.Context(), uid, nil, &empID, domain.RoleViewer); err != nil {
 		t.Fatalf("GrantUserRole: %v", err)
 	}
-	token, _, err := ts.db.CreateAPIToken(t.Context(), uid, "test")
+	token, _, _, err := ts.db.CreateAPIToken(t.Context(), uid, "test")
 	if err != nil {
 		t.Fatalf("CreateAPIToken: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestAPIv1ListAccessibleTenantsIsEmptyForATokenWithNoRoles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateUserWeak: %v", err)
 	}
-	token, _, err := ts.db.CreateAPIToken(t.Context(), uid, "test")
+	token, _, _, err := ts.db.CreateAPIToken(t.Context(), uid, "test")
 	if err != nil {
 		t.Fatalf("CreateAPIToken: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestAPIv1RevokedTokenStopsWorking(t *testing.T) {
 	if err := ts.db.GrantUserRole(t.Context(), uid, nil, nil, domain.RoleSuperAdmin); err != nil {
 		t.Fatalf("GrantUserRole: %v", err)
 	}
-	token, id, err := ts.db.CreateAPIToken(t.Context(), uid, "test")
+	token, id, _, err := ts.db.CreateAPIToken(t.Context(), uid, "test")
 	if err != nil {
 		t.Fatalf("CreateAPIToken: %v", err)
 	}

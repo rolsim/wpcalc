@@ -122,7 +122,7 @@ see the note above.
 | `wpcalc user grant\|revoke <name> [-system\|-tenant ID\|-employee ID] [-role ID]` | assign or remove a role |
 | `wpcalc tenant add\|list\|rename` | manage tenants |
 | `wpcalc role add\|list\|delete\|permissions` | manage the role catalog |
-| `wpcalc token create\|list\|revoke` | issue, list, or revoke `/api/v1` bearer tokens |
+| `wpcalc token create\|refresh\|list\|revoke\|revoke-all` | issue, renew, list, or revoke `/api/v1` token pairs |
 | `wpcalc sample-employees [--month YYYY-MM]` | create placeholder employees; records no hours |
 | `wpcalc manual [user\|admin] [--lang L] [--raw] [--list]` | show an embedded manual, via glow when available |
 | `wpcalc plugin export DIR [--force] [--php-only]` | write the WordPress plugin out of the binary |
@@ -151,8 +151,17 @@ token instead of the session cookie, and every request names its tenant
 explicitly in the path — there is no session to hold an "active tenant" in:
 
 ```sh
-./bin/wpcalc token create alice           # prints a token once — store it
+./bin/wpcalc token create alice           # prints an access + refresh token pair, once
 curl -H "Authorization: Bearer wpat_..." http://localhost:8080/api/v1/tenants
+```
+
+Access tokens (`wpat_...`) expire after an hour; exchange the paired
+refresh token (`wprt_...`, valid 30 days, single-use — each exchange
+rotates it) for a new pair via `POST /api/v1/tokens/refresh`, without
+needing the CLI again:
+
+```sh
+curl -X POST -d '{"refreshToken":"wprt_..."}' http://localhost:8080/api/v1/tokens/refresh
 ```
 
 It documents itself the same way, at `/api/v1/openapi.{json,yaml,html}` —

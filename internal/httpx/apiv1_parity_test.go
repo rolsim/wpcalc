@@ -16,7 +16,7 @@ import (
 // freshly created non-admin user) and just need a token for it.
 func (ts *testServer) bearerFor(t *testing.T, userID int64, name string) string {
 	t.Helper()
-	token, _, err := ts.db.CreateAPIToken(t.Context(), userID, name)
+	token, _, _, err := ts.db.CreateAPIToken(t.Context(), userID, name)
 	if err != nil {
 		t.Fatalf("CreateAPIToken: %v", err)
 	}
@@ -165,15 +165,19 @@ func TestAPIv1TokenSelfService(t *testing.T) {
 		t.Fatalf("create: status %d: %s", w.Code, w.Body.String())
 	}
 	var created struct {
-		Id    int64  `json:"id"`
-		Name  string `json:"name"`
-		Token string `json:"token"`
+		AccessTokenId int64  `json:"accessTokenId"`
+		AccessToken   string `json:"accessToken"`
+		RefreshToken  string `json:"refreshToken"`
+		Name          string `json:"name"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	if created.Token == "" || !strings.HasPrefix(created.Token, "wpat_") {
-		t.Fatalf("created token = %+v", created)
+	if created.AccessToken == "" || !strings.HasPrefix(created.AccessToken, "wpat_") {
+		t.Fatalf("created access token = %+v", created)
+	}
+	if created.RefreshToken == "" || !strings.HasPrefix(created.RefreshToken, "wprt_") {
+		t.Fatalf("created refresh token = %+v", created)
 	}
 
 	w = ts.apiGet(t, "/api/v1/tokens", firstToken)
@@ -189,22 +193,110 @@ func TestAPIv1TokenSelfService(t *testing.T) {
 	}
 	for _, tk := range tokens {
 		if _, ok := tk["token"]; ok {
-			t.Fatalf("token listing leaked the secret: %v", tk)
+			t.Fatalf("token listing leaked a secret: %v", tk)
+		}
+		if _, ok := tk["expiresAt"]; !ok {
+			t.Fatalf("token listing missing expiresAt: %v", tk)
 		}
 	}
 
 	// The new token authenticates independently of the one that minted it.
-	if w := ts.apiGet(t, "/api/v1/tenants/accessible", created.Token); w.Code != http.StatusOK {
+	if w := ts.apiGet(t, "/api/v1/tenants/accessible", created.AccessToken); w.Code != http.StatusOK {
 		t.Fatalf("self-minted token doesn't authenticate: status %d: %s", w.Code, w.Body.String())
 	}
 
 	// bob revokes it himself.
-	revokePath := "/api/v1/tokens/" + strconv.FormatInt(created.Id, 10)
+	revokePath := "/api/v1/tokens/" + strconv.FormatInt(created.AccessTokenId, 10)
 	if w := ts.apiDo(t, http.MethodDelete, revokePath, firstToken, ""); w.Code != http.StatusNoContent {
 		t.Fatalf("revoke: status %d: %s", w.Code, w.Body.String())
 	}
-	if w := ts.apiGet(t, "/api/v1/tenants/accessible", created.Token); w.Code != http.StatusUnauthorized {
+	if w := ts.apiGet(t, "/api/v1/tenants/accessible", created.AccessToken); w.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked token still works: status %d", w.Code)
+	}
+}
+
+func TestAPIv1RefreshTokenFlow(t *testing.T) {
+	ts := newTestServer(t, nil)
+	bobID, err := ts.db.CreateUserWeak(t.Context(), "bob", "x", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accessTok, _, _, err := ts.db.CreateAPIToken(t.Context(), bobID, "ci")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshTok, _, _, err := ts.db.CreateRefreshToken(t.Context(), bobID, "ci")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Public: no Authorization header needed.
+	w := ts.apiDo(t, http.MethodPost, "/api/v1/tokens/refresh", "", `{"refreshToken":"`+refreshTok+`"}`)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("refresh: status %d: %s", w.Code, w.Body.String())
+	}
+	var pair struct {
+		AccessTokenId int64  `json:"accessTokenId"`
+		AccessToken   string `json:"accessToken"`
+		RefreshToken  string `json:"refreshToken"`
+		Name          string `json:"name"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &pair); err != nil {
+		t.Fatal(err)
+	}
+	if pair.Name != "ci" {
+		t.Fatalf("Name = %q, want %q", pair.Name, "ci")
+	}
+	if pair.RefreshToken == refreshTok {
+		t.Fatal("refresh did not rotate — returned the same refresh token")
+	}
+
+	// The new access token works; the original one, issued separately, is untouched by the refresh.
+	if w := ts.apiGet(t, "/api/v1/tenants/accessible", pair.AccessToken); w.Code != http.StatusOK {
+		t.Fatalf("new access token: status %d: %s", w.Code, w.Body.String())
+	}
+	if w := ts.apiGet(t, "/api/v1/tenants/accessible", accessTok); w.Code != http.StatusOK {
+		t.Fatalf("original access token should still work: status %d", w.Code)
+	}
+
+	// The spent refresh token cannot be exchanged again.
+	w = ts.apiDo(t, http.MethodPost, "/api/v1/tokens/refresh", "", `{"refreshToken":"`+refreshTok+`"}`)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("reused refresh token: status %d, want 401: %s", w.Code, w.Body.String())
+	}
+
+	// The rotated one works.
+	w = ts.apiDo(t, http.MethodPost, "/api/v1/tokens/refresh", "", `{"refreshToken":"`+pair.RefreshToken+`"}`)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("rotated refresh token: status %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAPIv1RevokeAllTokens(t *testing.T) {
+	ts := newTestServer(t, nil)
+	bobID, err := ts.db.CreateUserWeak(t.Context(), "bob", "x", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accessTok, _, _, err := ts.db.CreateAPIToken(t.Context(), bobID, "ci")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshTok, _, _, err := ts.db.CreateRefreshToken(t.Context(), bobID, "ci")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := ts.apiDo(t, http.MethodDelete, "/api/v1/tokens", accessTok, "")
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("revoke-all: status %d: %s", w.Code, w.Body.String())
+	}
+	if w := ts.apiGet(t, "/api/v1/tenants/accessible", accessTok); w.Code != http.StatusUnauthorized {
+		t.Fatalf("access token survived revoke-all: status %d", w.Code)
+	}
+	rw := ts.apiDo(t, http.MethodPost, "/api/v1/tokens/refresh", "", `{"refreshToken":"`+refreshTok+`"}`)
+	if rw.Code != http.StatusUnauthorized {
+		t.Fatalf("refresh token survived revoke-all: status %d: %s", rw.Code, rw.Body.String())
 	}
 }
 

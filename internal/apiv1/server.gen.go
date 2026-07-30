@@ -99,27 +99,21 @@ type AdminRoleAssignment struct {
 
 // ApiToken defines model for ApiToken.
 type ApiToken struct {
-	CreatedAt  time.Time  `json:"createdAt"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// ExpiresAt Access tokens are short-lived (1 hour) by design — see `POST /tokens/refresh` for renewing one without going back to `wpcalc token create`.
+	ExpiresAt  time.Time  `json:"expiresAt"`
 	Id         int64      `json:"id"`
 	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
 	Name       string     `json:"name"`
 
-	// RevokedAt Present once revoked. A revoked token still appears here (an audit trail), it just no longer authenticates.
+	// RevokedAt Present once revoked early. A revoked token still appears here (an audit trail), it just no longer authenticates — same as one that simply expired.
 	RevokedAt *time.Time `json:"revokedAt,omitempty"`
 }
 
 // ApiTokenCreate defines model for ApiTokenCreate.
 type ApiTokenCreate struct {
 	Name string `json:"name"`
-}
-
-// ApiTokenCreated defines model for ApiTokenCreated.
-type ApiTokenCreated struct {
-	Id   int64  `json:"id"`
-	Name string `json:"name"`
-
-	// Token The bearer secret, in full. Shown here once — store it now; it is not recoverable afterward, only revocable.
-	Token string `json:"token"`
 }
 
 // Date Examples: 2026-07-14
@@ -255,6 +249,11 @@ type Permission struct {
 // PermissionKey defines model for PermissionKey.
 type PermissionKey string
 
+// RefreshTokenExchange defines model for RefreshTokenExchange.
+type RefreshTokenExchange struct {
+	RefreshToken string `json:"refreshToken"`
+}
+
 // Role defines model for Role.
 type Role struct {
 	Id          string          `json:"id"`
@@ -322,6 +321,21 @@ type Tenant struct {
 // TenantCreate defines model for TenantCreate.
 type TenantCreate struct {
 	Name string `json:"name"`
+}
+
+// TokenPair defines model for TokenPair.
+type TokenPair struct {
+	// AccessToken The bearer secret, in full. Shown here once — store it now; it is not recoverable afterward, only revocable.
+	AccessToken          string    `json:"accessToken"`
+	AccessTokenExpiresAt time.Time `json:"accessTokenExpiresAt"`
+
+	// AccessTokenId For later use with `DELETE /tokens/{tokenId}` — the refresh token has no id of its own to name that way.
+	AccessTokenId int64  `json:"accessTokenId"`
+	Name          string `json:"name"`
+
+	// RefreshToken Shown here once — store it now; it is not recoverable afterward. Single-use: exchange it at `POST /tokens/refresh` before it expires to get a new pair (including a new refresh token — this one stops working the instant it's exchanged).
+	RefreshToken          string    `json:"refreshToken"`
+	RefreshTokenExpiresAt time.Time `json:"refreshTokenExpiresAt"`
 }
 
 // User defines model for User.
@@ -409,6 +423,9 @@ type SetHoursJSONRequestBody = SetHoursRequest
 
 // CreateTokenJSONRequestBody defines body for CreateToken for application/json ContentType.
 type CreateTokenJSONRequestBody = ApiTokenCreate
+
+// RefreshTokenJSONRequestBody defines body for RefreshToken for application/json ContentType.
+type RefreshTokenJSONRequestBody = RefreshTokenExchange
 
 // CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
 type CreateUserJSONRequestBody = UserCreate
@@ -508,12 +525,18 @@ type ServerInterface interface {
 	// GetTenantMonthReport Whole-tenant month summary PDF
 	// (GET /tenants/{tenantId}/months/{ym}/report)
 	GetTenantMonthReport(w http.ResponseWriter, r *http.Request, tenantId TenantId, ym YearMonth)
+	// RevokeAllTokens Revoke every one of the caller's own tokens
+	// (DELETE /tokens)
+	RevokeAllTokens(w http.ResponseWriter, r *http.Request)
 	// ListTokens List the caller's own bearer tokens
 	// (GET /tokens)
 	ListTokens(w http.ResponseWriter, r *http.Request)
-	// CreateToken Mint an additional bearer token for the caller's own account
+	// CreateToken Mint an additional access/refresh token pair for the caller's own account
 	// (POST /tokens)
 	CreateToken(w http.ResponseWriter, r *http.Request)
+	// RefreshToken Exchange a refresh token for a new access/refresh pair
+	// (POST /tokens/refresh)
+	RefreshToken(w http.ResponseWriter, r *http.Request)
 	// RevokeToken Revoke one of the caller's own bearer tokens
 	// (DELETE /tokens/{tokenId})
 	RevokeToken(w http.ResponseWriter, r *http.Request, tokenId int64)
@@ -1285,6 +1308,20 @@ func (siw *ServerInterfaceWrapper) GetTenantMonthReport(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// RevokeAllTokens operation middleware
+func (siw *ServerInterfaceWrapper) RevokeAllTokens(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeAllTokens(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTokens operation middleware
 func (siw *ServerInterfaceWrapper) ListTokens(w http.ResponseWriter, r *http.Request) {
 
@@ -1304,6 +1341,20 @@ func (siw *ServerInterfaceWrapper) CreateToken(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateToken(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RefreshToken operation middleware
+func (siw *ServerInterfaceWrapper) RefreshToken(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RefreshToken(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1591,8 +1642,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{username}/roles", wrapper.GetUserRoles)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/users/{username}/password", wrapper.SetUserPassword)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/users/{username}/language", wrapper.SetUserLanguage)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/tokens", wrapper.RevokeAllTokens)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tokens", wrapper.ListTokens)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tokens", wrapper.CreateToken)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tokens/refresh", wrapper.RefreshToken)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/tokens/{tokenId}", wrapper.RevokeToken)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/roles", wrapper.ListRoles)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/roles", wrapper.CreateRole)
@@ -2700,6 +2753,38 @@ func (response GetTenantMonthReportdefaultJSONResponse) VisitGetTenantMonthRepor
 	return err
 }
 
+type RevokeAllTokensRequestObject struct {
+}
+
+type RevokeAllTokensResponseObject interface {
+	VisitRevokeAllTokensResponse(w http.ResponseWriter) error
+}
+
+type RevokeAllTokens204Response struct {
+}
+
+func (response RevokeAllTokens204Response) VisitRevokeAllTokensResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeAllTokensdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RevokeAllTokensdefaultJSONResponse) VisitRevokeAllTokensResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTokensRequestObject struct {
 }
 
@@ -2746,7 +2831,7 @@ type CreateTokenResponseObject interface {
 	VisitCreateTokenResponse(w http.ResponseWriter) error
 }
 
-type CreateToken201JSONResponse ApiTokenCreated
+type CreateToken201JSONResponse TokenPair
 
 func (response CreateToken201JSONResponse) VisitCreateTokenResponse(w http.ResponseWriter) error {
 
@@ -2766,6 +2851,45 @@ type CreateTokendefaultJSONResponse struct {
 }
 
 func (response CreateTokendefaultJSONResponse) VisitCreateTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RefreshTokenRequestObject struct {
+	Body *RefreshTokenJSONRequestBody
+}
+
+type RefreshTokenResponseObject interface {
+	VisitRefreshTokenResponse(w http.ResponseWriter) error
+}
+
+type RefreshToken201JSONResponse TokenPair
+
+func (response RefreshToken201JSONResponse) VisitRefreshTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RefreshTokendefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RefreshTokendefaultJSONResponse) VisitRefreshTokenResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -3083,12 +3207,18 @@ type StrictServerInterface interface {
 	// GetTenantMonthReport Whole-tenant month summary PDF
 	// (GET /tenants/{tenantId}/months/{ym}/report)
 	GetTenantMonthReport(ctx context.Context, request GetTenantMonthReportRequestObject) (GetTenantMonthReportResponseObject, error)
+	// RevokeAllTokens Revoke every one of the caller's own tokens
+	// (DELETE /tokens)
+	RevokeAllTokens(ctx context.Context, request RevokeAllTokensRequestObject) (RevokeAllTokensResponseObject, error)
 	// ListTokens List the caller's own bearer tokens
 	// (GET /tokens)
 	ListTokens(ctx context.Context, request ListTokensRequestObject) (ListTokensResponseObject, error)
-	// CreateToken Mint an additional bearer token for the caller's own account
+	// CreateToken Mint an additional access/refresh token pair for the caller's own account
 	// (POST /tokens)
 	CreateToken(ctx context.Context, request CreateTokenRequestObject) (CreateTokenResponseObject, error)
+	// RefreshToken Exchange a refresh token for a new access/refresh pair
+	// (POST /tokens/refresh)
+	RefreshToken(ctx context.Context, request RefreshTokenRequestObject) (RefreshTokenResponseObject, error)
 	// RevokeToken Revoke one of the caller's own bearer tokens
 	// (DELETE /tokens/{tokenId})
 	RevokeToken(ctx context.Context, request RevokeTokenRequestObject) (RevokeTokenResponseObject, error)
@@ -3978,6 +4108,30 @@ func (sh *strictHandler) GetTenantMonthReport(w http.ResponseWriter, r *http.Req
 	}
 }
 
+// RevokeAllTokens operation middleware
+func (sh *strictHandler) RevokeAllTokens(w http.ResponseWriter, r *http.Request) {
+	var request RevokeAllTokensRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeAllTokens(ctx, request.(RevokeAllTokensRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeAllTokens")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeAllTokensResponseObject); ok {
+		if err := validResponse.VisitRevokeAllTokensResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListTokens operation middleware
 func (sh *strictHandler) ListTokens(w http.ResponseWriter, r *http.Request) {
 	var request ListTokensRequestObject
@@ -4026,6 +4180,37 @@ func (sh *strictHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateTokenResponseObject); ok {
 		if err := validResponse.VisitCreateTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RefreshToken operation middleware
+func (sh *strictHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
+	var request RefreshTokenRequestObject
+
+	var body RefreshTokenJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RefreshToken(ctx, request.(RefreshTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RefreshToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RefreshTokenResponseObject); ok {
+		if err := validResponse.VisitRefreshTokenResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

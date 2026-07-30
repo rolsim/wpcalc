@@ -525,14 +525,14 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     post:
       operationId: createToken
-      summary: Mint an additional bearer token for the caller's own account
+      summary: Mint an additional access/refresh token pair for the caller's own account
       description: >-
         Matches `wpcalc token create`, self-service: any authenticated
-        token can mint another one for the same account (e.g. one token
-        per script, individually revocable) without needing the CLI. The
-        very first token for an account still has to come from the CLI —
-        this endpoint requires a bearer token to call, so it cannot
-        bootstrap the first one.
+        token can mint another pair for the same account (e.g. one per
+        script, individually revocable) without needing the CLI. The very
+        first pair for an account still has to come from the CLI — this
+        endpoint requires a bearer token to call, so it cannot bootstrap
+        the first one.
       x-required-permission: null
       x-permission-scope: null
       requestBody:
@@ -543,11 +543,58 @@ paths:
       responses:
         "201":
           description: >-
-            Created. token is shown here in full, once — it is not
-            recoverable afterward, only revocable.
+            Created. Both secrets are shown here in full, once — neither is
+            recoverable afterward, only revocable (the access token) or
+            exchangeable (the refresh token, via `POST /tokens/refresh`).
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ApiTokenCreated" }
+              schema: { $ref: "#/components/schemas/TokenPair" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: revokeAllTokens
+      summary: Revoke every one of the caller's own tokens
+      description: >-
+        A script's equivalent of "log out everywhere": every access token
+        and every not-yet-used refresh token belonging to the caller's
+        account is revoked at once. Unlike `DELETE /tokens/{tokenId}`, this
+        has no partial-account CLI equivalent — the closest is revoking
+        each one individually with `wpcalc token revoke`.
+      x-required-permission: null
+      x-permission-scope: null
+      responses:
+        "204":
+          description: Revoked.
+        default: { $ref: "#/components/responses/Error" }
+
+  /tokens/refresh:
+    post:
+      operationId: refreshToken
+      summary: Exchange a refresh token for a new access/refresh pair
+      description: >-
+        No CLI equivalent — the CLI has direct database access and can
+        just run `wpcalc token create` again instead. Public: a refresh
+        token is presented in the request body, not as a bearer
+        credential, precisely so this is reachable once an access token
+        has already expired. Single-use — the refresh token given here
+        stops working the instant this succeeds, whether or not the
+        caller keeps the newly rotated one; reusing an already-exchanged
+        refresh token is treated the same as an unknown one (401), not
+        specially flagged, so a client cannot use the response to probe
+        whether a given secret was ever valid.
+      security: []
+      x-required-permission: null
+      x-permission-scope: null
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshTokenExchange" }
+      responses:
+        "201":
+          description: A new pair. The old refresh token is now invalid.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenPair" }
         default: { $ref: "#/components/responses/Error" }
 
   /tokens/{tokenId}:
@@ -563,7 +610,9 @@ paths:
         Matches `wpcalc token revoke`, scoped to the caller's own
         account — `tokenId` naming a token belonging to a different
         account reads as 404, not 403, so this cannot be used to probe
-        which token ids exist.
+        which token ids exist. Access tokens only — a refresh token has no
+        id of its own to name here; revoke every one at once with
+        `DELETE /tokens`.
       x-required-permission: null
       x-permission-scope: null
       responses:
@@ -1053,16 +1102,23 @@ components:
 
     ApiToken:
       type: object
-      required: [id, name, createdAt]
+      required: [id, name, createdAt, expiresAt]
       properties:
         id: { type: integer, format: int64 }
         name: { type: string }
         createdAt: { type: string, format: date-time }
+        expiresAt:
+          type: string
+          format: date-time
+          description: >-
+            Access tokens are short-lived (1 hour) by design — see
+            `POST /tokens/refresh` for renewing one without going back to
+            `wpcalc token create`.
         lastUsedAt: { type: string, format: date-time }
         revokedAt:
           type: string
           format: date-time
-          description: Present once revoked. A revoked token still appears here (an audit trail), it just no longer authenticates.
+          description: Present once revoked early. A revoked token still appears here (an audit trail), it just no longer authenticates — same as one that simply expired.
 
     ApiTokenCreate:
       type: object
@@ -1070,12 +1126,30 @@ components:
       properties:
         name: { type: string, minLength: 1 }
 
-    ApiTokenCreated:
+    TokenPair:
       type: object
-      required: [id, name, token]
+      required: [accessTokenId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, name]
       properties:
-        id: { type: integer, format: int64 }
-        name: { type: string }
-        token:
+        accessTokenId:
+          type: integer
+          format: int64
+          description: For later use with `DELETE /tokens/{tokenId}` — the refresh token has no id of its own to name that way.
+        accessToken:
           type: string
           description: The bearer secret, in full. Shown here once — store it now; it is not recoverable afterward, only revocable.
+        accessTokenExpiresAt: { type: string, format: date-time }
+        refreshToken:
+          type: string
+          description: >-
+            Shown here once — store it now; it is not recoverable
+            afterward. Single-use: exchange it at `POST /tokens/refresh`
+            before it expires to get a new pair (including a new refresh
+            token — this one stops working the instant it's exchanged).
+        refreshTokenExpiresAt: { type: string, format: date-time }
+        name: { type: string }
+
+    RefreshTokenExchange:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string }

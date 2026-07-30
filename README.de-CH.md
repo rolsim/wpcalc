@@ -128,7 +128,7 @@ keine Stunden erfasst — siehe Hinweis oben.
 | `wpcalc user grant\|revoke <Name> [-system\|-tenant ID\|-employee ID] [-role ID]` | Rolle zuweisen oder entziehen |
 | `wpcalc tenant add\|list\|rename` | Mandanten verwalten |
 | `wpcalc role add\|list\|delete\|permissions` | Rollenkatalog verwalten |
-| `wpcalc token create\|list\|revoke` | Bearer-Tokens für `/api/v1` ausstellen, auflisten oder widerrufen |
+| `wpcalc token create\|refresh\|list\|revoke\|revoke-all` | Token-Paare für `/api/v1` ausstellen, erneuern, auflisten oder widerrufen |
 | `wpcalc sample-employees [--month YYYY-MM]` | Platzhalter-Mitarbeitende anlegen; erfasst keine Stunden |
 | `wpcalc manual [user\|admin] [--lang L] [--raw] [--list]` | ein eingebettetes Handbuch anzeigen, via glow sofern verfügbar |
 | `wpcalc plugin export DIR [--force] [--php-only]` | das WordPress-Plugin aus der Binärdatei schreiben |
@@ -158,8 +158,17 @@ ihren Mandanten explizit im Pfad — es gibt keine Sitzung, in der ein
 "aktiver Mandant" gehalten werden könnte:
 
 ```sh
-./bin/wpcalc token create alice           # gibt einmalig ein Token aus — aufbewahren
+./bin/wpcalc token create alice           # gibt einmalig ein Access-/Refresh-Token-Paar aus
 curl -H "Authorization: Bearer wpat_..." http://localhost:8080/api/v1/tenants
+```
+
+Access-Tokens (`wpat_...`) laufen nach einer Stunde ab; das zugehörige
+Refresh-Token (`wprt_...`, 30 Tage gültig, einmal verwendbar — jeder
+Austausch rotiert es) über `POST /api/v1/tokens/refresh` gegen ein neues
+Paar tauschen, ohne erneut die CLI zu benötigen:
+
+```sh
+curl -X POST -d '{"refreshToken":"wprt_..."}' http://localhost:8080/api/v1/tokens/refresh
 ```
 
 Sie dokumentiert sich auf dieselbe Weise, unter

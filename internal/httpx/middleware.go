@@ -111,16 +111,21 @@ func (s *Server) requireSystemPermission(permission string, next http.Handler) h
 // requireBearerAuth is requireAuth's counterpart for /api/v1: every failure
 // is a JSON 401, never a redirect — a script calling a JSON API has nowhere
 // useful to follow an HTML login page to. `openapi.json`/`.yaml`/`.html`,
-// its Swagger UI assets, and `healthz` are exempted (checked against the
-// path with the /api/v1 prefix already stripped, since that is what this
-// middleware wraps), matching the root app's own `/healthz` being
-// reachable without a session — Swagger UI's own page load (fetching the
-// spec and its JS/CSS) must work before anyone has a token to authorize
-// with.
+// its Swagger UI assets, `healthz`, and `tokens/refresh` are exempted
+// (checked against the path with the /api/v1 prefix already stripped,
+// since that is what this middleware wraps), matching the root app's own
+// `/healthz` being reachable without a session — Swagger UI's own page
+// load (fetching the spec and its JS/CSS) must work before anyone has a
+// token to authorize with, and refreshing is the one operation that must
+// work precisely when the caller's access token has already expired, so
+// it authenticates via the refresh token in its body instead of a bearer
+// header (see the spec's `security: []` override on that operation,
+// which governs request *validation* but not this earlier gate — both
+// need to agree it's public).
 func (s *Server) requireBearerAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/healthz", "/openapi.json", "/openapi.yaml", "/openapi.html":
+		case "/healthz", "/openapi.json", "/openapi.yaml", "/openapi.html", "/tokens/refresh":
 			next.ServeHTTP(w, r)
 			return
 		}

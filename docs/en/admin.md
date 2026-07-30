@@ -282,22 +282,49 @@ browsers. It documents itself the same way, under
 
 `/api/v1` never accepts the `wpcalc_session` cookie, and the HTML app never
 accepts a bearer token — two separate `Authenticator`s, by construction.
-Issue a token from the CLI:
+Issue a token pair from the CLI:
 
 ```sh
-./bin/wpcalc token create alice -name ci    # prints the token once — store it now
-./bin/wpcalc token list alice               # id, name, created, last used, active/revoked
+./bin/wpcalc token create alice -name ci    # prints an access + refresh token pair, once
+./bin/wpcalc token list alice               # id, name, created, expiry, last used, active/expired/revoked
 ./bin/wpcalc token revoke 3
+./bin/wpcalc token revoke-all alice         # every access + refresh token for the account
 ```
 
-The plaintext is shown exactly once, at creation; only its SHA-256 hash is
-ever stored. Revoking a token does not touch the account's password or any
-browser session, and takes effect on the very next request — nothing is
-cached.
+Both plaintexts are shown exactly once, at creation; only their SHA-256
+hashes are ever stored. Revoking a token does not touch the account's
+password or any browser session, and takes effect on the very next
+request — nothing is cached.
 
 ```sh
 curl -H "Authorization: Bearer wpat_..." http://localhost:8080/api/v1/tenants
 ```
+
+**Access tokens expire after one hour** (`domain.AccessTokenTTL`) —
+deliberately short, so a leaked one stops working on its own well before
+anyone would notice and revoke it by hand. The paired **refresh token**
+(`wprt_...`) lasts 30 days (`domain.RefreshTokenTTL`) and exchanges for a
+brand-new pair — a new access token *and* a new, rotated refresh token —
+without going back through `wpcalc token create`:
+
+```sh
+./bin/wpcalc token refresh wprt_...          # from the CLI, mostly for testing
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"refreshToken":"wprt_..."}' http://localhost:8080/api/v1/tokens/refresh
+```
+
+`POST /api/v1/tokens/refresh` is the one `/api/v1` operation that needs no
+bearer header at all (the refresh token in the body *is* the credential) —
+by design, since the whole point is reachability once the access token has
+already expired. Refresh tokens are **single-use**: exchanging one
+invalidates it immediately, whether or not the caller keeps the newly
+rotated one. Reusing an already-exchanged, expired, revoked, or unknown
+refresh token all read identically (`401`), so a response can never be
+used to test whether a given secret was ever valid. Changing a password
+(`wpcalc user passwd` / `PUT /api/v1/users/{username}/password`) revokes
+every refresh token for that account too, alongside browser sessions —
+already-issued access tokens are left to expire on their own within the
+hour regardless.
 
 ### What differs from the HTML app
 
@@ -327,8 +354,10 @@ token cannot be how you get your first one).
 | `wpcalc user lang <name>` | `PUT /api/v1/users/{username}/language` |
 | `wpcalc user roles <name>` | `GET /api/v1/users/{username}/roles` |
 | `wpcalc token create` | `POST /api/v1/tokens` (self, once you have one) |
+| `wpcalc token refresh` | `POST /api/v1/tokens/refresh` (no CLI equivalent needed — direct database access can just re-run `create`) |
 | `wpcalc token list` | `GET /api/v1/tokens` (self only) |
 | `wpcalc token revoke` | `DELETE /api/v1/tokens/{tokenId}` (self only) |
+| `wpcalc token revoke-all` | `DELETE /api/v1/tokens` (self only) |
 
 Two access rules apply consistently across the `/users/{username}/*`
 routes: `manage_users` system-wide acts on any account (the CLI's

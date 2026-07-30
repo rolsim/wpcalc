@@ -303,22 +303,52 @@ dokumentiert sich auf dieselbe Weise, unter `/api/v1/openapi.{json,yaml,html}`.
 
 `/api/v1` akzeptiert nie das `wpcalc_session`-Cookie, und die
 HTML-Anwendung akzeptiert nie ein Bearer-Token — zwei getrennte
-`Authenticator` per Konstruktion. Ein Token über die CLI ausstellen:
+`Authenticator` per Konstruktion. Ein Token-Paar über die CLI ausstellen:
 
 ```sh
-./bin/wpcalc token create alice -name ci    # gibt das Token einmalig aus — jetzt aufbewahren
-./bin/wpcalc token list alice               # id, Name, erstellt, zuletzt verwendet, aktiv/widerrufen
+./bin/wpcalc token create alice -name ci    # gibt ein Access-/Refresh-Token-Paar einmalig aus
+./bin/wpcalc token list alice               # id, Name, erstellt, Ablauf, zuletzt verwendet, aktiv/abgelaufen/widerrufen
 ./bin/wpcalc token revoke 3
+./bin/wpcalc token revoke-all alice         # jedes Access- und Refresh-Token des Kontos
 ```
 
-Der Klartext wird genau einmal angezeigt, bei der Erstellung; gespeichert
-wird nur sein SHA-256-Hash. Das Widerrufen eines Tokens berührt weder das
-Passwort des Kontos noch eine Browser-Sitzung und wirkt bereits bei der
-nächsten Anfrage — nichts wird zwischengespeichert.
+Beide Klartexte werden genau einmal angezeigt, bei der Erstellung;
+gespeichert wird nur ihr SHA-256-Hash. Das Widerrufen eines Tokens berührt
+weder das Passwort des Kontos noch eine Browser-Sitzung und wirkt bereits
+bei der nächsten Anfrage — nichts wird zwischengespeichert.
 
 ```sh
 curl -H "Authorization: Bearer wpat_..." http://localhost:8080/api/v1/tenants
 ```
+
+**Access-Tokens laufen nach einer Stunde ab** (`domain.AccessTokenTTL`) —
+absichtlich kurz, damit ein geleaktes Token von selbst aufhört zu
+funktionieren, lange bevor es jemand bemerken und von Hand widerrufen
+würde. Das zugehörige **Refresh-Token** (`wprt_...`) ist 30 Tage gültig
+(`domain.RefreshTokenTTL`) und tauscht sich gegen ein brandneues Paar ein
+— ein neues Access-Token *und* ein neues, rotiertes Refresh-Token — ohne
+erneut über `wpcalc token create` zu gehen:
+
+```sh
+./bin/wpcalc token refresh wprt_...          # über die CLI, meist zum Testen
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"refreshToken":"wprt_..."}' http://localhost:8080/api/v1/tokens/refresh
+```
+
+`POST /api/v1/tokens/refresh` ist die einzige `/api/v1`-Operation, die
+keinen Bearer-Header benötigt (das Refresh-Token im Body *ist* das
+Credential) — mit Absicht, denn der ganze Sinn ist Erreichbarkeit genau
+dann, wenn das Access-Token bereits abgelaufen ist. Refresh-Tokens sind
+**einmal verwendbar**: der Austausch eines Tokens macht es sofort ungültig,
+unabhängig davon, ob das neu rotierte behalten wird. Ein bereits
+eingetauschtes, abgelaufenes, widerrufenes oder unbekanntes Refresh-Token
+liest sich in allen Fällen identisch (`401`), sodass eine Antwort niemals
+dazu benutzt werden kann, zu prüfen, ob ein bestimmtes Secret jemals gültig
+war. Ein Passwortwechsel (`wpcalc user passwd` /
+`PUT /api/v1/users/{username}/password`) widerruft zusätzlich zu
+Browser-Sitzungen auch jedes Refresh-Token dieses Kontos — bereits
+ausgestellte Access-Tokens laufen unabhängig davon von selbst innert der
+Stunde ab.
 
 ### Unterschiede zur HTML-Anwendung
 
@@ -348,8 +378,10 @@ Bearer-Token verlangt, kann nicht der Weg sein, das erste zu erhalten).
 | `wpcalc user lang <Name>` | `PUT /api/v1/users/{username}/language` |
 | `wpcalc user roles <Name>` | `GET /api/v1/users/{username}/roles` |
 | `wpcalc token create` | `POST /api/v1/tokens` (für sich selbst, sobald man eines hat) |
+| `wpcalc token refresh` | `POST /api/v1/tokens/refresh` (keine CLI-Entsprechung nötig — mit direktem Datenbankzugriff kann man einfach `create` erneut ausführen) |
 | `wpcalc token list` | `GET /api/v1/tokens` (nur eigene) |
 | `wpcalc token revoke` | `DELETE /api/v1/tokens/{tokenId}` (nur eigene) |
+| `wpcalc token revoke-all` | `DELETE /api/v1/tokens` (nur eigene) |
 
 Zwei Zugriffsregeln gelten durchgehend für die `/users/{username}/*`-Routen:
 system-weites `manage_users` wirkt auf jedes Konto (der unbeschränkte,
