@@ -120,21 +120,66 @@ keine Stunden erfasst — siehe Hinweis oben.
 
 ### Befehle
 
+`wpcalc` (diese Binärdatei) ist der Server. Er hat direkten
+Datenbankzugriff und enthält nur das, was ein API-Client grundsätzlich
+nicht selbst leisten kann: den Dienst betreiben, Migrationen anwenden und
+das allererste Konto samt erstem Token bootstrappen. Alles andere —
+Mandanten, Rollen, Berechtigungen und der laufende Betrieb von Konten und
+Tokens — wird per `/api/v1` ferngesteuert, mit dem separaten Werkzeug
+[`wpcalcctl`](cmd/wpcalcctl) weiter unten.
+
 | Befehl | Zweck |
 |---|---|
 | `wpcalc serve --addr :8080 \| --socket PATH` | Server starten; genau ein Listener |
 | `wpcalc migrate [up\|down\|status]` | Migrationen anwenden, eine zurückrollen oder Status ausgeben |
-| `wpcalc user add\|passwd\|lang\|roles\|list` | Standalone-Konten verwalten (`--allow-weak-password` nur für lokale Tests) |
-| `wpcalc user grant\|revoke <Name> [-system\|-tenant ID\|-employee ID] [-role ID]` | Rolle zuweisen oder entziehen |
-| `wpcalc tenant add\|list\|rename` | Mandanten verwalten |
-| `wpcalc role add\|list\|delete\|permissions` | Rollenkatalog verwalten |
-| `wpcalc token create\|refresh\|list\|revoke\|revoke-all` | Token-Paare für `/api/v1` ausstellen, erneuern, auflisten oder widerrufen |
+| `wpcalc user add [-lang L]` | ein leeres Konto anlegen (Bootstrap; `--allow-weak-password` nur für lokale Tests) |
+| `wpcalc user grant\|revoke <Name> [-system\|-tenant ID\|-employee ID] [-role ID]` | Rolle zuweisen oder entziehen (Bootstrap: ein Konto braucht eine, bevor irgendein Token davon eine Berechtigungsprüfung besteht) |
+| `wpcalc token create <Name>` | ein Access-/Refresh-Token-Paar für ein Konto ausstellen (Bootstrap: ein API-Client kann sein erstes Token auf keinem anderen Weg erhalten) |
 | `wpcalc sample-employees [--month YYYY-MM]` | Platzhalter-Mitarbeitende anlegen; erfasst keine Stunden |
 | `wpcalc manual [user\|admin] [--lang L] [--raw] [--list]` | ein eingebettetes Handbuch anzeigen, via glow sofern verfügbar |
 | `wpcalc plugin export DIR [--force] [--php-only]` | das WordPress-Plugin aus der Binärdatei schreiben |
 | `wpcalc version [--short]` | den Build ausgeben: Version, Commit, Datum, Go |
 
 Flags dürfen vor oder nach Positionsargumenten stehen.
+
+### Verwaltung über die Kommandozeile: `wpcalcctl`
+
+[`cmd/wpcalcctl`](cmd/wpcalcctl) ist eine separate Binärdatei aus einem
+separaten Go-Modul — sie hat keine Abhängigkeit von den eigenen Paketen
+des Servers, nur von [`sdk/go`](sdk/go) und der Standardbibliothek, und
+spricht mit einem laufenden Server ausschliesslich über `/api/v1`. Sie
+kann von einem Rechner aus laufen, der das Dateisystem oder die
+Datenbankdatei des Servers nie gesehen hat.
+
+```sh
+./bin/wpcalcctl login --server http://localhost:8080/api/v1 \
+  --access-token wpat_... --refresh-token wprt_...   # von `wpcalc token create`, oben
+./bin/wpcalcctl tenant add "Acme Corp"
+./bin/wpcalcctl user add bob
+./bin/wpcalcctl user grant bob -tenant 2 -role mandant_admin
+```
+
+Zugangsdaten werden (Modus `0600`) unter
+`$XDG_CONFIG_HOME/wpcalcctl/credentials.json` gespeichert und automatisch
+erneuert — Access-Tokens laufen nach einer Stunde ab, und `wpcalcctl`
+tauscht das Refresh-Token aus und speichert das neue Paar, bevor
+irgendein Befehl zurückkehrt; das muss also nur einmal erledigt werden.
+
+| Befehl | Zweck |
+|---|---|
+| `wpcalcctl login --server URL --access-token T --refresh-token T` | Zugangsdaten für alle folgenden Befehle speichern |
+| `wpcalcctl tenant add\|list\|rename` | Mandanten verwalten |
+| `wpcalcctl role add\|list\|delete\|permissions` | Rollenkatalog verwalten |
+| `wpcalcctl permission list` | den fixen Berechtigungskatalog |
+| `wpcalcctl user add\|passwd\|lang\|roles\|list` | Konten jenseits des ersten verwalten |
+| `wpcalcctl user grant\|revoke <Name> [-system\|-tenant ID\|-employee ID] [-role ID]` | Rolle zuweisen oder entziehen |
+| `wpcalcctl token create\|list\|revoke\|revoke-all` | Token-Paare *des eigenen Kontos* ausstellen, auflisten oder widerrufen |
+
+Wird genauso gebaut wie der Server, aus dem eigenen Verzeichnis:
+
+```sh
+cd cmd/wpcalcctl && go build -o ../../bin/wpcalcctl .
+```
 
 ### Umgebungsvariablen
 
@@ -165,11 +210,15 @@ curl -H "Authorization: Bearer wpat_..." http://localhost:8080/api/v1/tenants
 Access-Tokens (`wpat_...`) laufen nach einer Stunde ab; das zugehörige
 Refresh-Token (`wprt_...`, 30 Tage gültig, einmal verwendbar — jeder
 Austausch rotiert es) über `POST /api/v1/tokens/refresh` gegen ein neues
-Paar tauschen, ohne erneut die CLI zu benötigen:
+Paar tauschen, ganz ohne die Server-Binärdatei erneut zu benötigen:
 
 ```sh
 curl -X POST -d '{"refreshToken":"wprt_..."}' http://localhost:8080/api/v1/tokens/refresh
 ```
+
+[`wpcalcctl`](#verwaltung-über-die-kommandozeile-wpcalcctl) und
+[`sdk/go`](#go-sdk) erledigen dies beide automatisch — keines der beiden
+braucht die Server-Binärdatei je wieder, sobald es ein erstes Paar besitzt.
 
 Sie dokumentiert sich auf dieselbe Weise, unter
 `/api/v1/openapi.{json,yaml,html}` — `/api/v1/openapi.html` im Browser
@@ -274,6 +323,7 @@ internal/report/   die drei PDFs
 internal/i18n/     eingebettete Kataloge; de-CH Standard, en verfügbar
 wordpress/wpcalc/  der PHP-Shim
 sdk/go/            typisierter Go-Client für /api/v1 — eigenes Go-Modul, aus derselben Spezifikation generiert
+cmd/wpcalcctl/    CLI zur Fernverwaltung — eigenes Go-Modul, nur sdk/go und die Standardbibliothek
 ```
 
 Zwei Eigenschaften sind wissenswert, bevor etwas geändert wird:

@@ -20,7 +20,7 @@ ifneq ($(VERSION),)
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 endif
 
-.PHONY: all build vet lint test check sdk-check e2e e2e-wp fmt tidy clean
+.PHONY: all build vet lint test check sdk-check ctl-build ctl-check check-all e2e e2e-wp fmt tidy clean
 
 all: check
 
@@ -36,13 +36,22 @@ lint:
 test:
 	go test $(PKGS)
 
-# The gate every commit must pass.
+# The gate every commit must pass. Server only — sdk/go and cmd/wpcalcctl
+# are separate Go modules by design (so consuming either doesn't pull in
+# the server's own dependencies) and so aren't covered here.
 check: build vet lint test
 
-# sdk/go is its own Go module (so consuming it doesn't pull in the
-# server's dependencies) and so isn't covered by `check` above.
 sdk-check:
 	cd sdk/go && go build ./... && go vet ./... && golangci-lint run && go test ./...
+
+ctl-build:
+	cd cmd/wpcalcctl && go build -o ../../bin/wpcalcctl .
+
+ctl-check: ctl-build
+	cd cmd/wpcalcctl && go vet ./... && golangci-lint run && go test ./...
+
+# Every module's own gate, in one command.
+check-all: check sdk-check ctl-check
 
 # Browser e2e against the headless-shell container.
 e2e:

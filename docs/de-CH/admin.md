@@ -46,15 +46,20 @@ Laufzeitabhängigkeiten: auf den Host kopieren und starten.
 
 ### Befehle
 
+`wpcalc` (diese Binärdatei) ist der Server: direkter Datenbankzugriff, nur
+das, was ein API-Client grundsätzlich nicht selbst leisten kann — den
+Dienst betreiben, Migrationen anwenden, das erste Konto samt erstem Token
+bootstrappen. Alles andere wird ferngesteuert, über `/api/v1`, mit der
+separaten Binärdatei `wpcalcctl` — die vollständige Befehlszuordnung
+steht unten unter [Konten und Tokens](#konten-und-tokens).
+
 | Befehl | Zweck |
 |---|---|
 | `serve --addr :8080 \| --socket PFAD` | Server starten; genau ein Listener |
 | `migrate [up\|down\|status]` | Migrationen anwenden, eine zurückrollen, Status zeigen |
-| `user add\|passwd\|lang\|roles\|list` | Konten verwalten |
-| `user grant\|revoke <Name> [-system\|-tenant ID\|-employee ID] [-role ID]` | Rolle zuweisen oder entziehen |
-| `tenant add\|list\|rename` | Mandanten verwalten |
-| `role add\|list\|delete\|permissions` | Rollenkatalog verwalten: was jede Rolle darf |
-| `permission list` | den festen Berechtigungskatalog auflisten (nur lesend) |
+| `user add` | ein leeres Konto anlegen (Bootstrap) |
+| `user grant\|revoke <Name> [-system\|-tenant ID\|-employee ID] [-role ID]` | Rolle zuweisen oder entziehen (Bootstrap: ohne geht nichts) |
+| `token create <Name>` | ein Access-/Refresh-Token-Paar ausstellen (Bootstrap: ein API-Client kann sein erstes Token auf keinem anderen Weg erhalten) |
 | `sample-employees [--month YYYY-MM] [--tenant ID]` | Platzhalter-Mitarbeitende anlegen; erfasst **keine Stunden** |
 | `manual [user\|admin]` | eingebettetes Handbuch anzeigen |
 | `plugin export VERZ` | WordPress-Plugin aus der Binärdatei schreiben |
@@ -100,26 +105,36 @@ schlicht nie gesendet und die Anmeldung scheinbar grundlos scheitern.
 ## Konten
 
 ```sh
-./bin/wpcalc user add alice --db DB   # fragt nach dem Passwort; noch kein Zugriff
-./bin/wpcalc user passwd alice --db DB            # widerruft auch alices Sitzungen
-./bin/wpcalc user list --db DB
+./bin/wpcalc user add alice --db DB   # fragt nach dem Passwort; noch kein Zugriff — nur Bootstrap
+```
+
+Jedes weitere Konto legt man am einfachsten remote an, sobald ein Token für
+ein Konto mit `manage_users` vorliegt:
+
+```sh
+wpcalcctl user add bob                          # fragt nach dem Passwort
+wpcalcctl user passwd bob                       # widerruft auch bobs Sitzungen
+wpcalcctl user list
 ```
 
 Passwörter werden mit bcrypt gehasht und müssen mindestens 10 Zeichen lang
 sein. Benutzernamen unterscheiden nicht zwischen Gross- und Kleinschreibung.
 Sitzungen liegen serverseitig und gelten 12 Stunden — Abmelden oder eine
 Passwortänderung entzieht den Zugriff sofort, statt ein Token bis zum Ablauf
-gültig zu lassen.
+gültig zu lassen; eine Passwortänderung widerruft zudem jedes Refresh-Token
+dieses Kontos (bereits ausgestellte Access-Tokens laufen unabhängig davon
+innert der Stunde von selbst ab).
 
 `user add` legt nur die Zugangsdaten an — das Konto kann nichts, bis ihm eine
 Rolle zugewiesen wird (siehe nächster Abschnitt). Es gibt keinen Moment, in
 dem ein Konto mit einer stillschweigenden Rolle existiert, die niemand
 verlangt hat.
 
-> `--allow-weak-password` hebt die Mindestlänge auf. Es existiert, damit eine
-> lokale Entwicklungsdatenbank mit Wegwerf-Zugangsdaten wie `admin`/`admin`
-> bestückt werden kann, und gibt bei jeder Verwendung eine Warnung aus.
-> **Niemals auf einem erreichbaren System verwenden.**
+> `--allow-weak-password` (nur Server-Binärdatei) hebt die Mindestlänge auf.
+> Es existiert, damit eine lokale Entwicklungsdatenbank mit
+> Wegwerf-Zugangsdaten wie `admin`/`admin` bestückt werden kann, und gibt bei
+> jeder Verwendung eine Warnung aus. **Niemals auf einem erreichbaren System
+> verwenden.**
 
 ### Sprache der Oberfläche
 
@@ -128,9 +143,9 @@ Browser entscheidet». Benutzer ändern sie selbst über die Auswahl oben rechts
 Sie können sie beim Anlegen oder später setzen:
 
 ```sh
-./bin/wpcalc user add alice -lang en --db DB
-./bin/wpcalc user lang alice de-CH --db DB    # de_CH wird ebenfalls akzeptiert
-./bin/wpcalc user lang alice "" --db DB       # wieder dem Browser folgen
+./bin/wpcalc user add alice -lang en --db DB   # Server-Binärdatei, nur Bootstrap
+wpcalcctl user lang bob de-CH                 # de_CH wird ebenfalls akzeptiert
+wpcalcctl user lang bob ""                    # wieder dem Browser folgen
 ```
 
 Eine gespeicherte Einstellung hat Vorrang vor `Accept-Language` des Browsers,
@@ -182,25 +197,40 @@ Mandantenverwaltung `403`.
 
 ### Einrichtung
 
+Das allererste Konto und seine `super_admin`-Zuweisung müssen auf dem
+Server selbst geschehen — nichts anderes kann sie bootstrappen:
+
 ```sh
-./bin/wpcalc tenant add "Acme Corp" --db DB                # -> Mandanten-Id, z. B. 2
 ./bin/wpcalc user add alice --db DB
 ./bin/wpcalc user grant alice --system -role super_admin --db DB
+./bin/wpcalc token create alice --db DB
+```
 
-./bin/wpcalc user add bob --db DB
-./bin/wpcalc user grant bob -tenant 2 -role mandant_admin --db DB
+Alles Weitere geschieht remote, über `wpcalcctl` (nach `wpcalcctl
+login` mit dem gerade von `token create` ausgegebenen Paar):
 
-./bin/wpcalc user add carol --db DB
-./bin/wpcalc user grant carol -employee 5 -role viewer --db DB
+```sh
+wpcalcctl tenant add "Acme Corp"                           # -> Mandanten-Id, z. B. 2
 
-./bin/wpcalc user roles bob --db DB                        # was bob erreichen kann
-./bin/wpcalc user revoke carol -employee 5 --db DB          # Rolle ändern: erst entziehen, dann neu zuweisen
+wpcalcctl user add bob
+wpcalcctl user grant bob -tenant 2 -role mandant_admin
+
+wpcalcctl user add carol
+wpcalcctl user grant carol -tenant 2 -employee 5 -role viewer
+
+wpcalcctl user roles bob                                   # was bob erreichen kann
+wpcalcctl user revoke carol -tenant 2 -employee 5           # Rolle ändern: erst entziehen, dann neu zuweisen
 ```
 
 Ein Konto hält höchstens eine Rolle pro Geltungsbereichs-**Instanz** —
 `-employee 5` zweimal mit unterschiedlichen Rollen wird abgelehnt; zuerst
-entziehen. `-system`, `-tenant ID` und `-employee ID` schliessen sich
-gegenseitig aus; genau eines ist erforderlich.
+entziehen. `-system`, `-tenant ID` allein, oder `-tenant ID -employee ID`
+zusammen verwenden — eine mitarbeiterbezogene Zuweisung braucht weiterhin
+ihren Mandanten, da `/api/v1` mitarbeiterbezogene Rollenzuweisungen unter
+einem Mandanten verschachtelt (`wpcalc user grant` auf der
+Server-Binärdatei behandelt die drei Flags stattdessen als streng
+gegenseitig ausschliessend, da sie direkt mit der Datenbank spricht statt
+mit einer verschachtelten Route).
 
 Ein Konto mit mehreren mandanten- oder mitarbeiterbezogenen Zuweisungen über
 verschiedene Mandanten hinweg sieht oben in der Leiste einen
@@ -211,9 +241,9 @@ Mandantenmitgliedschaften für diese Browsersitzung aktiv ist.
 
 ### Rollen selbst verwalten
 
-Rollen, ihre Berechtigungen und jede Zuweisung sind sowohl über die
-Weboberfläche als auch über die Kommandozeile editierbar — nichts davon ist
-ein fest verdrahteter Wertebereich:
+Rollen, ihre Berechtigungen und jede Zuweisung sind über die Weboberfläche,
+das entfernte `wpcalcctl` und direkt über `/api/v1` editierbar — nichts
+davon ist ein fest verdrahteter Wertebereich:
 
 - **`/tenants`** (`manage_tenants`, systemweit) — Mandanten auflisten und
   anlegen.
@@ -228,11 +258,11 @@ ein fest verdrahteter Wertebereich:
   Berechtigungen einer Rolle umschalten.
 
 ```sh
-./bin/wpcalc role add auditor -name Auditor -scope tenant --db DB
-./bin/wpcalc role permissions auditor -add read --db DB
-./bin/wpcalc role permissions auditor -add manage_tenants --db DB   # abgelehnt: min_scope=system
-./bin/wpcalc role list --db DB
-./bin/wpcalc permission list --db DB
+wpcalcctl role add auditor -name Auditor -scope tenant
+wpcalcctl role permissions auditor -add read
+wpcalcctl role permissions auditor -add manage_tenants   # abgelehnt: min_scope=system
+wpcalcctl role list
+wpcalcctl permission list
 ```
 
 Die Berechtigungen selbst (`read`, `print`, `write`, `manage_employees`,
@@ -365,40 +395,51 @@ Stunde ab.
 
 ### Konten und Tokens
 
-Alles, was `wpcalc user` und `wpcalc token` auf der CLI können, hat eine
-Entsprechung unter `/api/v1` — mit einer notwendigen Ausnahme: das erste
-Token eines Kontos kann nur von der CLI kommen (ein Endpunkt, der ein
-Bearer-Token verlangt, kann nicht der Weg sein, das erste zu erhalten).
+`wpcalcctl` *ist* ein `/api/v1`-Client — jeder seiner Befehle bildet
+direkt auf eine Operation ab:
 
-| CLI | API |
+| `wpcalcctl` | API |
 |---|---|
-| `wpcalc user add` | `POST /api/v1/users` |
-| `wpcalc user list` | `GET /api/v1/users` |
-| `wpcalc user passwd <Name>` | `PUT /api/v1/users/{username}/password` |
-| `wpcalc user lang <Name>` | `PUT /api/v1/users/{username}/language` |
-| `wpcalc user roles <Name>` | `GET /api/v1/users/{username}/roles` |
-| `wpcalc token create` | `POST /api/v1/tokens` (für sich selbst, sobald man eines hat) |
-| `wpcalc token refresh` | `POST /api/v1/tokens/refresh` (keine CLI-Entsprechung nötig — mit direktem Datenbankzugriff kann man einfach `create` erneut ausführen) |
-| `wpcalc token list` | `GET /api/v1/tokens` (nur eigene) |
-| `wpcalc token revoke` | `DELETE /api/v1/tokens/{tokenId}` (nur eigene) |
-| `wpcalc token revoke-all` | `DELETE /api/v1/tokens` (nur eigene) |
+| `user add` | `POST /api/v1/users` |
+| `user list` | `GET /api/v1/users` |
+| `user passwd <Name>` | `PUT /api/v1/users/{username}/password` |
+| `user lang <Name>` | `PUT /api/v1/users/{username}/language` |
+| `user roles <Name>` | `GET /api/v1/users/{username}/roles` |
+| `token create` | `POST /api/v1/tokens` (für sich selbst, sobald man eines hat) |
+| `token list` | `GET /api/v1/tokens` (nur eigene) |
+| `token revoke` | `DELETE /api/v1/tokens/{tokenId}` (nur eigene) |
+| `token revoke-all` | `DELETE /api/v1/tokens` (nur eigene) |
+
+`POST /api/v1/tokens/refresh` hat überhaupt keinen `wpcalcctl`-Befehl —
+`wpcalcctl` ruft es automatisch und transparent auf, sobald ein
+Access-Token abgelaufen ist, und speichert das rotierte Paar, bevor es
+zurückkehrt.
+
+Das einzige ohne jeden API-Pfad: `wpcalc token create` auf der
+**Server**-Binärdatei, direkt gegen die Datenbank, ohne Bearer-Credential.
+Ein Endpunkt, der selbst ein Bearer-Token verlangt, kann nicht der Weg
+sein, wie ein Konto sein erstes erhält — das ist diese Ausnahme, zusammen
+mit `wpcalc user add`/`grant` für das Konto und seine erste Rolle.
 
 Zwei Zugriffsregeln gelten durchgehend für die `/users/{username}/*`-Routen:
-system-weites `manage_users` wirkt auf jedes Konto (der unbeschränkte,
-operative Zugriff der CLI), und **ein Konto darf immer auf sich selbst
-einwirken** — passend zum eigenen Self-Service-Sprachwechsel der
-HTML-Anwendung. Ein Nicht-Admin, der ein fremdes Konto nennt, oder eines,
-das nicht existiert, erhält in beiden Fällen dasselbe `403`; dies kann
-niemals dazu benutzt werden, herauszufinden, welche Benutzernamen
-existieren.
+system-weites `manage_users` wirkt auf jedes Konto, und **ein Konto darf
+immer auf sich selbst einwirken** — passend zum eigenen
+Self-Service-Sprachwechsel der HTML-Anwendung. Ein Nicht-Admin, der ein
+fremdes Konto nennt, oder eines, das nicht existiert, erhält in beiden
+Fällen dasselbe `403`; dies kann niemals dazu benutzt werden,
+herauszufinden, welche Benutzernamen existieren.
 
 Die `/tokens*`-Routen sind noch enger begrenzt: ausschliesslich
 Self-Service. Es gibt keinen Weg — auch nicht für einen
 `manage_users`-Admin —, über die API die Tokens eines *anderen* Kontos
-aufzulisten oder zu widerrufen; eine `tokenId`, die jemand anderem gehört,
-liest sich als `404`, nicht als `403`, sodass sie auch nicht zum
-Ausprobieren existierender Token-IDs dienen kann. Die CLI, mit direktem
-Datenbankzugriff, ist nicht auf diese Weise begrenzt.
+aufzulisten oder zu widerrufen (und damit auch nicht über `wpcalcctl`);
+eine `tokenId`, die jemand anderem gehört, liest sich als `404`, nicht als
+`403`, sodass sie auch nicht zum Ausprobieren existierender Token-IDs
+dienen kann. Nur die Server-Binärdatei, mit direktem Datenbankzugriff, ist
+nicht auf diese Weise begrenzt — und selbst sie kann nur Access-Tokens
+widerrufen (`wpcalc token create` stellt aus; einen serverseitigen
+Widerruf-Befehl gibt es mit Absicht nicht: dafür `wpcalcctl token
+revoke`, oder im echten Notfall die Datenbank direkt bearbeiten).
 
 ### Autorisierung
 

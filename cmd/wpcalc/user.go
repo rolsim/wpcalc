@@ -15,11 +15,19 @@ import (
 	"github.com/rolsim/wpcalc/internal/store"
 )
 
+// cmdUser is deliberately narrow: add, grant, and revoke are the two
+// bootstrap primitives no API client can perform on its own (creating the
+// first account, and granting it a role — without which even a valid
+// token can pass no permission check at all) plus their natural
+// counterpart. Everything else an account holder can do to their own or
+// another account — passwd, lang, roles, list — has a /api/v1 equivalent
+// and lives in wpcalcctl instead, which needs no direct database access
+// at all. See docs/en/admin.md.
 func cmdUser(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("user", flag.ContinueOnError)
 	dbPath := fs.String("db", defaultDBPath(), "path to the SQLite database")
 	lang := fs.String("lang", "",
-		"interface language for the account: de-CH, en, or empty to follow the browser")
+		"interface language for the account: de-CH, en, or empty to follow the browser (user add)")
 	weak := fs.Bool("allow-weak-password", false,
 		"accept a password below the minimum length (local development only)")
 	system := fs.Bool("system", false, "grant/revoke a system-scope role (user grant|revoke)")
@@ -31,7 +39,7 @@ func cmdUser(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(positional) == 0 {
-		return errors.New("user: want one of add, passwd, lang, grant, revoke, roles, list")
+		return errors.New("user: want one of add, grant, revoke")
 	}
 	arg := func(i int) string {
 		if i < len(positional) {
@@ -49,20 +57,12 @@ func cmdUser(ctx context.Context, args []string) error {
 	switch action := arg(0); action {
 	case "add":
 		return userAdd(ctx, db, arg(1), *lang, *weak)
-	case "lang":
-		return userLang(ctx, db, arg(1), arg(2))
-	case "passwd":
-		return userPasswd(ctx, db, arg(1), *weak)
 	case "grant":
 		return userGrant(ctx, db, arg(1), *system, *tenant, *employee, *role)
 	case "revoke":
 		return userRevoke(ctx, db, arg(1), *system, *tenant, *employee)
-	case "roles":
-		return userRoles(ctx, db, arg(1))
-	case "list":
-		return userList(ctx, db)
 	default:
-		return fmt.Errorf("user: unknown action %q (want add, passwd, lang, grant, revoke, roles, or list)", action)
+		return fmt.Errorf("user: unknown action %q (want add, grant, or revoke)", action)
 	}
 }
 
@@ -97,52 +97,10 @@ func userAdd(ctx context.Context, db *store.DB, username, lang string, weak bool
 	return nil
 }
 
-// userLang sets or clears an account's interface language.
-func userLang(ctx context.Context, db *store.DB, username, lang string) error {
-	if username == "" {
-		return errors.New("user lang: username is required")
-	}
-	u, err := db.UserByUsername(ctx, username)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return fmt.Errorf("user lang: no such user %q", username)
-		}
-		return err
-	}
-	lang = normaliseLang(lang)
-	if err := db.SetUserLanguage(ctx, u.ID, lang); err != nil {
-		return err
-	}
-	if lang == "" {
-		fmt.Printf("%s now follows the browser language\n", u.Username)
-		return nil
-	}
-	fmt.Printf("%s now uses %s\n", u.Username, lang)
-	return nil
-}
-
 // normaliseLang accepts the POSIX spelling as well as BCP 47, because "de_CH"
 // is what a shell locale looks like and what people type.
 func normaliseLang(s string) string {
 	return strings.ReplaceAll(strings.TrimSpace(s), "_", "-")
-}
-
-func userPasswd(ctx context.Context, db *store.DB, username string, weak bool) error {
-	if username == "" {
-		return errors.New("user passwd: username is required")
-	}
-	pw, err := readPassword(true, weak)
-	if err != nil {
-		return err
-	}
-	if err := db.SetPasswordWeak(ctx, username, pw, weak); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return fmt.Errorf("user passwd: no such user %q", username)
-		}
-		return err
-	}
-	fmt.Printf("password changed for %s; existing sessions revoked\n", username)
-	return nil
 }
 
 // userGrant assigns a role at exactly one scope: --system (no target),
@@ -233,51 +191,6 @@ func scopeDescription(tenantID, employeeID *int64) string {
 	default:
 		return " (system-wide)"
 	}
-}
-
-// userRoles lists an account's user_roles rows.
-func userRoles(ctx context.Context, db *store.DB, username string) error {
-	if username == "" {
-		return errors.New("user roles: username is required")
-	}
-	u, err := db.UserByUsername(ctx, username)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return fmt.Errorf("user roles: no such user %q", username)
-		}
-		return err
-	}
-	roles, err := db.UserRolesForUser(ctx, u.ID)
-	if err != nil {
-		return err
-	}
-	if len(roles) == 0 {
-		fmt.Printf("%s holds no roles yet\n", username)
-		return nil
-	}
-	for _, ur := range roles {
-		fmt.Printf("%-20s%s\n", ur.RoleID, scopeDescription(ur.TenantID, ur.EmployeeID))
-	}
-	return nil
-}
-
-func userList(ctx context.Context, db *store.DB) error {
-	users, err := db.Users(ctx)
-	if err != nil {
-		return err
-	}
-	if len(users) == 0 {
-		fmt.Println("no accounts yet — create one with `wpcalc user add <name>`")
-		return nil
-	}
-	for _, u := range users {
-		lang := u.Language
-		if lang == "" {
-			lang = "auto"
-		}
-		fmt.Printf("%-24s %s\n", u.Username, lang)
-	}
-	return nil
 }
 
 // readPassword reads a password without echoing it.

@@ -36,12 +36,6 @@ func run(args []string) error {
 		return cmdMigrate(ctx, args[1:])
 	case "user":
 		return cmdUser(ctx, args[1:])
-	case "tenant":
-		return cmdTenant(ctx, args[1:])
-	case "role":
-		return cmdRole(ctx, args[1:])
-	case "permission":
-		return cmdPermission(ctx, args[1:])
 	case "token":
 		return cmdToken(ctx, args[1:])
 	case "sample-employees":
@@ -64,15 +58,19 @@ func run(args []string) error {
 func usage(w *os.File) {
 	fmt.Fprint(w, `wpcalc — monthly employee working-hours grid
 
+This binary is the server: it runs the service and holds the two
+bootstrap primitives no API client can perform on its own (the first
+account, and its first role grant + token). Everything else —
+tenants, roles, permissions, day-to-day user and token management —
+is administered remotely via /api/v1, through the separate wpcalcctl
+tool. See docs/en/admin.md.
+
 Usage:
   wpcalc serve [--addr :8080 | --socket PATH] [--db PATH]
   wpcalc migrate [up|down|status] [--db PATH]
-  wpcalc user add|passwd|lang|roles|list [--db PATH] [-lang de-CH|en]
+  wpcalc user add [--db PATH] [-lang de-CH|en]
   wpcalc user grant|revoke <name> [-system|-tenant ID|-employee ID] [-role ID]
-  wpcalc tenant add|list|rename [--db PATH]
-  wpcalc role add|list|delete|permissions [--db PATH] [-name N] [-scope S] [-add|-remove PERM]
-  wpcalc permission list [--db PATH]
-  wpcalc token create|refresh|list|revoke|revoke-all [--db PATH] [-name N]
+  wpcalc token create <name> [--db PATH] [-name N]
   wpcalc sample-employees [--db PATH] [--month YYYY-MM] [--tenant ID]
   wpcalc manual [user|admin|testing] [--lang de-CH|en] [--raw] [--list]
   wpcalc plugin export DIR [--force] [--php-only]

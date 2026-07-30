@@ -114,21 +114,64 @@ see the note above.
 
 ### Commands
 
+`wpcalc` (this binary) is the server. It has direct database access and
+holds only what an API client fundamentally cannot do for itself: run the
+service, apply migrations, and bootstrap the very first account and its
+first token. Everything else — tenants, roles, permissions, and
+day-to-day user/token management — is administered remotely, over
+`/api/v1`, by the separate [`wpcalcctl`](cmd/wpcalcctl) tool below.
+
 | Command | Purpose |
 |---|---|
 | `wpcalc serve --addr :8080 \| --socket PATH` | run the server; exactly one listener |
 | `wpcalc migrate [up\|down\|status]` | apply, roll back one, or report migrations |
-| `wpcalc user add\|passwd\|lang\|roles\|list` | manage standalone accounts (`--allow-weak-password` for local testing only) |
-| `wpcalc user grant\|revoke <name> [-system\|-tenant ID\|-employee ID] [-role ID]` | assign or remove a role |
-| `wpcalc tenant add\|list\|rename` | manage tenants |
-| `wpcalc role add\|list\|delete\|permissions` | manage the role catalog |
-| `wpcalc token create\|refresh\|list\|revoke\|revoke-all` | issue, renew, list, or revoke `/api/v1` token pairs |
+| `wpcalc user add [-lang L]` | create a bare account (bootstrap; `--allow-weak-password` for local testing only) |
+| `wpcalc user grant\|revoke <name> [-system\|-tenant ID\|-employee ID] [-role ID]` | assign or remove a role (bootstrap: an account needs one before any token it holds can pass a permission check) |
+| `wpcalc token create <name>` | mint an access/refresh pair for an account (bootstrap: an API client cannot get its first token any other way) |
 | `wpcalc sample-employees [--month YYYY-MM]` | create placeholder employees; records no hours |
 | `wpcalc manual [user\|admin] [--lang L] [--raw] [--list]` | show an embedded manual, via glow when available |
 | `wpcalc plugin export DIR [--force] [--php-only]` | write the WordPress plugin out of the binary |
 | `wpcalc version [--short]` | print the build: version, commit, date, Go |
 
 Flags may appear before or after positional arguments.
+
+### Command-line administration: `wpcalcctl`
+
+[`cmd/wpcalcctl`](cmd/wpcalcctl) is a separate binary, built from a
+separate Go module — it has no dependency on the server's own packages,
+only on [`sdk/go`](sdk/go) and the standard library, and talks to a
+running server exclusively over `/api/v1`. It can run from a machine that
+has never seen the server's filesystem or database file.
+
+```sh
+./bin/wpcalcctl login --server http://localhost:8080/api/v1 \
+  --access-token wpat_... --refresh-token wprt_...   # from `wpcalc token create`, above
+./bin/wpcalcctl tenant add "Acme Corp"
+./bin/wpcalcctl user add bob
+./bin/wpcalcctl user grant bob -tenant 2 -role mandant_admin
+```
+
+Credentials are stored (mode `0600`) at
+`$XDG_CONFIG_HOME/wpcalcctl/credentials.json` and refreshed
+automatically — access tokens expire after an hour, and `wpcalcctl`
+exchanges the refresh token and saves the new pair before any command
+returns, so this only has to be done once.
+
+| Command | Purpose |
+|---|---|
+| `wpcalcctl login --server URL --access-token T --refresh-token T` | store credentials for every command below |
+| `wpcalcctl tenant add\|list\|rename` | manage tenants |
+| `wpcalcctl role add\|list\|delete\|permissions` | manage the role catalog |
+| `wpcalcctl permission list` | the fixed permission catalog |
+| `wpcalcctl user add\|passwd\|lang\|roles\|list` | manage accounts beyond the first |
+| `wpcalcctl user grant\|revoke <name> [-system\|-tenant ID\|-employee ID] [-role ID]` | assign or remove a role |
+| `wpcalcctl token create\|list\|revoke\|revoke-all` | issue, list, or revoke *this account's own* token pairs |
+
+Build it the same way as the server, from its own directory:
+
+```sh
+cd cmd/wpcalcctl && go build -o ../../bin/wpcalcctl .
+```
 
 ### Environment
 
@@ -158,11 +201,15 @@ curl -H "Authorization: Bearer wpat_..." http://localhost:8080/api/v1/tenants
 Access tokens (`wpat_...`) expire after an hour; exchange the paired
 refresh token (`wprt_...`, valid 30 days, single-use — each exchange
 rotates it) for a new pair via `POST /api/v1/tokens/refresh`, without
-needing the CLI again:
+going back to the server binary at all:
 
 ```sh
 curl -X POST -d '{"refreshToken":"wprt_..."}' http://localhost:8080/api/v1/tokens/refresh
 ```
+
+[`wpcalcctl`](#command-line-administration-wpcalcctl) and
+[`sdk/go`](#go-sdk) both do this automatically — neither ever needs the
+server binary again once they hold an initial pair.
 
 It documents itself the same way, at `/api/v1/openapi.{json,yaml,html}` —
 open `/api/v1/openapi.html` in a browser to browse every endpoint and, via
@@ -256,6 +303,7 @@ internal/report/   the three PDFs
 internal/i18n/     embedded catalogs; de-CH default, en available
 wordpress/wpcalc/  the PHP shim
 sdk/go/            typed Go client for /api/v1 — its own Go module, generated from the same spec
+cmd/wpcalcctl/    remote admin CLI — its own Go module, sdk/go and the standard library only
 ```
 
 Two properties are worth knowing before changing anything:

@@ -45,15 +45,20 @@ dependencies — copy it to the host and run it.
 
 ### Commands
 
+`wpcalc` (this binary) is the server: it has direct database access and
+holds only what an API client fundamentally cannot do for itself — run
+the service, apply migrations, and bootstrap the first account and its
+first token. Everything else is administered remotely, over `/api/v1`,
+with the separate `wpcalcctl` binary — see
+[Users and tokens](#users-and-tokens) below for the full command mapping.
+
 | Command | Purpose |
 |---|---|
 | `serve --addr :8080 \| --socket PATH` | run the server; exactly one listener |
 | `migrate [up\|down\|status]` | apply, roll back one, or report migrations |
-| `user add\|passwd\|lang\|roles\|list` | manage accounts |
-| `user grant\|revoke <name> [-system\|-tenant ID\|-employee ID] [-role ID]` | assign or remove a role |
-| `tenant add\|list\|rename` | manage tenants ("Mandanten") |
-| `role add\|list\|delete\|permissions` | manage the role catalog and what each role can do |
-| `permission list` | list the fixed permission catalog (read-only) |
+| `user add` | create a bare account (bootstrap) |
+| `user grant\|revoke <name> [-system\|-tenant ID\|-employee ID] [-role ID]` | assign or remove a role (bootstrap: nothing works without one) |
+| `token create <name>` | mint an access/refresh pair (bootstrap: an API client cannot get its first token any other way) |
 | `sample-employees [--month YYYY-MM] [--tenant ID]` | create placeholder employees; records **no hours** |
 | `manual [user\|admin]` | show an embedded manual |
 | `plugin export DIR` | write the WordPress plugin out of the binary |
@@ -98,24 +103,33 @@ and login appears to fail for no reason.
 ## Accounts
 
 ```sh
-./bin/wpcalc user add alice --db DB   # prompts for a password; no access yet
-./bin/wpcalc user passwd alice --db DB            # also revokes alice's sessions
-./bin/wpcalc user list --db DB
+./bin/wpcalc user add alice --db DB   # prompts for a password; no access yet — bootstrap only
+```
+
+Every account after the first is easiest to create remotely, once you hold a
+token for an account with `manage_users`:
+
+```sh
+wpcalcctl user add bob                          # prompts for a password
+wpcalcctl user passwd bob                       # also revokes bob's sessions
+wpcalcctl user list
 ```
 
 Passwords are bcrypt-hashed and must be at least 10 characters. Usernames are
 case-insensitive. Sessions are stored server-side and last 12 hours, so
 signing out or changing a password revokes access immediately rather than
-leaving a token valid until it expires.
+leaving a token valid until it expires; changing a password also revokes
+every refresh token for that account (already-issued access tokens still
+expire on their own within the hour regardless).
 
 `user add` only creates credentials — the account can do nothing until a role
 is granted (see the next section). There is no moment where an account exists
 with an implicit role nobody asked for.
 
-> `--allow-weak-password` waives the length requirement. It exists so a local
-> development database can be primed with throwaway credentials such as
-> `admin`/`admin`, and it prints a warning whenever it is used. **Never use it
-> on anything reachable.**
+> `--allow-weak-password` (server binary only) waives the length requirement.
+> It exists so a local development database can be primed with throwaway
+> credentials such as `admin`/`admin`, and it prints a warning whenever it is
+> used. **Never use it on anything reachable.**
 
 ### Interface language
 
@@ -124,9 +138,9 @@ browser". Users change it themselves from the selector in the top bar; you can
 set it when creating an account or afterwards:
 
 ```sh
-./bin/wpcalc user add alice -lang en --db DB
-./bin/wpcalc user lang alice de-CH --db DB    # de_CH is accepted too
-./bin/wpcalc user lang alice "" --db DB       # back to following the browser
+./bin/wpcalc user add alice -lang en --db DB   # server binary, bootstrap only
+wpcalcctl user lang bob de-CH                 # de_CH is accepted too
+wpcalcctl user lang bob ""                    # back to following the browser
 ```
 
 A stored preference beats the browser's `Accept-Language`, because it is the
@@ -171,24 +185,38 @@ employee, and `403` on system-wide pages like tenant management.
 
 ### Setting it up
 
+The very first account and its `super_admin` grant have to happen on the
+server itself — nothing else can bootstrap them:
+
 ```sh
-./bin/wpcalc tenant add "Acme Corp" --db DB               # -> tenant id, e.g. 2
 ./bin/wpcalc user add alice --db DB
 ./bin/wpcalc user grant alice --system -role super_admin --db DB
+./bin/wpcalc token create alice --db DB
+```
 
-./bin/wpcalc user add bob --db DB
-./bin/wpcalc user grant bob -tenant 2 -role mandant_admin --db DB
+Everything from here on is remote, via `wpcalcctl` (after `wpcalcctl
+login` with the pair `token create` just printed):
 
-./bin/wpcalc user add carol --db DB
-./bin/wpcalc user grant carol -employee 5 -role viewer --db DB
+```sh
+wpcalcctl tenant add "Acme Corp"                          # -> tenant id, e.g. 2
 
-./bin/wpcalc user roles bob --db DB                       # what bob can reach
-./bin/wpcalc user revoke carol -employee 5 --db DB         # revoke-then-grant to change a role
+wpcalcctl user add bob
+wpcalcctl user grant bob -tenant 2 -role mandant_admin
+
+wpcalcctl user add carol
+wpcalcctl user grant carol -tenant 2 -employee 5 -role viewer
+
+wpcalcctl user roles bob                                  # what bob can reach
+wpcalcctl user revoke carol -tenant 2 -employee 5          # revoke-then-grant to change a role
 ```
 
 A user holds at most one role per scope *instance* — `-employee 5` twice with
-different roles is rejected; revoke first. `-system`, `-tenant ID`, and
-`-employee ID` are mutually exclusive; exactly one is required.
+different roles is rejected; revoke first. Use `-system`, `-tenant ID`
+alone, or `-tenant ID -employee ID` together — an employee-scope grant
+still needs its tenant named, since `/api/v1` nests employee-role
+assignments under a tenant (`wpcalc user grant` on the server binary
+takes the three flags as strictly mutually exclusive instead, since it
+talks to the database directly rather than a nested route).
 
 An account with several tenant- or employee-scope grants across different
 tenants sees a **tenant switcher** in the top bar and, on first login (or
@@ -198,8 +226,8 @@ account's several tenant memberships is active for this browser session.
 
 ### Managing roles themselves
 
-Roles, their permissions, and every grant are editable from the web UI as
-well as the CLI — nothing here is a fixed enum:
+Roles, their permissions, and every grant are editable from the web UI, the
+remote `wpcalcctl`, and `/api/v1` directly — nothing here is a fixed enum:
 
 - **`/tenants`** (`manage_tenants`, system-wide) — list and create tenants.
 - **`/tenants/{id}/access`** (`manage_users`, per tenant) — grant or revoke an
@@ -212,11 +240,11 @@ well as the CLI — nothing here is a fixed enum:
   permissions), and toggle which permissions it holds.
 
 ```sh
-./bin/wpcalc role add auditor -name Auditor -scope tenant --db DB
-./bin/wpcalc role permissions auditor -add read --db DB
-./bin/wpcalc role permissions auditor -add manage_tenants --db DB   # rejected: min_scope=system
-./bin/wpcalc role list --db DB
-./bin/wpcalc permission list --db DB
+wpcalcctl role add auditor -name Auditor -scope tenant
+wpcalcctl role permissions auditor -add read
+wpcalcctl role permissions auditor -add manage_tenants   # rejected: min_scope=system
+wpcalcctl role list
+wpcalcctl permission list
 ```
 
 Permissions themselves (`read`, `print`, `write`, `manage_employees`,
@@ -341,38 +369,48 @@ hour regardless.
 
 ### Users and tokens
 
-Everything `wpcalc user` and `wpcalc token` can do on the CLI has an
-`/api/v1` equivalent, with one necessary difference: an account's very
-first token can only come from the CLI (an endpoint that requires a bearer
-token cannot be how you get your first one).
+`wpcalcctl` *is* an `/api/v1` client — every one of its commands maps
+directly onto an operation:
 
-| CLI | API |
+| `wpcalcctl` | API |
 |---|---|
-| `wpcalc user add` | `POST /api/v1/users` |
-| `wpcalc user list` | `GET /api/v1/users` |
-| `wpcalc user passwd <name>` | `PUT /api/v1/users/{username}/password` |
-| `wpcalc user lang <name>` | `PUT /api/v1/users/{username}/language` |
-| `wpcalc user roles <name>` | `GET /api/v1/users/{username}/roles` |
-| `wpcalc token create` | `POST /api/v1/tokens` (self, once you have one) |
-| `wpcalc token refresh` | `POST /api/v1/tokens/refresh` (no CLI equivalent needed — direct database access can just re-run `create`) |
-| `wpcalc token list` | `GET /api/v1/tokens` (self only) |
-| `wpcalc token revoke` | `DELETE /api/v1/tokens/{tokenId}` (self only) |
-| `wpcalc token revoke-all` | `DELETE /api/v1/tokens` (self only) |
+| `user add` | `POST /api/v1/users` |
+| `user list` | `GET /api/v1/users` |
+| `user passwd <name>` | `PUT /api/v1/users/{username}/password` |
+| `user lang <name>` | `PUT /api/v1/users/{username}/language` |
+| `user roles <name>` | `GET /api/v1/users/{username}/roles` |
+| `token create` | `POST /api/v1/tokens` (self, once you have one) |
+| `token list` | `GET /api/v1/tokens` (self only) |
+| `token revoke` | `DELETE /api/v1/tokens/{tokenId}` (self only) |
+| `token revoke-all` | `DELETE /api/v1/tokens` (self only) |
+
+`POST /api/v1/tokens/refresh` has no `wpcalcctl` command at all —
+`wpcalcctl` calls it automatically, transparently, whenever an access
+token has expired, and saves the rotated pair before returning.
+
+The one thing with no API path, anywhere: `wpcalc token create` on the
+**server** binary, direct-database, no bearer credential required. An
+endpoint that itself requires a bearer token cannot be how an account
+gets its first one — this is that escape hatch, alongside `wpcalc user
+add`/`grant` for the account and its first role.
 
 Two access rules apply consistently across the `/users/{username}/*`
-routes: `manage_users` system-wide acts on any account (the CLI's
-unscoped, operator-level access), and **any account may always act on
-itself** — matching the HTML app's own self-service language switch. A
-non-admin naming someone else's account, or one that doesn't exist, gets
-an identical `403` either way; this can never be used to test which
-usernames exist.
+routes: `manage_users` system-wide acts on any account, and **any account
+may always act on itself** — matching the HTML app's own self-service
+language switch. A non-admin naming someone else's account, or one that
+doesn't exist, gets an identical `403` either way; this can never be used
+to test which usernames exist.
 
 The `/tokens*` routes are scoped even tighter: self-service only, full
 stop. There is no way for anyone — including a `manage_users` admin — to
-list or revoke *another* account's tokens through the API; a `tokenId`
-belonging to someone else reads as `404`, not `403`, so it cannot be used
-to probe which token ids exist either. The CLI, with direct database
-access, is not scoped this way.
+list or revoke *another* account's tokens through the API (and so, through
+`wpcalcctl`, none either); a `tokenId` belonging to someone else reads as
+`404`, not `403`, so it cannot be used to probe which token ids exist
+either. Only the server binary, with direct database access, is not
+scoped this way — and even it can only revoke access tokens
+(`wpcalc token create` mints; there is no server-side revoke command,
+deliberately: reach for `wpcalcctl token revoke` instead, or edit the
+database directly for a true emergency).
 
 ### Authorization
 
