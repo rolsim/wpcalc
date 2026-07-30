@@ -39,7 +39,7 @@ func (f *fakeTokenStore) RolePermissionsFor(_ context.Context, roleIDs []string)
 func TestBearerTokensIdentifyResolvesAValidToken(t *testing.T) {
 	store := &fakeTokenStore{
 		tokenToUser: map[string]domain.User{"wpat_good": {ID: 1, Username: "alice", Language: "en"}},
-		roles:       map[int64][]domain.UserRole{1: {{RoleID: "editor", EmployeeID: intPtr(9)}}},
+		roles:       map[int64][]domain.UserRole{1: {{RoleID: "editor", EmployeeID: new(int64(9))}}},
 		perms:       map[string][]string{"editor": {"read", "print", "write"}},
 	}
 	b := NewBearerTokens(store)
@@ -90,5 +90,3 @@ func TestBearerTokensIdentifyRejectsUnknownToken(t *testing.T) {
 		t.Fatalf("err = %v, want ErrUnauthenticated", err)
 	}
 }
-
-func intPtr(v int64) *int64 { return &v }
