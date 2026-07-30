@@ -186,3 +186,7 @@ and convert once at the end.
 
 See [DECISIONS.md](DECISIONS.md) for the reasoning behind these and the other
 judgement calls, each with what it would take to reverse.
+
+## License
+
+MIT — see [LICENSE](LICENSE). The WordPress plugin header declares the same.
