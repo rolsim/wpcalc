@@ -175,6 +175,12 @@ func wpCLI(ctx context.Context, args ...string) (string, error) {
 	return compose(ctx, append([]string{"exec", "-T", "wpcli", "wp"}, args...)...)
 }
 
+// shellQuote wraps s in single quotes for embedding in a `sh -c` string,
+// escaping any single quote it contains.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 func waitFor(ctx context.Context, what string, timeout time.Duration, fn func() bool) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -451,6 +457,147 @@ func TestSettingsPageReportsStatusAndNeverShowsTheSecret(t *testing.T) {
 	if strings.Contains(body, secret) {
 		t.Error("the shared secret is rendered on the settings page")
 	}
+}
+
+// TestPluginZipInstallsCleanlyViaWPCLI verifies the artifact the release
+// workflow actually publishes — a zip with a single top-level wpcalc/
+// folder — installs and runs the way a real host would install it,
+// through WordPress's own unzip path rather than the bind mount every
+// other test in this file relies on.
+//
+// It extracts into wpcalc-ziptest/, not wpcalc/: the latter is the
+// bind-mounted directory the rest of the suite uses, and unzipping onto a
+// live bind mount hits container/host UID and mountpoint mismatches that
+// are an artifact of this test harness, not something a real install ever
+// hits. wpcalc.php resolves its own paths from plugin_dir_path(__FILE__)
+// and uses a fixed MENU_SLUG, both independent of the containing
+// directory's name, so this is still a faithful test of the zip itself.
+//
+// Critically, this also strips the extracted binary's executable bit
+// before activating — reproducing the documented failure mode where PHP's
+// own ZipArchive extraction (what "Upload Plugin" and `wp plugin install`
+// both go through) does not restore it — to prove the shim's chmod
+// self-heal in wpcalc.php's ensure_running() actually recovers on a host
+// with no shell to fix it by hand. That is the entire point of shipping
+// this zip in the first place.
+func TestPluginZipInstallsCleanlyViaWPCLI(t *testing.T) {
+	ctx := t.Context()
+	const slug = "wpcalc-ziptest"
+	pluginPath := "/var/www/html/wp-content/plugins/" + slug
+
+	zipPath := buildPluginZip(t)
+	if out, err := compose(ctx, "cp", zipPath, "wordpress:/tmp/wpcalc-plugin.zip"); err != nil {
+		t.Fatalf("copy zip into the wordpress container: %v\n%s", err, out)
+	}
+
+	// The image has no `unzip` binary, but PHP's ZipArchive is guaranteed —
+	// WordPress itself requires ext-zip — and using it here is more faithful
+	// anyway: it is the exact extractor "Upload Plugin" and `wp plugin
+	// install` both go through, which is what this test exists to exercise.
+	//
+	// Run as www-data, not the exec default of root: on a real host the same
+	// PHP process that serves admin requests is the one that extracts an
+	// upload, so the files it later chmods are always its own. Extracting as
+	// root here would make the exec-bit self-heal fail on an ownership
+	// mismatch this test invented, not the one the feature actually guards
+	// against.
+	extractPHP := `$z = new ZipArchive(); ` +
+		`if ($z->open('/tmp/wpcalc-plugin.zip') !== true) { fwrite(STDERR, "open failed\n"); exit(1); } ` +
+		`$z->extractTo('/tmp/wpcalc-unzip'); $z->close();`
+	if out, err := compose(ctx, "exec", "-T", "-u", "www-data", "wordpress", "sh", "-c",
+		"rm -rf /tmp/wpcalc-unzip && mkdir /tmp/wpcalc-unzip && php -r "+shellQuote(extractPHP)); err != nil {
+		t.Fatalf("extract the zip via ZipArchive: %v\n%s", err, out)
+	}
+	// The zip must extract exactly one top-level directory, "wpcalc" — the
+	// same structure WordPress's uploader requires — which is then placed
+	// under this test's own slug so it does not collide with the bind mount.
+	if out, err := compose(ctx, "exec", "-T", "-u", "www-data", "wordpress", "sh", "-c",
+		"ls /tmp/wpcalc-unzip"); err != nil || strings.TrimSpace(out) != "wpcalc" {
+		t.Fatalf("zip did not extract a single wpcalc/ directory, got %q, err %v", out, err)
+	}
+	if out, err := compose(ctx, "exec", "-T", "-u", "www-data", "wordpress", "sh", "-c",
+		"rm -rf "+pluginPath+" && mv /tmp/wpcalc-unzip/wpcalc "+pluginPath); err != nil {
+		t.Fatalf("place the extracted plugin: %v\n%s", err, out)
+	}
+
+	// Deactivate the bind-mounted original first: two active plugins would
+	// both register the same MENU_SLUG admin page, and only one should be
+	// live while this test proves the zip-derived copy works on its own.
+	if out, err := wpCLI(ctx, "plugin", "deactivate", "wpcalc"); err != nil {
+		t.Fatalf("deactivate the bind-mounted plugin: %v\n%s", err, out)
+	}
+	if out, err := compose(ctx, "exec", "-T", "wordpress", "sh", "-c",
+		"pkill -f 'wpcalc serve'; rm -f /var/www/html/wp-content/uploads/wpcalc/wpcalc.sock; true"); err != nil {
+		t.Logf("stopping the sidecar reported: %v\n%s", err, out)
+	}
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		_, _ = wpCLI(cleanupCtx, "plugin", "deactivate", slug)
+		_, _ = compose(cleanupCtx, "exec", "-T", "wordpress", "rm", "-rf", pluginPath)
+		_, _ = compose(cleanupCtx, "exec", "-T", "wordpress", "sh", "-c",
+			"pkill -f 'wpcalc serve'; rm -f /var/www/html/wp-content/uploads/wpcalc/wpcalc.sock; true")
+		if out, err := wpCLI(cleanupCtx, "plugin", "activate", "wpcalc"); err != nil {
+			t.Errorf("restore the bind-mounted plugin's active state: %v\n%s", err, out)
+		}
+	})
+
+	// Simulate a host whose zip extraction dropped the exec bit — the
+	// documented ZipArchive behavior this feature exists for — before the
+	// plugin gets its first chance to run.
+	binPath := pluginPath + "/bin/wpcalc"
+	if out, err := compose(ctx, "exec", "-T", "-u", "www-data", "wordpress", "chmod", "644", binPath); err != nil {
+		t.Fatalf("strip the exec bit: %v\n%s", err, out)
+	}
+	if out, err := compose(ctx, "exec", "-T", "wordpress", "sh", "-c",
+		"stat -c %a "+binPath); err != nil || strings.TrimSpace(out) != "644" {
+		t.Fatalf("exec bit was not actually stripped, got %q, err %v", out, err)
+	}
+
+	if out, err := wpCLI(ctx, "plugin", "activate", slug); err != nil {
+		t.Fatalf("activate the zip-installed plugin: %v\n%s", err, out)
+	}
+
+	client := loginToWordPress(t)
+	body := get(t, client, siteURL+"/wp-admin/admin.php?page=wpcalc")
+
+	if strings.Contains(body, "not executable") {
+		t.Fatalf("the shim did not self-heal the stripped exec bit:\n%s", excerpt(body))
+	}
+	if strings.Contains(body, "could not start") || strings.Contains(body, "not responding") {
+		logs, _ := compose(ctx, "exec", "-T", "wordpress",
+			"sh", "-c", "tail -40 /var/www/html/wp-content/uploads/wpcalc/wpcalc.log 2>/dev/null")
+		t.Fatalf("sidecar built from the zip-installed plugin would not start.\npage:\n%s\n\nsidecar log:\n%s",
+			excerpt(body), logs)
+	}
+	if !strings.Contains(body, "wpcalc-app") {
+		t.Fatalf("admin page does not contain the app fragment after a zip install:\n%s", excerpt(body))
+	}
+
+	// The self-heal itself must have restored the exec bit on disk, not just
+	// worked around it for one process invocation.
+	out, err := compose(ctx, "exec", "-T", "wordpress", "sh", "-c", "stat -c %a "+binPath)
+	if err != nil {
+		t.Fatalf("stat the binary after activation: %v\n%s", err, out)
+	}
+	if mode := strings.TrimSpace(out); mode != "755" {
+		t.Errorf("binary mode after self-heal = %s, want 755", mode)
+	}
+}
+
+// buildPluginZip zips the already-exported plugin directory into a single
+// top-level wpcalc/ folder — exactly the structure release.yml's "Build
+// WordPress plugin zip" step produces and the one WordPress's own uploader
+// requires.
+func buildPluginZip(t *testing.T) string {
+	t.Helper()
+	zipPath := filepath.Join(exportDir, "wpcalc-plugin.zip")
+	_ = os.Remove(zipPath)
+	cmd := exec.Command("zip", "-qr", zipPath, "wpcalc")
+	cmd.Dir = exportDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("zip plugin: %v\n%s", err, out)
+	}
+	return zipPath
 }
 
 // TestZZPluginDegradesWhenBinaryIsMissing runs last: it hides the binary and
