@@ -249,7 +249,8 @@ Die vollständige Anleitung steht in [`sdk/go/README.md`](sdk/go/README.md)
 
 ## WordPress-Plugin installieren
 
-Die Binärdatei trägt das Plugin in sich und installiert sich selbst:
+Mit Shell-Zugriff trägt die Binärdatei das Plugin in sich und installiert
+sich selbst:
 
 ```sh
 wpcalc plugin export /var/www/html/wp-content/plugins
@@ -257,7 +258,19 @@ wpcalc plugin export /var/www/html/wp-content/plugins
 
 Dies schreibt `wpcalc/wpcalc.php` und `wpcalc/bin/wpcalc` — eine Kopie der
 Binärdatei, die es geschrieben hat, sodass Plugin und Sidecar immer dieselbe
-Version haben. Anschliessend **wpcalc** aktivieren und **Working hours** im
+Version haben.
+
+Ohne Shell-Zugriff — die meisten Shared-Hosting-Angebote — laden Sie
+`wpcalc-wordpress-plugin-<Tag>-linux-amd64.zip` von einem
+[Release](../../releases) herunter und laden es direkt unter **Plugins →
+Installieren → Plugin hochladen** hoch; es enthält bereits die
+linux/amd64-Binärdatei, die den grössten Teil des Shared-/cPanel-Hostings
+abdeckt. Verliert das Entpacken auf dem Host das Ausführbarkeits-Bit der
+Binärdatei (häufig bei PHPs eigenem `ZipArchive`, das dieser Bildschirm
+verwendet), versucht das Plugin bei der ersten Aktivierung selbst ein
+`chmod`, bevor es aufgibt.
+
+In beiden Fällen anschliessend **wpcalc** aktivieren und **Working hours** im
 Admin-Menü öffnen.
 
 Das Plugin startet die Binärdatei bei Bedarf als Sidecar an einem
@@ -305,7 +318,9 @@ danach sowohl `wpcalc` als auch `wpcalcctl` für `linux/amd64`,
 einzigen Linux-Runner (kein cgo, also kein Runner pro Betriebssystem nötig),
 stempelt `-X main.version=<Tag>` in `wpcalc` und veröffentlicht ein
 GitHub-Release mit je einem Archiv pro Binärdatei und Plattform
-(`wpcalc-<Tag>-<os>-<arch>` und `wpcalcctl-<Tag>-<os>-<arch>`) sowie
+(`wpcalc-<Tag>-<os>-<arch>` und `wpcalcctl-<Tag>-<os>-<arch>`), einem
+hochladefertigen `wpcalc-wordpress-plugin-<Tag>-linux-amd64.zip` (siehe
+[WordPress-Plugin installieren](#wordpress-plugin-installieren)) sowie
 `checksums.txt`.
 
 Ein Tag mit angehängtem Bindestrich-Suffix (`-alpha`, `-beta`, `-rc.1`, ...)

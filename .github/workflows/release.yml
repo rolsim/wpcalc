@@ -100,6 +100,29 @@ jobs:
           path: ${{ env.CLI_ASSET }}
           retention-days: 1
 
+      # A ready-to-upload WordPress plugin zip, for hosts where the only way
+      # in is the admin "Upload Plugin" screen — no shell, no `wpcalc plugin
+      # export`. `plugin export` embeds a copy of the binary that runs it, so
+      # this only works on the leg whose GOOS/GOARCH the runner can execute
+      # natively; linux/amd64 covers the shared-hosting case this is for.
+      - name: Build WordPress plugin zip
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: |
+          set -eu
+          chmod +x wpcalc
+          ./wpcalc plugin export pluginbuild
+          asset="wpcalc-wordpress-plugin-${GITHUB_REF_NAME}-${GOOS}-${GOARCH}.zip"
+          (cd pluginbuild && zip -qr "../${asset}" wpcalc)
+          echo "PLUGIN_ASSET=${asset}" >> "$GITHUB_ENV"
+
+      - name: Upload WordPress plugin artifact
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PLUGIN_ASSET }}
+          path: ${{ env.PLUGIN_ASSET }}
+          retention-days: 1
+
   release:
     needs: build
     runs-on: ubuntu-latest

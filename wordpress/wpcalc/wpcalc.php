@@ -121,6 +121,16 @@ final class WPCalc_Plugin
             return sprintf('The wpcalc binary was not found at %s. Set the correct path in the wpcalc settings.', esc_html($binary));
         }
         if (!is_executable($binary)) {
+            // PHP's own zip extractor (ZipArchive, what WordPress's "Upload
+            // Plugin" screen uses) does not reliably restore the Unix exec
+            // bit, so a plugin installed that way — the only path in on a host
+            // with no shell or FTP access — lands here even though the zip
+            // itself carries the bit. Try to fix it before giving up: this is
+            // the difference between the zip actually working on such a host
+            // and only working for someone who can chmod it by hand.
+            @chmod($binary, 0755);
+        }
+        if (!is_executable($binary)) {
             return sprintf('The wpcalc binary at %s is not executable (chmod +x).', esc_html($binary));
         }
 

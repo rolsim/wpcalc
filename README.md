@@ -237,15 +237,26 @@ See [`sdk/go/README.md`](sdk/go/README.md) for the full guide.
 
 ## Install the WordPress plugin
 
-The binary carries the plugin and installs itself:
+With shell access, the binary carries the plugin and installs itself:
 
 ```sh
 wpcalc plugin export /var/www/html/wp-content/plugins
 ```
 
 This writes `wpcalc/wpcalc.php` and `wpcalc/bin/wpcalc` — a copy of the binary
-that wrote it, so the plugin and the sidecar are always the same version. Then
-activate **wpcalc** and open **Working hours** in the admin menu.
+that wrote it, so the plugin and the sidecar are always the same version.
+
+Without shell access — most shared hosting — download
+`wpcalc-wordpress-plugin-<tag>-linux-amd64.zip` from a
+[release](../../releases) and upload it directly on **Plugins → Add New →
+Upload Plugin**; it already contains the linux/amd64 binary, which covers
+the overwhelming majority of shared/cPanel hosting. If the host's zip
+extraction drops the binary's executable bit (common with PHP's own
+`ZipArchive`, which is what that screen uses), the plugin retries `chmod`
+itself on first activation before giving up.
+
+Either way, then activate **wpcalc** and open **Working hours** in the admin
+menu.
 
 The plugin starts the binary on demand as a sidecar on a unix socket under
 `wp-content/uploads/wpcalc/`, supervises it, and proxies admin requests to it
@@ -288,7 +299,9 @@ only then cross-compiles both `wpcalc` and `wpcalcctl` for `linux/amd64`,
 Linux runner (no cgo, so no per-OS runner is needed), stamps
 `-X main.version=<tag>` into `wpcalc`, and publishes a GitHub release with one
 archive per binary per platform (`wpcalc-<tag>-<os>-<arch>` and
-`wpcalcctl-<tag>-<os>-<arch>`) plus `checksums.txt`.
+`wpcalcctl-<tag>-<os>-<arch>`), a ready-to-upload
+`wpcalc-wordpress-plugin-<tag>-linux-amd64.zip` (see [Install the WordPress
+plugin](#install-the-wordpress-plugin)), and `checksums.txt`.
 
 A tag with a hyphenated suffix (`-alpha`, `-beta`, `-rc.1`, ...) is published
 as a GitHub prerelease automatically; a plain `vX.Y.Z` is a stable release.
