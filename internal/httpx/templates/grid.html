@@ -8,7 +8,7 @@
 
 {{ if not .HasEmployees }}
   <p class="empty">{{ .T "grid.no_employees" }}
-    <a href="{{ .URL "/employees/new" }}">{{ .T "employee.add" }}</a>
+    {{ if .CanManageEmployees }}<a href="{{ .URL "/employees/new" }}">{{ .T "employee.add" }}</a>{{ end }}
   </p>
 {{ else }}
 <div class="grid-scroll">

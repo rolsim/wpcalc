@@ -333,6 +333,37 @@ func TestNavHidesAdminLinksForNonAdmin(t *testing.T) {
 	}
 }
 
+func TestGridEmptyStateHidesAddEmployeeLinkWithoutManagePermission(t *testing.T) {
+	// A tenant-scoped viewer has no employee grants at all, so the grid's
+	// empty state renders — but they can't create an employee, so the "Add
+	// employee" link must not appear even though the nav-hidden /employees
+	// link is what governs the equivalent nav entry.
+	ts := newTestServer(t, nil)
+	tenantID := ts.tenant(t, "Acme")
+	ts.Server.authn = stubAuth{id: auth.Identity{
+		Username:        "viewer",
+		ActiveTenantID:  &tenantID,
+		UserRoles:       []domain.UserRole{{TenantID: &tenantID, RoleID: "viewer"}},
+		RolePermissions: map[string][]string{"viewer": {"read"}},
+	}}
+
+	body := ts.get(t, "/m/2026-07").Body.String()
+	if strings.Contains(body, `href="/employees/new"`) {
+		t.Error("viewer with no manage_employees permission still sees the Add employee link")
+	}
+}
+
+func TestGridEmptyStateShowsAddEmployeeLinkWithManagePermission(t *testing.T) {
+	ts := newTestServer(t, nil)
+	tenantID := ts.tenant(t, "Acme")
+	ts.Server.authn = stubAuth{id: mandantAdmin(tenantID)}
+
+	body := ts.get(t, "/m/2026-07").Body.String()
+	if !strings.Contains(body, `href="/employees/new"`) {
+		t.Error("mandant-admin with manage_employees permission should see the Add employee link")
+	}
+}
+
 func TestAdminRoleManagementRoundTrip(t *testing.T) {
 	ts := newTestServer(t, nil) // super-admin by default
 	tenantB := ts.tenant(t, "Tenant B")

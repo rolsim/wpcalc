@@ -47,10 +47,11 @@ type gridView struct {
 	Employees  []domain.Employee
 	Rows       []gridRow
 	// EmployeeTotals is positionally aligned with Employees.
-	EmployeeTotals []domain.Centihours
-	GrandTotal     domain.Centihours
-	Sep            string
-	HasEmployees   bool
+	EmployeeTotals     []domain.Centihours
+	GrandTotal         domain.Centihours
+	Sep                string
+	HasEmployees       bool
+	CanManageEmployees bool
 }
 
 func (s *Server) handleGrid(w http.ResponseWriter, r *http.Request) {
@@ -116,15 +117,16 @@ func (s *Server) buildGridView(r *http.Request, tenantID int64, month domain.Yea
 	base := s.newView(r, "app.title")
 	base.TenantID = tenantID
 	v := gridView{
-		view:         base,
-		Month:        month,
-		MonthLabel:   base.T(i18nMonthKey(month)) + " " + strconv.Itoa(month.Year),
-		PrevURL:      s.url("/m/%s", month.Prev()),
-		NextURL:      s.url("/m/%s", month.Next()),
-		TodayURL:     s.url("/m/%s", domain.CurrentYearMonth()),
-		Employees:    employees,
-		Sep:          base.DecimalSep(),
-		HasEmployees: len(employees) > 0,
+		view:               base,
+		Month:              month,
+		MonthLabel:         base.T(i18nMonthKey(month)) + " " + strconv.Itoa(month.Year),
+		PrevURL:            s.url("/m/%s", month.Prev()),
+		NextURL:            s.url("/m/%s", month.Next()),
+		TodayURL:           s.url("/m/%s", domain.CurrentYearMonth()),
+		Employees:          employees,
+		Sep:                base.DecimalSep(),
+		HasEmployees:       len(employees) > 0,
+		CanManageEmployees: id.CanInTenant(domain.PermManageEmployees, tenantID),
 	}
 
 	today := domain.Today()
