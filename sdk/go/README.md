@@ -1,5 +1,7 @@
 # wpcalc Go SDK
 
+*Deutsch (CH): [README.de-CH.md](README.de-CH.md)*
+
 A typed Go client for wpcalc's [`/api/v1`](../../internal/apiv1/openapi.yaml)
 JSON API — generated from the same OpenAPI document the server itself is
 generated from, plus one hand-written layer on top: carrying a bearer token

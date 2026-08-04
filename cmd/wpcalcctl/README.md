@@ -1,5 +1,7 @@
 # wpcalcctl
 
+*Deutsch (CH): [README.de-CH.md](README.de-CH.md)*
+
 A command-line client for administering a wpcalc server remotely, entirely
 over [`/api/v1`](../../internal/apiv1/openapi.yaml) — built on
 [`sdk/go`](../../sdk/go), with no dependency on the server's own packages
