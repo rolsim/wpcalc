@@ -86,7 +86,7 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return
 		}
-		http.Redirect(w, r, s.url("/login"), http.StatusSeeOther)
+		http.Redirect(w, r, s.url(r, "/login"), http.StatusSeeOther)
 	})
 }
 

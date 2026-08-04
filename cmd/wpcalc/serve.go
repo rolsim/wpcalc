@@ -116,17 +116,26 @@ func cmdServe(ctx context.Context, args []string) error {
 
 // buildAuthenticator picks the identity source from the listener kind.
 //
-// The two modes are mutually exclusive on purpose. Offering the standalone
-// login form while running behind WordPress would be a second, weaker door
-// into the same data, bypassing whatever access control the site already has.
+// The admin (ScopeAdmin) path stays exactly as exclusive as before: offering
+// the standalone login form for an admin-gated request would be a second,
+// weaker door into the same data, bypassing whatever access control the site
+// already has. But the frontend shortcode's ScopeSelf requests have no other
+// way in for a WordPress user whose account nobody has linked yet, so the
+// socket branch wires up auth.WordPressFallback — WordPress first, the local
+// Accounts session only for auth.ErrNoLinkedAccount (see wordpress.go and
+// wordpress_fallback.go).
 func buildAuthenticator(ctx context.Context, db *store.DB, isSocket, secureCookies bool) (auth.Authenticator, auth.ConnKind, error) {
 	if isSocket {
 		secret := os.Getenv("WPCALC_SECRET")
-		a, err := auth.NewWordPress(secret)
+		wp, err := auth.NewWordPress(secret)
 		if err != nil {
 			return nil, "", fmt.Errorf("serve: socket mode needs WPCALC_SECRET: %w", err)
 		}
-		return a, auth.ConnUnix, nil
+		wp = wp.WithStore(db)
+
+		fallback := auth.NewAccounts(db)
+		fallback.SetSecureCookies(secureCookies)
+		return auth.NewWordPressFallback(wp, fallback), auth.ConnUnix, nil
 	}
 
 	// Refuse to start rather than serve a login form that can never succeed.

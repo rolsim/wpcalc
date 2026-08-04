@@ -105,23 +105,24 @@ func (s *Server) printerFor(r *http.Request) *i18n.Printer {
 func (s *Server) newView(r *http.Request, titleKey string) view {
 	p := s.printerFor(r)
 	id, _ := auth.IdentityFrom(r.Context())
+	base, linkParam := s.mountFor(r)
 	v := view{
 		Printer:   p,
 		Title:     p.T(titleKey),
-		Base:      s.basePath,
-		LinkParam: s.linkParam,
+		Base:      base,
+		LinkParam: linkParam,
 		Fragment:  isFragment(r),
 		Identity:  id,
 	}
 	if _, ok := s.authn.(auth.LanguageWriter); ok && !id.IsZero() {
-		v.LanguageURL = s.url("/language")
+		v.LanguageURL = s.url(r, "/language")
 		v.CurrentPath = r.URL.RequestURI()
 		v.Languages = s.languageOptions(p.Lang(), id.Language)
 	}
 	if _, ok := s.authn.(auth.TenantWriter); ok && !id.IsZero() {
 		if tenants, err := s.accessibleTenants(r.Context(), id); err == nil && len(tenants) > 1 {
 			v.CurrentPath = r.URL.RequestURI()
-			v.TenantSwitchURL = s.url("/tenant")
+			v.TenantSwitchURL = s.url(r, "/tenant")
 			for _, t := range tenants {
 				v.AccessibleTenants = append(v.AccessibleTenants, TenantOption{
 					ID: t.ID, Name: t.Name, Selected: id.ActiveTenantID != nil && *id.ActiveTenantID == t.ID,
@@ -207,9 +208,57 @@ func (s *Server) renderError(w http.ResponseWriter, r *http.Request, status int,
 	s.render(w, r, "error.html", status, struct{ view }{v})
 }
 
-// url builds a link, honouring the base path and mounting style.
-func (s *Server) url(format string, args ...any) string {
-	return buildURL(s.basePath, s.linkParam, fmt.Sprintf(format, args...))
+// url builds a link, honouring the base path and mounting style — the
+// server's configured default, or this request's mount override (see
+// BasePathHeader/LinkParamHeader) when it carries one.
+func (s *Server) url(r *http.Request, format string, args ...any) string {
+	base, param := s.mountFor(r)
+	return buildURL(base, param, fmt.Sprintf(format, args...))
+}
+
+// BasePathHeader and LinkParamHeader let a single running sidecar mount
+// links differently per request.
+//
+// basePath/linkParam are otherwise fixed once at process startup (see
+// Config.BasePath/LinkParam), which is enough when there is exactly one
+// front door — but the WordPress plugin's frontend shortcode proxies through
+// a different URL (admin-ajax.php) than the wp-admin proxy does
+// (admin.php), and the same running binary serves both. A fragment rendered
+// for one must not bake in links that point at the other.
+const (
+	BasePathHeader  = "X-Wpcalc-Base-Path"
+	LinkParamHeader = "X-Wpcalc-Link-Param"
+)
+
+// mountFor resolves this request's base path and link param, preferring a
+// per-request override over the server's configured default.
+//
+// Both headers are trusted unconditionally, with no signature: they only
+// affect how *this server's own* links are spelled out, never who the
+// caller is or what they can do — spoofing them just breaks navigation, not
+// authorization. Only present the caller's own PHP shim would ever have a
+// reason to set them; nothing sensitive rides on them.
+func (s *Server) mountFor(r *http.Request) (base, linkParam string) {
+	base, linkParam = s.basePath, s.linkParam
+	if v := r.Header.Get(BasePathHeader); v != "" {
+		base = v
+	}
+	if v, ok := headerLookup(r, LinkParamHeader); ok {
+		linkParam = v
+	}
+	return base, linkParam
+}
+
+// headerLookup distinguishes "header present but empty" (explicitly
+// path-prefix mounting, linkParam "") from "header absent" (keep the
+// server's default), which r.Header.Get alone cannot: it returns "" for
+// both.
+func headerLookup(r *http.Request, name string) (string, bool) {
+	vs, ok := r.Header[http.CanonicalHeaderKey(name)]
+	if !ok || len(vs) == 0 {
+		return "", false
+	}
+	return vs[0], true
 }
 
 // FragmentHeader asks for content without the surrounding HTML document.

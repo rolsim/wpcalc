@@ -69,11 +69,11 @@ func (s *Server) handleReportIndex(w http.ResponseWriter, r *http.Request) {
 		view:       base,
 		Month:      month,
 		MonthLabel: base.T(i18nMonthKey(month)) + " " + strconv.Itoa(month.Year),
-		PrevURL:    s.url("/reports?m=%s", month.Prev()),
-		NextURL:    s.url("/reports?m=%s", month.Next()),
+		PrevURL:    s.url(r, "/reports?m=%s", month.Prev()),
+		NextURL:    s.url(r, "/reports?m=%s", month.Next()),
 	}
 	if canWholeTenant {
-		v.MonthURL = s.url("/report/month/%s.pdf", month)
+		v.MonthURL = s.url(r, "/report/month/%s.pdf", month)
 	}
 	for _, e := range all {
 		if !id.Can(domain.PermPrint, e.ID, tenantID) {
@@ -81,8 +81,8 @@ func (s *Server) handleReportIndex(w http.ResponseWriter, r *http.Request) {
 		}
 		v.Employees = append(v.Employees, reportEmployee{
 			Name:       e.DisplayName,
-			MonthURL:   s.url("/report/employee/%d/month/%s.pdf", e.ID, month),
-			YearURL:    s.url("/report/employee/%d/year/%d.pdf", e.ID, month.Year),
+			MonthURL:   s.url(r, "/report/employee/%d/month/%s.pdf", e.ID, month),
+			YearURL:    s.url(r, "/report/employee/%d/year/%d.pdf", e.ID, month.Year),
 			MonthLabel: base.T("report.employee_month"),
 			YearLabel:  base.T("report.employee_year"),
 		})

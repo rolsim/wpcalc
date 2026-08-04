@@ -43,7 +43,7 @@ func (s *Server) handleSetLanguage(w http.ResponseWriter, r *http.Request) {
 	// month someone was looking at.
 	target := r.PostFormValue("return_to")
 	if !isLocalPath(target) {
-		target = s.url("/")
+		target = s.url(r, "/")
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }

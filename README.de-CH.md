@@ -283,6 +283,39 @@ Kann sie nicht starten — `proc_open` deaktiviert, Binärdatei fehlt, falsche
 Berechtigungen —, zeigt die Admin-Seite an, welcher dieser Fälle vorliegt,
 statt einen leeren Bildschirm anzuzeigen.
 
+### Frontend-Shortcode: Selbstbedienung für Mitarbeitende ohne wp-admin
+
+`[wpcalc]`, auf einer beliebigen Seite oder einem Beitrag platziert, zeigt
+*die eigenen Stunden dieses konkreten WordPress-Benutzers* — nicht das
+Admin-Raster — jeder angemeldeten Person, ganz ohne wp-admin-Zugriff. Es
+existiert für Mitarbeitende, die zwar ein WordPress-Konto, aber keinen Grund
+haben, je das WordPress-Backend zu sehen.
+
+Damit dort etwas erscheint, muss der WordPress-Benutzername mit einem
+wpcalc-Konto verknüpft sein, das eine mitarbeiterbezogene Rolle hält — via
+`wpcalcctl` gegen denselben Server, auf dem der Sidecar läuft
+(`--server unix:///pfad/zu/wp-content/uploads/wpcalc/wpcalc.sock`, oder über
+TCP, falls zusätzlich einer läuft):
+
+```sh
+wpcalcctl user add alice                       # Benutzername muss dem WP-Login entsprechen
+wpcalcctl user grant alice -employee 42 -role viewer   # oder "editor" für Stundeneingabe
+```
+
+Eine als `alice` in WordPress angemeldete Person sieht dann genau das, was
+diese Rolle gewährt — eine Spalte, sonst nichts — dieselbe
+[RBAC96-Eingrenzung](#architektur), die die eigenständige App bereits
+durchsetzt. Was die Rolle abdeckt, wird angezeigt: Eine breitere Rolle
+(mandanten- oder systemweit) zeigt mehr als eine Mitarbeiterin, genau wie
+überall sonst in der App.
+
+Wurde das Konto noch nicht verknüpft, weicht der Shortcode auf wpcalcs
+eigenes Login-Formular aus, statt nichts anzuzeigen — ein zweites, separates
+Login (nicht das WordPress-Login) für ein einfaches wpcalc-Konto, damit eine
+Mitarbeiterin nie einfach ausgesperrt bleibt, bis eine Administratorin dazu
+kommt, sie zu verknüpfen. Dies ist ein bewusster Notausgang, nicht der
+vorgesehene Weg: Konto verknüpfen, und die doppelte Anmeldung entfällt.
+
 ## Tests
 
 ```sh

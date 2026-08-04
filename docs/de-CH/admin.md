@@ -527,6 +527,31 @@ Voraussetzungen: PHP 8.1+, WordPress 6.4+, aktiviertes `proc_open`, die
 `curl`-Erweiterung mit Unix-Socket-Unterstützung. Ist `proc_open` deaktiviert,
 sagt die Admin-Seite das, statt stillschweigend zu scheitern.
 
+### Der Frontend-Shortcode `[wpcalc]`
+
+`[wpcalc]` auf einer beliebigen Seite oder einem Beitrag platziert, zeigt
+einer angemeldeten WordPress-Person *ihre eigenen* Stunden dort an — ganz
+ohne Berechtigung `manage_options` und ohne wp-admin-Zugriff — für
+Mitarbeitende mit einem WordPress-Login, die aber nie das Backend sehen
+sollen.
+
+Es zeigt erst dann etwas an, wenn der WordPress-Benutzername mit einem
+wpcalc-Konto verknüpft ist, das eine mitarbeiterbezogene Rolle hält, via
+`wpcalcctl`:
+
+```sh
+wpcalcctl user add alice
+wpcalcctl user grant alice -employee 42 -role viewer   # oder "editor" für Eingabe
+```
+
+Was die Rolle dieses Kontos abdeckt, zeigt der Shortcode an — eine
+Mitarbeiterspalte bei einer mitarbeiterbezogenen Rolle, mehr bei einer
+breiteren — dieselbe RBAC96-Eingrenzung, die das Admin-Raster bereits
+durchsetzt. Eine nicht verknüpfte WordPress-Person weicht auf wpcalcs
+eigenes Login-Formular aus (ein zweites, separates Login), statt eine leere
+Seite zu sehen; dieser Notausgang gilt für noch nicht verknüpfte Konten,
+nicht als vorgesehener Weg.
+
 ## Datenbank und Sicherung
 
 Eine SQLite-Datei. Im WAL-Modus kommen `-wal` und `-shm` dazu.

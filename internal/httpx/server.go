@@ -254,5 +254,5 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, s.url("/m/%s", currentMonth()), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/m/%s", currentMonth()), http.StatusSeeOther)
 }

@@ -93,7 +93,7 @@ func (s *Server) handleRoleCreate(w http.ResponseWriter, r *http.Request) {
 		s.redirectRolesErr(w, r)
 		return
 	}
-	http.Redirect(w, r, s.url("/roles"), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/roles"), http.StatusSeeOther)
 }
 
 func (s *Server) handleRoleDelete(w http.ResponseWriter, r *http.Request) {
@@ -103,7 +103,7 @@ func (s *Server) handleRoleDelete(w http.ResponseWriter, r *http.Request) {
 		s.redirectRolesErr(w, r)
 		return
 	}
-	http.Redirect(w, r, s.url("/roles"), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/roles"), http.StatusSeeOther)
 }
 
 // handleRolePermissionAdd grants a role a permission.
@@ -119,7 +119,7 @@ func (s *Server) handleRolePermissionAdd(w http.ResponseWriter, r *http.Request)
 		s.redirectRolesErr(w, r)
 		return
 	}
-	http.Redirect(w, r, s.url("/roles"), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/roles"), http.StatusSeeOther)
 }
 
 // handleRolePermissionRemove revokes a permission from a role.
@@ -135,7 +135,7 @@ func (s *Server) handleRolePermissionRemove(w http.ResponseWriter, r *http.Reque
 		s.redirectRolesErr(w, r)
 		return
 	}
-	http.Redirect(w, r, s.url("/roles"), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/roles"), http.StatusSeeOther)
 }
 
 // handleRoleAssign grants a system- or tenant-scope role to a user: a
@@ -168,7 +168,7 @@ func (s *Server) handleRoleAssign(w http.ResponseWriter, r *http.Request) {
 		s.redirectRolesErr(w, r)
 		return
 	}
-	http.Redirect(w, r, s.url("/roles"), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/roles"), http.StatusSeeOther)
 }
 
 // handleRoleRevoke removes a user's system- or tenant-scope role.
@@ -196,9 +196,9 @@ func (s *Server) handleRoleRevoke(w http.ResponseWriter, r *http.Request) {
 		s.redirectRolesErr(w, r)
 		return
 	}
-	http.Redirect(w, r, s.url("/roles"), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/roles"), http.StatusSeeOther)
 }
 
 func (s *Server) redirectRolesErr(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, s.url("/roles?err=invalid_input"), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/roles?err=invalid_input"), http.StatusSeeOther)
 }

@@ -52,7 +52,7 @@ func (s *Server) handleEmployeeList(w http.ResponseWriter, r *http.Request) {
 
 	base := s.newView(r, "employee.heading")
 	base.TenantID = tenantID
-	v := employeeListView{view: base, NewURL: s.url("/employees/new")}
+	v := employeeListView{view: base, NewURL: s.url(r, "/employees/new")}
 	if key := r.URL.Query().Get("err"); key != "" {
 		v.Error = v.T(errorKey(key))
 	}
@@ -84,8 +84,8 @@ func (s *Server) handleEmployeeNew(w http.ResponseWriter, r *http.Request) {
 		view:      base,
 		IsNew:     true,
 		StartDate: domain.Today().String(),
-		ActionURL: s.url("/employees"),
-		CancelURL: s.url("/employees"),
+		ActionURL: s.url(r, "/employees"),
+		CancelURL: s.url(r, "/employees"),
 	}
 	s.render(w, r, "employee_form.html", http.StatusOK, v)
 }
@@ -105,7 +105,7 @@ func (s *Server) handleEmployeeCreate(w http.ResponseWriter, r *http.Request) {
 		s.redisplayEmployeeForm(w, r, tenantID, 0, true, mapEmployeeError(err))
 		return
 	}
-	http.Redirect(w, r, s.url("/employees"), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/employees"), http.StatusSeeOther)
 }
 
 func (s *Server) handleEmployeeEdit(w http.ResponseWriter, r *http.Request) {
@@ -136,8 +136,8 @@ func (s *Server) handleEmployeeEdit(w http.ResponseWriter, r *http.Request) {
 		ID:        e.ID,
 		Name:      e.DisplayName,
 		StartDate: e.StartDate.String(),
-		ActionURL: s.url("/employees/%d", e.ID),
-		CancelURL: s.url("/employees"),
+		ActionURL: s.url(r, "/employees/%d", e.ID),
+		CancelURL: s.url(r, "/employees"),
 	}
 	if e.EndDate != nil {
 		v.EndDate = e.EndDate.String()
@@ -178,7 +178,7 @@ func (s *Server) handleEmployeeUpdate(w http.ResponseWriter, r *http.Request) {
 		s.redisplayEmployeeForm(w, r, tenantID, id, false, mapEmployeeError(err))
 		return
 	}
-	http.Redirect(w, r, s.url("/employees"), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/employees"), http.StatusSeeOther)
 }
 
 func (s *Server) handleEmployeeDelete(w http.ResponseWriter, r *http.Request) {
@@ -208,7 +208,7 @@ func (s *Server) handleEmployeeDelete(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, r, http.StatusInternalServerError, "error.server")
 		return
 	}
-	http.Redirect(w, r, s.url("/employees"), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/employees"), http.StatusSeeOther)
 }
 
 // requireTenantPermission resolves the active tenant and checks the caller
@@ -267,10 +267,10 @@ func (s *Server) employeeFromForm(r *http.Request, id, tenantID int64) (domain.E
 // and the failure explained, rather than redirecting and losing the input.
 func (s *Server) redisplayEmployeeForm(w http.ResponseWriter, r *http.Request, tenantID, id int64, isNew bool, errKey string) {
 	titleKey := "employee.edit"
-	action := s.url("/employees/%d", id)
+	action := s.url(r, "/employees/%d", id)
 	if isNew {
 		titleKey = "employee.new"
-		action = s.url("/employees")
+		action = s.url(r, "/employees")
 	}
 
 	base := s.newView(r, titleKey)
@@ -283,7 +283,7 @@ func (s *Server) redisplayEmployeeForm(w http.ResponseWriter, r *http.Request, t
 		EndDate:   r.PostFormValue("end_date"),
 		IsNew:     isNew,
 		ActionURL: action,
-		CancelURL: s.url("/employees"),
+		CancelURL: s.url(r, "/employees"),
 	}
 	v.Error = v.T(errKey)
 	s.render(w, r, "employee_form.html", http.StatusUnprocessableEntity, v)

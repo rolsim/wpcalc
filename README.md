@@ -266,6 +266,36 @@ with a signed assertion of the current WordPress user. Access requires
 If it cannot start — `proc_open` disabled, binary missing, wrong permissions —
 the admin page says which of those it is rather than showing a blank screen.
 
+### Frontend shortcode: self-service hours for employees without wp-admin
+
+`[wpcalc]`, dropped into any page or post, shows *that specific WordPress
+user's own hours* — not the admin grid — to anyone who is logged in, with no
+wp-admin access required. It exists for employees who have a WordPress
+account but no reason to ever see the WordPress backend.
+
+For it to show anything, the WordPress username has to be linked to a wpcalc
+account holding an employee-scoped role, via `wpcalcctl` against the same
+server the sidecar runs (`--server unix:///path/to/wp-content/uploads/wpcalc/wpcalc.sock`,
+or over TCP if you also run one):
+
+```sh
+wpcalcctl user add alice                       # username must match the WP login
+wpcalcctl user grant alice -employee 42 -role viewer   # or "editor" to allow entering hours
+```
+
+An employee logged into WordPress as `alice` then sees exactly what that
+role grants — one column, nothing else — the same
+[RBAC96 scoping](#architecture) the standalone app already enforces.
+Whatever the role covers is what shows: a broader (tenant- or system-scope)
+role shows more than one employee, same as anywhere else in the app.
+
+If nobody has linked the account yet, the shortcode falls back to wpcalc's
+own login form instead of showing nothing — a second, separate login (not
+the WordPress one) for a plain wpcalc account, so an employee is never
+simply locked out while an admin gets around to linking them. This is a
+deliberate escape hatch, not the intended path: link the account and the
+double login goes away.
+
 ## Tests
 
 ```sh

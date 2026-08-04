@@ -26,6 +26,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,14 @@ const (
 	siteURL = "http://localhost:8099"
 	wpUser  = "admin"
 	wpPass  = "admin-password-for-tests"
+
+	// Where the sidecar's own runtime files live inside the wordpress
+	// container — the same paths documented in docs/en/admin.md, reused here
+	// to run the wpcalc binary's own `user add`/`user grant` bootstrap
+	// commands directly against the running sidecar's database, exactly as
+	// an operator linking a WordPress account would.
+	dbPathInContainer  = "/var/www/html/wp-content/uploads/wpcalc/wpcalc.db"
+	binPathInContainer = "/var/www/html/wp-content/plugins/wpcalc/bin/wpcalc"
 )
 
 var (
@@ -600,6 +609,269 @@ func buildPluginZip(t *testing.T) string {
 	return zipPath
 }
 
+// TestFrontendShortcodeShowsOnlyTheLinkedEmployeesOwnRow drives the
+// [wpcalc] shortcode as the employee it was built for: a WordPress user
+// with no wp-admin access at all, whose username has been linked to a
+// wpcalc account holding an employee-scope role via `wpcalc user
+// add`/`grant` — the same bootstrap primitives docs/en/admin.md documents
+// an operator running by hand.
+//
+// It proves three things a plain admin-page test cannot: that ScopeSelf
+// identity resolution actually narrows the grid to one employee (not
+// FullAccess), that the shortcode's assets/writes are mounted through
+// admin-ajax.php rather than the wp-admin proxy, and that a write for an
+// employee outside the linked role is rejected server-side rather than
+// merely hidden client-side.
+func TestFrontendShortcodeShowsOnlyTheLinkedEmployeesOwnRow(t *testing.T) {
+	ctx := t.Context()
+	admin := loginToWordPress(t)
+
+	listPage := createEmployeeViaAdmin(t, admin, "Shortcode Linked")
+	linkedID := employeeIDFromList(t, listPage, "Shortcode Linked")
+	listPage = createEmployeeViaAdmin(t, admin, "Shortcode Other")
+	otherID := employeeIDFromList(t, listPage, "Shortcode Other")
+
+	const (
+		wpUsername = "shortcodeworker"
+		wpPassword = "shortcode-worker-password"
+	)
+	if out, err := wpCLI(ctx, "user", "create", wpUsername, wpUsername+"@example.invalid",
+		"--role=subscriber", "--user_pass="+wpPassword); err != nil {
+		t.Fatalf("wp user create %s: %v\n%s", wpUsername, err, out)
+	}
+	t.Cleanup(func() { _, _ = wpCLI(context.Background(), "user", "delete", wpUsername, "--yes") })
+
+	// The bootstrap link: a wpcalc account whose username matches the
+	// WordPress login, holding an employee-scope role for exactly one of
+	// the two employees just created.
+	wpcalcUserAdd(t, ctx, wpUsername, wpPassword)
+	wpcalcUserGrant(t, ctx, wpUsername, "editor", linkedID)
+
+	pageID := createPage(t, ctx, "Shortcode Test Page", "[wpcalc]")
+	pageURL := siteURL + "/?page_id=" + pageID
+
+	worker := loginToWordPressAs(t, wpUsername, wpPassword)
+	body := get(t, worker, pageURL)
+
+	if !strings.Contains(body, "wpcalc-app") {
+		t.Fatalf("shortcode page does not contain the app fragment:\n%s", excerpt(body))
+	}
+	if !strings.Contains(body, "Shortcode Linked") {
+		t.Errorf("linked employee's own column is missing:\n%s", excerpt(body))
+	}
+	if strings.Contains(body, "Shortcode Other") {
+		t.Error("an employee outside the linked role is visible — ScopeSelf identity leaked full access")
+	}
+	// Mounted through the frontend proxy, not the wp-admin one — the two are
+	// served by the same running sidecar and must not cross-link.
+	if strings.Contains(body, "admin.php?page=wpcalc") {
+		t.Error("shortcode page contains a link mounted at the wp-admin proxy")
+	}
+	if !strings.Contains(body, "action=wpcalc_proxy") {
+		t.Errorf("shortcode page has no link mounted through admin-ajax.php:\n%s", excerpt(body))
+	}
+
+	nonce := extractNonce(t, body)
+	hoursURL := siteURL + "/wp-admin/admin-ajax.php?action=wpcalc_proxy&wpcalc_path=" + url.QueryEscape("/m/2026-01/hours")
+
+	// XHR, not a plain form post: a non-XHR write always 303s back to the
+	// grid regardless of success or failure (see writeSetResult), which
+	// would hide the very status code this test needs to see under a
+	// followed redirect's 200.
+	status := postXHR(t, worker, hoursURL, url.Values{
+		"wpcalc_nonce": {nonce},
+		"employee_id":  {strconv.FormatInt(linkedID, 10)},
+		"date":         {"2026-01-05"},
+		"hours":        {"4.50"},
+	})
+	if status != http.StatusOK {
+		t.Errorf("write for the linked employee returned %d, want 200", status)
+	}
+
+	// The same write against the employee outside the linked role must be
+	// refused server-side — id.Can(write, otherID, tenantID) is false for
+	// this identity regardless of what the rendered grid happened to show.
+	status = postXHR(t, worker, hoursURL, url.Values{
+		"wpcalc_nonce": {nonce},
+		"employee_id":  {strconv.FormatInt(otherID, 10)},
+		"date":         {"2026-01-05"},
+		"hours":        {"4.50"},
+	})
+	if status != http.StatusForbidden {
+		t.Errorf("write for an employee outside the linked role returned %d, want 403", status)
+	}
+}
+
+// postXHR posts a form with X-Requested-With set, so the handler answers
+// with its real status code (JSON) instead of a 303 that a following client
+// would silently resolve to whatever the redirect target returns.
+func postXHR(t *testing.T, c *http.Client, u string, form url.Values) int {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, u, strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", u, err)
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode
+}
+
+// TestFrontendShortcodeFallsBackToLocalLoginForUnlinkedUser covers the
+// escape hatch: a WordPress user logged in but whose username nobody has
+// linked to a wpcalc account yet must not be locked out silently. The
+// shortcode falls back to wpcalc's own local login form (a deliberate
+// double login — see wordpress_fallback.go), and completing it must
+// actually work, cookies included, through the admin-ajax.php proxy.
+func TestFrontendShortcodeFallsBackToLocalLoginForUnlinkedUser(t *testing.T) {
+	ctx := t.Context()
+
+	const (
+		wpUsername = "unlinkedworker"
+		wpPassword = "unlinked-worker-password"
+	)
+	if out, err := wpCLI(ctx, "user", "create", wpUsername, wpUsername+"@example.invalid",
+		"--role=subscriber", "--user_pass="+wpPassword); err != nil {
+		t.Fatalf("wp user create %s: %v\n%s", wpUsername, err, out)
+	}
+	t.Cleanup(func() { _, _ = wpCLI(context.Background(), "user", "delete", wpUsername, "--yes") })
+	// Deliberately no wpcalcUserAdd/wpcalcUserGrant: this WordPress user has
+	// no linked wpcalc account at all.
+
+	const (
+		localUsername = "localfallbackuser"
+		localPassword = "local-fallback-password"
+	)
+	wpcalcUserAdd(t, ctx, localUsername, localPassword)
+
+	pageID := createPage(t, ctx, "Shortcode Fallback Page", "[wpcalc]")
+	pageURL := siteURL + "/?page_id=" + pageID
+
+	worker := loginToWordPressAs(t, wpUsername, wpPassword)
+	body := get(t, worker, pageURL)
+
+	if !strings.Contains(body, `name="username"`) || !strings.Contains(body, `name="password"`) {
+		t.Fatalf("unlinked WordPress user did not see wpcalc's local login form:\n%s", excerpt(body))
+	}
+	// "wpcalc-app" wraps every fragment, the login page included — it is not
+	// a grid-specific marker. class="grid" is.
+	if strings.Contains(body, `class="grid"`) {
+		t.Error("unlinked WordPress user saw the grid instead of falling back to local login")
+	}
+
+	loginURL := siteURL + "/wp-admin/admin-ajax.php?action=wpcalc_proxy&wpcalc_path=" + url.QueryEscape("/login")
+	nonce := extractNonce(t, body)
+	resp, err := worker.PostForm(loginURL, url.Values{
+		"wpcalc_nonce": {nonce},
+		"username":     {localUsername},
+		"password":     {localPassword},
+	})
+	if err != nil {
+		t.Fatalf("POST local login: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	// The session cookie set by that POST (relayed by the PHP proxy's
+	// Set-Cookie passthrough) must now be enough to leave the login form
+	// behind — the same browser session, the same WordPress login, still
+	// unlinked, but no longer locked out.
+	body = get(t, worker, pageURL)
+	if strings.Contains(body, `name="password"`) {
+		t.Fatalf("local login through the frontend proxy did not grant access; still on the login form:\n%s", excerpt(body))
+	}
+}
+
+// createEmployeeViaAdmin creates an employee through the wp-admin form, the
+// same way TestWriteThroughWPAdminRequiresANonceAndReachesSQLite does, and
+// returns the resulting employee list page so callers can scrape the new
+// employee's id with employeeIDFromList.
+func createEmployeeViaAdmin(t *testing.T, admin *http.Client, name string) string {
+	t.Helper()
+	employeesURL := siteURL + "/wp-admin/admin.php?page=wpcalc&wpcalc_path=" + url.QueryEscape("/employees")
+
+	page := get(t, admin, siteURL+"/wp-admin/admin.php?page=wpcalc")
+	nonce := extractNonce(t, page)
+
+	resp, err := admin.PostForm(employeesURL, url.Values{
+		"wpcalc_nonce": {nonce},
+		"name":         {name},
+		"start_date":   {"2026-01-01"},
+	})
+	if err != nil {
+		t.Fatalf("create employee %q: %v", name, err)
+	}
+	_ = resp.Body.Close()
+
+	return get(t, admin, employeesURL)
+}
+
+// employeeIDFromList scrapes an employee's numeric id out of the wp-admin
+// employees list page, from its own row's edit link — see
+// internal/httpx/templates/employees.html. The link is query-parameter
+// mounted (WordPress admin addresses screens by query string), so the path
+// appears URL-encoded rather than literal.
+func employeeIDFromList(t *testing.T, listPage, name string) int64 {
+	t.Helper()
+	re := regexp.MustCompile(`(?s)<th scope="row">` + regexp.QuoteMeta(name) +
+		`</th>.*?wpcalc_path=%2Femployees%2F(\d+)%2Fedit`)
+	m := re.FindStringSubmatch(listPage)
+	if len(m) != 2 {
+		t.Fatalf("could not find an employee id for %q in:\n%s", name, excerpt(listPage))
+	}
+	id, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil {
+		t.Fatalf("parse employee id %q: %v", m[1], err)
+	}
+	return id
+}
+
+// createPage publishes a WordPress page with the given content and returns
+// its numeric post id, via `wp post create --porcelain` (which prints
+// nothing but the id). ?page_id=<id> reaches it regardless of the site's
+// permalink structure, which this install never configures.
+func createPage(t *testing.T, ctx context.Context, title, content string) string {
+	t.Helper()
+	out, err := wpCLI(ctx, "post", "create",
+		"--post_type=page", "--post_status=publish",
+		"--post_title="+title, "--post_content="+content, "--porcelain")
+	if err != nil {
+		t.Fatalf("wp post create %q: %v\n%s", title, err, out)
+	}
+	id := strings.TrimSpace(out)
+	t.Cleanup(func() { _, _ = wpCLI(context.Background(), "post", "delete", id, "--force") })
+	return id
+}
+
+// wpcalcUserAdd runs the wpcalc binary's own bootstrap command inside the
+// wordpress container, directly against the sidecar's runtime database —
+// the exact operation docs/en/admin.md documents for linking a WordPress
+// username to a wpcalc account. --allow-weak-password keeps the test focused
+// on the linking mechanism rather than password policy.
+func wpcalcUserAdd(t *testing.T, ctx context.Context, username, password string) {
+	t.Helper()
+	cmd := exec.CommandContext(ctx, "docker", "compose", "-p", project, "exec", "-T", "wordpress",
+		binPathInContainer, "user", "add", username,
+		"--db", dbPathInContainer, "--allow-weak-password")
+	cmd.Dir = composeDir
+	cmd.Stdin = strings.NewReader(password + "\n")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("wpcalc user add %s: %v\n%s", username, err, out)
+	}
+}
+
+func wpcalcUserGrant(t *testing.T, ctx context.Context, username, roleID string, employeeID int64) {
+	t.Helper()
+	if out, err := compose(ctx, "exec", "-T", "wordpress",
+		binPathInContainer, "user", "grant", username,
+		"--db", dbPathInContainer, "--role", roleID, "--employee", strconv.FormatInt(employeeID, 10)); err != nil {
+		t.Fatalf("wpcalc user grant %s: %v\n%s", username, err, out)
+	}
+}
+
 // TestZZPluginDegradesWhenBinaryIsMissing runs last: it hides the binary and
 // kills the sidecar, which every other test needs. The name sorts it to the
 // end rather than relying on where it sits in the file.
@@ -640,6 +912,11 @@ func TestZZPluginDegradesWhenBinaryIsMissing(t *testing.T) {
 
 func loginToWordPress(t *testing.T) *http.Client {
 	t.Helper()
+	return loginToWordPressAs(t, wpUser, wpPass)
+}
+
+func loginToWordPressAs(t *testing.T, username, password string) *http.Client {
+	t.Helper()
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -651,8 +928,8 @@ func loginToWordPress(t *testing.T) *http.Client {
 	jar.SetCookies(u, []*http.Cookie{{Name: "wordpress_test_cookie", Value: "WP Cookie check"}})
 
 	resp, err := client.PostForm(siteURL+"/wp-login.php", url.Values{
-		"log":         {wpUser},
-		"pwd":         {wpPass},
+		"log":         {username},
+		"pwd":         {password},
 		"wp-submit":   {"Log In"},
 		"redirect_to": {siteURL + "/wp-admin/"},
 		"testcookie":  {"1"},
@@ -664,7 +941,7 @@ func loginToWordPress(t *testing.T) *http.Client {
 
 	body, _ := io.ReadAll(resp.Body)
 	if strings.Contains(string(body), `name="pwd"`) {
-		t.Fatalf("wp login failed, still on the login form:\n%s", excerpt(string(body)))
+		t.Fatalf("wp login as %s failed, still on the login form:\n%s", username, excerpt(string(body)))
 	}
 	return client
 }

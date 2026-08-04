@@ -55,7 +55,7 @@ func (s *Server) resolveActiveTenant(w http.ResponseWriter, r *http.Request) (in
 		}
 		return tenants[0].ID, true
 	default:
-		http.Redirect(w, r, s.url("/tenants/choose"), http.StatusSeeOther)
+		http.Redirect(w, r, s.url(r, "/tenants/choose"), http.StatusSeeOther)
 		return 0, false
 	}
 }

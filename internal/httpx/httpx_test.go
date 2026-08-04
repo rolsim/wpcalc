@@ -703,6 +703,44 @@ func TestFragmentModeOmitsTheDocumentShell(t *testing.T) {
 	}
 }
 
+func TestMountHeadersOverrideConfiguredBasePath(t *testing.T) {
+	// The WordPress plugin's admin proxy (admin.php) and frontend shortcode
+	// proxy (admin-ajax.php) are two different URLs served by the same
+	// running sidecar. A fragment rendered for one must not bake in links
+	// pointing at the other, so the mount is a per-request override, not
+	// only the process-wide default.
+	ts := newTestServer(t, nil)
+	ts.employee(t, "Anna Muster", "2026-01-01", "")
+
+	r := httptest.NewRequest(http.MethodGet, "/m/2026-07", nil)
+	r.Header.Set(FragmentHeader, "1")
+	r.Header.Set(BasePathHeader, "/wp-admin/admin-ajax.php?action=wpcalc_proxy")
+	r.Header.Set(LinkParamHeader, "wpcalc_path")
+	w := httptest.NewRecorder()
+	ts.handler.ServeHTTP(w, r)
+
+	body := w.Body.String()
+	if w.Code != http.StatusOK {
+		t.Fatalf("request returned %d", w.Code)
+	}
+	if strings.Contains(body, "admin.php?page=wpcalc") {
+		t.Error("response still contains a link mounted at the configured default")
+	}
+	if !strings.Contains(body, "admin-ajax.php?action=wpcalc_proxy&amp;wpcalc_path=") {
+		t.Errorf("response is missing a link mounted at the overridden base path: %s",
+			excerptAround(body, "wpcalc_path"))
+	}
+
+	// A second, header-less request must fall back to the server's
+	// configured default rather than leaking the previous request's
+	// override — mountFor must read per-request state, not mutate anything
+	// shared.
+	plain := ts.get(t, "/m/2026-07").Body.String()
+	if strings.Contains(plain, "admin-ajax.php") {
+		t.Error("an unrelated request picked up the previous request's base-path override")
+	}
+}
+
 func TestSetHoursAcceptsMultipartBodies(t *testing.T) {
 	// The regression this guards cost a browser e2e run to find. Every other
 	// test here posts application/x-www-form-urlencoded, and a handler that

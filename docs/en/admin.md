@@ -492,6 +492,28 @@ Requirements: PHP 8.1+, WordPress 6.4+, `proc_open` enabled, the `curl`
 extension with unix-socket support. If `proc_open` is disabled the admin page
 says so rather than failing silently.
 
+### The `[wpcalc]` frontend shortcode
+
+Drop `[wpcalc]` into any page or post to show a logged-in WordPress user
+*their own* hours there, with no `manage_options` capability and no wp-admin
+access needed — for employees who have a WordPress login but no reason to
+ever see the backend.
+
+It only shows anything once you link the WordPress username to a wpcalc
+account holding an employee-scope role, with `wpcalcctl`:
+
+```sh
+wpcalcctl user add alice
+wpcalcctl user grant alice -employee 42 -role viewer   # or "editor" to allow entry
+```
+
+What that account's role covers is what the shortcode shows — one employee
+column for an employee-scope role, more for anything broader — the same
+RBAC96 scoping the admin grid already enforces. An unlinked WordPress user
+falls back to wpcalc's own login form (a second, separate login) rather than
+seeing an empty page; that fallback is an escape hatch for accounts nobody
+has linked yet, not the intended path.
+
 ## Database and backup
 
 One SQLite file. In WAL mode there are also `-wal` and `-shm` files.

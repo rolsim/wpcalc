@@ -29,6 +29,18 @@ final class WPCalc_Plugin
     const START_TIMEOUT  = 5.0;
     const REQUEST_TIMEOUT = 15;
 
+    // The frontend shortcode's admin-ajax.php entry point — see
+    // handle_frontend_proxy() — reachable by any logged-in WordPress user,
+    // unlike the wp-admin proxy which admin_init gates on manage_options.
+    const AJAX_ACTION = 'wpcalc_proxy';
+
+    // Scope values mirroring internal/auth/wordpress.go's ScopeAdmin/
+    // ScopeSelf: which of the sidecar's two identity paths a proxied request
+    // asserts. Both sides must agree on the exact strings, since they are
+    // bound into the signed request.
+    const SCOPE_ADMIN = 'admin';
+    const SCOPE_SELF  = 'self';
+
     public static function boot(): void
     {
         $self = new self();
@@ -39,6 +51,17 @@ final class WPCalc_Plugin
         // is not a stylesheet or a redirect.
         add_action('admin_init', [$self, 'maybe_handle_raw'], 5);
         add_action('admin_enqueue_scripts', [$self, 'enqueue_assets']);
+
+        // The frontend shortcode: any logged-in WordPress user, not just one
+        // who can manage_options. wp_ajax_{action} (as opposed to
+        // wp_ajax_nopriv_{action}) already only fires for a logged-in
+        // request, so handle_frontend_proxy needs no capability check of its
+        // own — that is the entire reason it exists as a separate entry
+        // point rather than reusing maybe_handle_raw's admin_init path.
+        add_action('wp_ajax_' . self::AJAX_ACTION, [$self, 'handle_frontend_proxy']);
+        add_action('wp_enqueue_scripts', [$self, 'enqueue_frontend_assets']);
+        add_shortcode(self::MENU_SLUG, [$self, 'render_shortcode']);
+
         register_deactivation_hook(__FILE__, [__CLASS__, 'on_deactivate']);
     }
 
@@ -275,22 +298,29 @@ final class WPCalc_Plugin
     /**
      * Headers asserting who the caller is, signed so the sidecar can tell they
      * came from this plugin and not from anything else that reached the socket.
+     *
+     * @param string $scope self::SCOPE_ADMIN or self::SCOPE_SELF — see
+     *                       internal/auth/wordpress.go for what each means on
+     *                       the sidecar side.
      */
-    private function identity_headers(): array
+    private function identity_headers(string $scope): array
     {
         $user  = wp_get_current_user();
         $name  = $user && $user->exists() ? $user->user_login : '';
         $roles = $user && $user->exists() ? implode(',', (array) $user->roles) : '';
         $ts    = (string) time();
 
-        // The separator cannot appear in a username or role, so no two distinct
-        // field sets can produce the same signed message.
-        $sig = hash_hmac('sha256', $name . "\n" . $roles . "\n" . $ts, $this->secret());
+        // The separator cannot appear in a username, role, or scope, so no two
+        // distinct field sets can produce the same signed message. scope is
+        // bound in too, so it cannot be downgraded/upgraded by editing an
+        // unsigned header after the fact.
+        $sig = hash_hmac('sha256', $name . "\n" . $roles . "\n" . $ts . "\n" . $scope, $this->secret());
 
         return [
             'X-Wpcalc-User'      => $name,
             'X-Wpcalc-Roles'     => $roles,
             'X-Wpcalc-Timestamp' => $ts,
+            'X-Wpcalc-Scope'     => $scope,
             'X-Wpcalc-Signature' => $sig,
         ];
     }
@@ -321,10 +351,10 @@ final class WPCalc_Plugin
      * a redirect's empty body. Writes and downloads go through the raw path
      * instead, where the browser gets the real redirect.
      */
-    private function proxy_following(string $path, bool $fragment): ?array
+    private function proxy_following(string $path, bool $fragment, string $scope = self::SCOPE_ADMIN): ?array
     {
         for ($hop = 0; $hop < 5; $hop++) {
-            $res = $this->proxy($path, $fragment);
+            $res = $this->proxy($path, $fragment, $scope);
             if ($res === null) {
                 return null;
             }
@@ -355,11 +385,21 @@ final class WPCalc_Plugin
         return '/' . ltrim($params[self::PATH_PARAM], '/');
     }
 
-    private function proxy(string $path, bool $fragment): ?array
+    private function proxy(string $path, bool $fragment, string $scope = self::SCOPE_ADMIN): ?array
     {
-        $headers = $this->identity_headers();
+        $headers = $this->identity_headers($scope);
         if ($fragment) {
             $headers['X-Wpcalc-Fragment'] = '1';
+        }
+        // The frontend shortcode is reached through a different WordPress URL
+        // (admin-ajax.php) than the wp-admin proxy (admin.php), and both are
+        // served by the same running sidecar — so a fragment rendered for one
+        // must not bake in links pointing at the other. Telling the sidecar
+        // this request's actual mount point per-request is what lets it be
+        // right either way; see internal/httpx's BasePathHeader/LinkParamHeader.
+        if ($scope === self::SCOPE_SELF) {
+            $headers['X-Wpcalc-Base-Path']  = admin_url('admin-ajax.php?action=' . self::AJAX_ACTION);
+            $headers['X-Wpcalc-Link-Param'] = self::PATH_PARAM;
         }
         // WordPress keeps a per-user locale of its own, and it is the more
         // specific statement than the browser's header. Sending it as
@@ -371,6 +411,16 @@ final class WPCalc_Plugin
             $headers['Accept-Language'] = str_replace('_', '-', $locale);
         } elseif (isset($_SERVER['HTTP_ACCEPT_LANGUAGE'])) {
             $headers['Accept-Language'] = sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT_LANGUAGE']));
+        }
+
+        // The frontend proxy's local-login fallback (see
+        // internal/auth/wordpress_fallback.go) needs a wpcalc session cookie
+        // to survive the round trip through this curl proxy — the wp-admin
+        // path never has one to forward, so this is a no-op there.
+        $cookie = isset($_SERVER['HTTP_COOKIE']) ? (string) wp_unslash($_SERVER['HTTP_COOKIE']) : '';
+        $cookie = str_replace(["\r", "\n"], '', $cookie);
+        if ($cookie !== '') {
+            $headers['Cookie'] = $cookie;
         }
 
         $method = isset($_SERVER['REQUEST_METHOD']) ? strtoupper(sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD']))) : 'GET';
@@ -443,13 +493,26 @@ final class WPCalc_Plugin
             }
         }
 
+        $this->proxy_raw($path, self::SCOPE_ADMIN);
+    }
+
+    /**
+     * Proxy an already-authorized raw request (asset, write, or download) and
+     * exit. Shared by the wp-admin entry point (maybe_handle_raw, gated on
+     * manage_options) and the frontend shortcode's entry point
+     * (handle_frontend_proxy, gated on being logged in at all) — everything
+     * about talking to the sidecar and relaying its response is identical;
+     * only how each gets here differs.
+     */
+    private function proxy_raw(string $path, string $scope): void
+    {
         if ($err = $this->ensure_running()) {
             status_header(503);
             echo esc_html($err);
             exit;
         }
 
-        $res = $this->proxy($path, false);
+        $res = $this->proxy($path, false, $scope);
         if ($res === null) {
             status_header(502);
             echo esc_html__('The wpcalc service is not responding.', 'wpcalc');
@@ -462,13 +525,55 @@ final class WPCalc_Plugin
                 header($h . ': ' . $res['headers'][strtolower($h)]);
             }
         }
-        // A redirect from the app names an admin URL already, because the
-        // sidecar was told its base URL and link parameter at startup.
+        // Only the frontend proxy's local-login fallback ever produces one of
+        // these (see wordpress_fallback.go); relaying it unconditionally is
+        // harmless for the admin path, which never gets one back.
+        if (isset($res['headers']['set-cookie'])) {
+            foreach ($res['headers']['set-cookie'] as $cookie) {
+                header('Set-Cookie: ' . $cookie, false);
+            }
+        }
+        // A redirect from the app names this request's own mount point
+        // already, because the sidecar was told its base URL and link
+        // parameter (either at startup, or per-request for the frontend
+        // proxy — see proxy()'s X-Wpcalc-Base-Path).
         if (isset($res['headers']['location'])) {
             header('Location: ' . $res['headers']['location']);
         }
         echo $res['body']; // phpcs:ignore WordPress.Security.EscapeOutput -- proxied response, escaped at its source
         exit;
+    }
+
+    /**
+     * The frontend shortcode's asset/write/download entry point — the
+     * ScopeSelf counterpart of maybe_handle_raw.
+     *
+     * Reached through admin-ajax.php?action=wpcalc_proxy, which WordPress
+     * only dispatches to a wp_ajax_{action} hook (as opposed to
+     * wp_ajax_nopriv_{action}) for a logged-in request — so by the time this
+     * runs, "is someone logged in at all" has already been decided by
+     * WordPress core, the same way is_our_page()+current_user_can() decides
+     * it for the admin path.
+     */
+    public function handle_frontend_proxy(): void
+    {
+        $path   = $this->app_path();
+        $method = isset($_SERVER['REQUEST_METHOD']) ? strtoupper(sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD']))) : 'GET';
+        $isWrite = $method !== 'GET';
+
+        // Writes carry a nonce, the same one the admin path checks — assets
+        // and downloads are reads and do not need one.
+        if ($isWrite) {
+            $nonce = isset($_REQUEST[self::NONCE_FIELD]) ? sanitize_text_field(wp_unslash($_REQUEST[self::NONCE_FIELD])) : '';
+            if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) {
+                status_header(403);
+                nocache_headers();
+                echo esc_html__('Security check failed. Reload the page and try again.', 'wpcalc');
+                exit;
+            }
+        }
+
+        $this->proxy_raw($path, self::SCOPE_SELF);
     }
 
     public function enqueue_assets(string $hook): void
@@ -477,6 +582,23 @@ final class WPCalc_Plugin
             return;
         }
         $base = admin_url('admin.php?page=' . self::MENU_SLUG);
+        wp_enqueue_style('wpcalc', $base . '&' . self::PATH_PARAM . '=' . rawurlencode('/static/app.css'), [], '0.1.0');
+        wp_enqueue_script('wpcalc', $base . '&' . self::PATH_PARAM . '=' . rawurlencode('/static/app.js'), [], '0.1.0', true);
+    }
+
+    /**
+     * enqueue_assets's frontend counterpart, loaded only on a page that
+     * actually uses the shortcode — has_shortcode() reads the queried post's
+     * own content, since there is no page=wpcalc query var to check here the
+     * way is_our_page() checks for the admin screen.
+     */
+    public function enqueue_frontend_assets(): void
+    {
+        $post = get_post();
+        if (!$post || !has_shortcode((string) $post->post_content, self::MENU_SLUG)) {
+            return;
+        }
+        $base = admin_url('admin-ajax.php?action=' . self::AJAX_ACTION);
         wp_enqueue_style('wpcalc', $base . '&' . self::PATH_PARAM . '=' . rawurlencode('/static/app.css'), [], '0.1.0');
         wp_enqueue_script('wpcalc', $base . '&' . self::PATH_PARAM . '=' . rawurlencode('/static/app.js'), [], '0.1.0', true);
     }
@@ -536,18 +658,62 @@ final class WPCalc_Plugin
         // The sidecar returns a fragment here, so it drops into the admin page
         // without a nested <html> document fighting WordPress for the head.
         echo $res['body']; // phpcs:ignore WordPress.Security.EscapeOutput -- proxied fragment, escaped by html/template at its source
+        echo $this->nonce_injection_script();
+        echo '</div>';
+    }
 
-        // Every form the fragment contains posts back through this plugin, so
-        // each needs the nonce WordPress expects. Adding it here keeps the Go
-        // templates free of WordPress-specific markup.
-        printf(
+    /**
+     * The [wpcalc] shortcode: an admin drops this into an ordinary frontend
+     * page so a logged-in WordPress user can reach their own hours without
+     * ever touching wp-admin — see wordpress.go's ScopeSelf.
+     *
+     * Unlike render_page, this must return its markup rather than echo it —
+     * that is simply what a shortcode callback's contract is — so it cannot
+     * reuse render_page's body directly even though the two are otherwise
+     * the same shape (ensure the sidecar is running, proxy the fragment,
+     * inject the nonce script, wrap it in #wpcalc-root).
+     */
+    public function render_shortcode($atts = []): string
+    {
+        if (!is_user_logged_in()) {
+            return '<p>' . esc_html__('Log in to view your working hours.', 'wpcalc') . '</p>';
+        }
+
+        if ($err = $this->ensure_running()) {
+            return sprintf(
+                '<div class="notice notice-error"><p><strong>%s</strong></p><p>%s</p></div>',
+                esc_html__('wpcalc could not start', 'wpcalc'),
+                esc_html($err)
+            );
+        }
+
+        $res = $this->proxy_following($this->app_path(), true, self::SCOPE_SELF);
+        if ($res === null) {
+            return sprintf(
+                '<div class="notice notice-error"><p>%s</p></div>',
+                esc_html__('The wpcalc service is not responding.', 'wpcalc')
+            );
+        }
+
+        // phpcs:ignore WordPress.Security.EscapeOutput -- proxied fragment, escaped by html/template at its source
+        return '<div class="wrap" id="wpcalc-root">' . $res['body'] . $this->nonce_injection_script() . '</div>';
+    }
+
+    /**
+     * Every form the fragment contains posts back through this plugin, so
+     * each needs the nonce WordPress expects. Injecting it this way — DOM
+     * surgery after the fact — keeps the Go templates free of
+     * WordPress-specific markup; render_page and render_shortcode both need
+     * it verbatim.
+     */
+    private function nonce_injection_script(): string
+    {
+        return sprintf(
             '<script>(function(){var n=%s;document.querySelectorAll("#wpcalc-root form").forEach(function(f){if(f.querySelector("[name=%s]"))return;var i=document.createElement("input");i.type="hidden";i.name=%s;i.value=n;f.appendChild(i);});})();</script>',
             wp_json_encode(wp_create_nonce(self::NONCE_ACTION)),
             esc_js(self::NONCE_FIELD),
             wp_json_encode(self::NONCE_FIELD)
         );
-
-        echo '</div>';
     }
 
     // ------------------------------------------------------------- settings
@@ -691,13 +857,27 @@ final class WPCalc_Plugin
         return $out;
     }
 
+    /**
+     * @return array<string,string|string[]> Every header is a single string
+     *         value except set-cookie, which is an array — a response can
+     *         carry more than one Set-Cookie line, and joining them with a
+     *         comma the way every other repeated header could be is invalid
+     *         for cookies specifically.
+     */
     private function parse_headers(string $raw): array
     {
         $out = [];
         foreach (preg_split('/\r?\n/', $raw) as $line) {
             $parts = explode(':', $line, 2);
-            if (count($parts) === 2) {
-                $out[strtolower(trim($parts[0]))] = trim($parts[1]);
+            if (count($parts) !== 2) {
+                continue;
+            }
+            $key   = strtolower(trim($parts[0]));
+            $value = trim($parts[1]);
+            if ($key === 'set-cookie') {
+                $out['set-cookie'][] = $value;
+            } else {
+                $out[$key] = $value;
             }
         }
         return $out;

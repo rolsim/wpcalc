@@ -16,12 +16,22 @@ const testSecret = "a-shared-secret-of-sufficient-length"
 // given listener kind.
 func wpRequest(t *testing.T, a *WordPress, kind ConnKind, user, roles string, at time.Time) *http.Request {
 	t.Helper()
-	ts, sig := a.Sign(user, roles, at)
+	return wpScopedRequest(t, a, kind, user, roles, ScopeAdmin, at)
+}
+
+// wpScopedRequest is wpRequest with an explicit scope, for exercising
+// ScopeSelf.
+func wpScopedRequest(t *testing.T, a *WordPress, kind ConnKind, user, roles, scope string, at time.Time) *http.Request {
+	t.Helper()
+	ts, sig := a.Sign(user, roles, scope, at)
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.Header.Set(HeaderUser, user)
 	r.Header.Set(HeaderRoles, roles)
 	r.Header.Set(HeaderTimestamp, ts)
 	r.Header.Set(HeaderSignature, sig)
+	if scope != "" {
+		r.Header.Set(HeaderScope, scope)
+	}
 	return r.WithContext(WithConnKind(r.Context(), kind))
 }
 
@@ -68,7 +78,7 @@ func TestUntaggedContextFailsClosed(t *testing.T) {
 	// A context that never passed through the server's middleware must be
 	// treated as untrusted, not as trusted-by-default.
 	a := newWP(t)
-	ts, sig := a.Sign("alice", "administrator", time.Now())
+	ts, sig := a.Sign("alice", "administrator", ScopeAdmin, time.Now())
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.Header.Set(HeaderUser, "alice")
 	r.Header.Set(HeaderRoles, "administrator")
@@ -128,8 +138,8 @@ func TestWordPressFieldSeparatorPreventsCollision(t *testing.T) {
 	// be substituted for the other.
 	a := newWP(t)
 	at := time.Now()
-	_, sig1 := a.Sign("a", "b,c", at)
-	_, sig2 := a.Sign("a,b", "c", at)
+	_, sig1 := a.Sign("a", "b,c", ScopeAdmin, at)
+	_, sig2 := a.Sign("a,b", "c", ScopeAdmin, at)
 	if sig1 == sig2 {
 		t.Error("distinct user/role splits produced the same signature")
 	}

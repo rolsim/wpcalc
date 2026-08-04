@@ -22,7 +22,7 @@ func (s *Server) handleTenantChoose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(tenants) <= 1 {
-		http.Redirect(w, r, s.url("/"), http.StatusSeeOther)
+		http.Redirect(w, r, s.url(r, "/"), http.StatusSeeOther)
 		return
 	}
 
@@ -75,7 +75,7 @@ func (s *Server) handleTenantSwitch(w http.ResponseWriter, r *http.Request) {
 
 	returnTo := r.PostFormValue("return_to")
 	if returnTo == "" {
-		returnTo = s.url("/")
+		returnTo = s.url(r, "/")
 	}
 	http.Redirect(w, r, returnTo, http.StatusSeeOther)
 }
@@ -109,10 +109,10 @@ func (s *Server) handleTenantCreate(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.PostFormValue("name"))
 	if _, err := s.db.CreateTenant(r.Context(), name); err != nil {
 		s.log.Warn("create tenant", "error", err)
-		http.Redirect(w, r, s.url("/tenants?err=invalid_input"), http.StatusSeeOther)
+		http.Redirect(w, r, s.url(r, "/tenants?err=invalid_input"), http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, s.url("/tenants"), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/tenants"), http.StatusSeeOther)
 }
 
 type tenantAccessView struct {
@@ -228,7 +228,7 @@ func (s *Server) handleTenantAccessGrant(w http.ResponseWriter, r *http.Request)
 		s.redirectTenantAccessErr(w, r, tenantID, "invalid_input")
 		return
 	}
-	http.Redirect(w, r, s.url("/tenants/%d/access", tenantID), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/tenants/%d/access", tenantID), http.StatusSeeOther)
 }
 
 // handleTenantAccessRevoke removes a user's employee-scope role in this
@@ -262,11 +262,11 @@ func (s *Server) handleTenantAccessRevoke(w http.ResponseWriter, r *http.Request
 		s.redirectTenantAccessErr(w, r, tenantID, "not_found")
 		return
 	}
-	http.Redirect(w, r, s.url("/tenants/%d/access", tenantID), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/tenants/%d/access", tenantID), http.StatusSeeOther)
 }
 
 func (s *Server) redirectTenantAccessErr(w http.ResponseWriter, r *http.Request, tenantID int64, errKey string) {
-	http.Redirect(w, r, s.url("/tenants/%d/access?err=%s", tenantID, errKey), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/tenants/%d/access?err=%s", tenantID, errKey), http.StatusSeeOther)
 }
 
 func (s *Server) tenantIDFromPath(w http.ResponseWriter, r *http.Request) (int64, bool) {

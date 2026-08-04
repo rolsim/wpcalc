@@ -19,7 +19,7 @@ func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if id, err := s.authn.Identify(r); err == nil && !id.IsZero() {
-		http.Redirect(w, r, s.url("/"), http.StatusSeeOther)
+		http.Redirect(w, r, s.url(r, "/"), http.StatusSeeOther)
 		return
 	}
 	s.render(w, r, "login.html", http.StatusOK, loginView{view: s.newView(r, "auth.login")})
@@ -47,7 +47,7 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, "login.html", http.StatusUnauthorized, loginView{view: v, Failed: true})
 		return
 	}
-	http.Redirect(w, r, s.url("/"), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/"), http.StatusSeeOther)
 }
 
 // requestLogouter is implemented by authenticators that keep sessions
@@ -64,5 +64,5 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if sw, ok := s.authn.(auth.SessionWriter); ok {
 		sw.Logout(w)
 	}
-	http.Redirect(w, r, s.url("/login"), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/login"), http.StatusSeeOther)
 }

@@ -120,9 +120,9 @@ func (s *Server) buildGridView(r *http.Request, tenantID int64, month domain.Yea
 		view:               base,
 		Month:              month,
 		MonthLabel:         base.T(i18nMonthKey(month)) + " " + strconv.Itoa(month.Year),
-		PrevURL:            s.url("/m/%s", month.Prev()),
-		NextURL:            s.url("/m/%s", month.Next()),
-		TodayURL:           s.url("/m/%s", domain.CurrentYearMonth()),
+		PrevURL:            s.url(r, "/m/%s", month.Prev()),
+		NextURL:            s.url(r, "/m/%s", month.Next()),
+		TodayURL:           s.url(r, "/m/%s", domain.CurrentYearMonth()),
 		Employees:          employees,
 		Sep:                base.DecimalSep(),
 		HasEmployees:       len(employees) > 0,
@@ -282,7 +282,7 @@ type setResult struct {
 
 func (s *Server) writeSetResult(w http.ResponseWriter, r *http.Request, tenantID int64, month domain.YearMonth, value, errKey string, status int) {
 	if !wantsJSON(r) {
-		target := s.url("/m/%s", month)
+		target := s.url(r, "/m/%s", month)
 		if errKey != "" {
 			target += "?err=" + shortErrorKey(errKey)
 		}
