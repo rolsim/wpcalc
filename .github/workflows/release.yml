@@ -180,3 +180,19 @@ jobs:
           files: dist/*
           body_path: changelog.md
           prerelease: ${{ steps.prerelease.outputs.flag }}
+
+      - name: Prune obsolete releases
+        # Keep only the 5 most recent releases; older ones (and their tags)
+        # are deleted so the releases page doesn't accumulate forever.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          keep=5
+          gh release list --limit 1000 --json tagName,createdAt \
+            --jq 'sort_by(.createdAt) | reverse | .[].tagName' \
+            | tail -n "+$((keep + 1))" \
+            | while read -r tag; do
+                echo "Deleting obsolete release ${tag}"
+                gh release delete "${tag}" --yes --cleanup-tag
+              done
