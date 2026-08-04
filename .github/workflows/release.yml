@@ -127,6 +127,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -147,9 +151,32 @@ jobs:
             echo "flag=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Changelog
+        # softprops/action-gh-release's generate_release_notes relies on
+        # merged PRs, which this repo doesn't use (pushes land on main
+        # directly) — it produces an empty changelog. Build one from commit
+        # subjects between the previous tag and this one instead.
+        run: |
+          set -eu
+          prev_tag="$(git tag --sort=-v:refname | grep -v "^${GITHUB_REF_NAME}$" | head -1 || true)"
+          {
+            echo "## Changelog"
+            echo
+            if [ -n "${prev_tag}" ]; then
+              git log --pretty='format:- %s (%h)' "${prev_tag}..${GITHUB_REF_NAME}"
+            else
+              git log --pretty='format:- %s (%h)' "${GITHUB_REF_NAME}"
+            fi
+            echo
+            echo
+            if [ -n "${prev_tag}" ]; then
+              echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${prev_tag}...${GITHUB_REF_NAME}"
+            fi
+          } > changelog.md
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          generate_release_notes: true
+          body_path: changelog.md
           prerelease: ${{ steps.prerelease.outputs.flag }}
