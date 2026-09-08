@@ -211,7 +211,7 @@ func (s *Server) handleSetHours(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.db.SetHours(r.Context(), employeeID, day, hours); err != nil {
+	if err := s.db.SetHours(r.Context(), tenantID, employeeID, day, hours); err != nil {
 		switch {
 		case errors.Is(err, domain.ErrNotEmployed):
 			// The template greys this cell; reaching here means the request

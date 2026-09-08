@@ -405,3 +405,43 @@ func TestAPIv1WriteEndpointsPassResponseValidation(t *testing.T) {
 		t.Fatalf("create role: status %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// TestAPIv1MandantAdminTokenCannotWriteHoursInAnotherTenant is the /api/v1
+// twin of TestMandantAdminCannotWriteHoursInAnotherTenant: same gap, same
+// guard, reached through a real bearer token instead of a session cookie.
+func TestAPIv1MandantAdminTokenCannotWriteHoursInAnotherTenant(t *testing.T) {
+	ts := newTestServer(t, nil)
+	tenantB := ts.tenant(t, "Tenant B")
+	empB := ts.employeeInTenant(t, tenantB, "B Employee", "2026-01-01", "")
+	tenantA := int64(1) // the seeded Default tenant
+
+	uid, err := ts.db.CreateUserWeak(t.Context(), "mandant-api", "x", true)
+	if err != nil {
+		t.Fatalf("CreateUserWeak: %v", err)
+	}
+	if err := ts.db.GrantUserRole(t.Context(), uid, &tenantA, nil, domain.RoleMandantAdmin); err != nil {
+		t.Fatalf("GrantUserRole: %v", err)
+	}
+	token, _, _, err := ts.db.CreateAPIToken(t.Context(), uid, "test")
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	body := `{"employeeId":` + itoa(empB) + `,"date":"2026-07-14","hours":"7.75"}`
+	w := ts.apiDo(t, http.MethodPut, "/api/v1/tenants/1/months/2026-07/entries", token, body)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status %d, want 404: %s", w.Code, w.Body.String())
+	}
+
+	day, err := domain.ParseDate("2026-07-14")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := ts.db.Hours(t.Context(), empB, day)
+	if err != nil {
+		t.Fatalf("Hours: %v", err)
+	}
+	if h != 0 {
+		t.Errorf("another tenant's cell was written over /api/v1: %v", h)
+	}
+}

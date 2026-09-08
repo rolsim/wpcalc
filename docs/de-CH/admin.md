@@ -182,7 +182,7 @@ Ab Werk existieren fünf Rollen (alle vollständig editierbar — siehe unten):
 | Rolle | Geltungsbereich | Darf |
 |---|---|---|
 | `super_admin` | system | Alles: Mandanten, Rollen, Mitarbeitende und Konten überall verwalten. |
-| `mandant_admin` | tenant | Die Mitarbeitenden eines Mandanten und die mitarbeiterbezogenen Rollen seiner Konten verwalten. |
+| `mandant_admin` | tenant | Alles innerhalb eines Mandanten: Stunden **aller** Mitarbeitenden lesen, drucken und erfassen, deren Stammdaten verwalten und seinen Konten mitarbeiterbezogene Rollen erteilen. |
 | `viewer` | employee | Das Raster einer Person lesen. |
 | `reporter` | employee | Lesen und die PDF-Auswertungen dieser Person herunterladen. |
 | `editor` | employee | Lesen, drucken und die Stunden dieser Person erfassen. |

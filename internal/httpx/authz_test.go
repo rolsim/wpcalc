@@ -92,6 +92,37 @@ func TestMandantAdminCannotReachAnotherTenant(t *testing.T) {
 	}
 }
 
+// TestMandantAdminCannotWriteHoursInAnotherTenant is the write-path sibling of
+// TestMandantAdminCannotReachAnotherTenant: holding `write` in tenant A must
+// not carry into tenant B just because the employee id travels in the request
+// body rather than the path.
+func TestMandantAdminCannotWriteHoursInAnotherTenant(t *testing.T) {
+	ts := newTestServer(t, nil) // admin, to set up the second tenant
+	tenantB := ts.tenant(t, "Tenant B")
+	empB := ts.employeeInTenant(t, tenantB, "B Employee", "2026-01-01", "")
+	tenantA := int64(1) // the seeded Default tenant
+
+	ts.Server.authn = stubAuth{id: mandantAdmin(tenantA)}
+
+	form := url.Values{"employee_id": {itoa(empB)}, "date": {"2026-07-14"}, "hours": {"7.75"}}
+	if w := ts.post(t, "/m/2026-07/hours", form, true); w.Code != http.StatusNotFound {
+		t.Errorf("mandant-admin writing another tenant's hours: status %d, want 404", w.Code)
+	}
+
+	// A refused status is not enough — the cell itself must be untouched.
+	day, err := domain.ParseDate("2026-07-14")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := ts.db.Hours(t.Context(), empB, day)
+	if err != nil {
+		t.Fatalf("Hours: %v", err)
+	}
+	if h != 0 {
+		t.Errorf("another tenant's cell was written: %v", h)
+	}
+}
+
 func TestViewerCanReadButNotWriteOrPrint(t *testing.T) {
 	ts := newTestServer(t, nil)
 	empID := ts.employee(t, "Anna", "2026-01-01", "")

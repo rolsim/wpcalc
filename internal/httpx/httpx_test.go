@@ -176,7 +176,7 @@ func TestGridRendersMonthWithEmployeesAndTotals(t *testing.T) {
 	ts := newTestServer(t, nil)
 	alice := ts.employee(t, "Alice Muster", "2026-01-01", "")
 	day, _ := domain.ParseDate("2026-07-14")
-	if err := ts.db.SetHours(t.Context(), alice, day, 775); err != nil {
+	if err := ts.db.SetHours(t.Context(), 1, alice, day, 775); err != nil {
 		t.Fatal(err)
 	}
 
@@ -291,7 +291,7 @@ func TestSetHoursJSONReturnsServerComputedTotals(t *testing.T) {
 	bob := ts.employee(t, "Bob", "2026-01-01", "")
 
 	day, _ := domain.ParseDate("2026-07-14")
-	if err := ts.db.SetHours(t.Context(), bob, day, 200); err != nil {
+	if err := ts.db.SetHours(t.Context(), 1, bob, day, 200); err != nil {
 		t.Fatal(err)
 	}
 
@@ -459,7 +459,7 @@ func TestNoPageRendersAnUntranslatedMarker(t *testing.T) {
 	ts := newTestServer(t, nil)
 	id := ts.employee(t, "Anna Muster", "2026-07-10", "2026-07-20")
 	day, _ := domain.ParseDate("2026-07-14")
-	if err := ts.db.SetHours(t.Context(), id, day, 775); err != nil {
+	if err := ts.db.SetHours(t.Context(), 1, id, day, 775); err != nil {
 		t.Fatal(err)
 	}
 	if err := ts.db.SetDayComment(t.Context(), 1, day, "Notiz"); err != nil {
@@ -567,7 +567,7 @@ func TestReportRoutesServePDFs(t *testing.T) {
 	ts := newTestServer(t, nil)
 	id := ts.employee(t, "Anna Muster", "2026-01-01", "")
 	day, _ := domain.ParseDate("2026-07-14")
-	if err := ts.db.SetHours(t.Context(), id, day, 775); err != nil {
+	if err := ts.db.SetHours(t.Context(), 1, id, day, 775); err != nil {
 		t.Fatal(err)
 	}
 

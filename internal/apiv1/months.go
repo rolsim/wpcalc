@@ -108,7 +108,7 @@ func (a *API) SetHours(ctx context.Context, request SetHoursRequestObject) (SetH
 		return SetHoursdefaultJSONResponse{Body: Error{Error: "invalid_hours"}, StatusCode: 422}, nil //nolint:nilerr
 	}
 	day := fromAPIDate(request.Body.Date)
-	if err := a.db.SetHours(ctx, request.Body.EmployeeId, day, hours); err != nil {
+	if err := a.db.SetHours(ctx, request.TenantId, request.Body.EmployeeId, day, hours); err != nil {
 		status, code := mapStoreErr(err)
 		return SetHoursdefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}

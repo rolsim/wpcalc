@@ -106,8 +106,20 @@ identity is built (`auth.accounts.go`'s `identityFor` for standalone,
 `auth.wordpress.go`'s synthetic full-access identity under WordPress) against
 `UserRoles`/`RolePermissions`, so a permission revoked mid-session takes
 effect on the very next request. `Scope` (system > tenant > employee) is
-enforced both in Go (`Scope.Covers`) and by database CHECK
-constraints/triggers in the migrations — the two must never drift apart.
+enforced in two non-overlapping places: the `Identity.Can*` cascade above
+orders the tiers for access decisions, while the rule that a role's scope must
+cover every permission it holds lives only in the migrations' CHECK
+constraints/triggers, surfaced as `store.ErrRoleScopeTooNarrow`. Deliberately
+one home each — a Go-side copy of the ordering went uncalled and was removed.
+
+**The tenant boundary is a store precondition, not a handler courtesy.** An
+employee id that arrives in a request body says nothing about which tenant it
+belongs to, so authorizing against the caller's own tenant is only half a
+check. `store.SetHours` takes the tenant it was authorized against and rejects
+a foreign employee as `ErrNotFound` (404 everywhere, so existence is not
+leaked) — the same argument that already put the employment-interval check
+there. Handlers that reach a row by id re-verify `TenantID` for the same
+reason (`handlers_employees.go`, `apiv1/employees.go`, `apiv1/reports.go`).
 
 **Hours are integers.** `domain.Centihours` is hundredths of an hour. The
 grid sums the same entries two ways and the PDFs a third; those totals must

@@ -86,7 +86,7 @@ func TestMigrationsUpDownUpIsClean(t *testing.T) {
 	ctx := t.Context()
 
 	id := mustEmployee(t, db, "Before", "2026-01-01", "")
-	if err := db.SetHours(ctx, id, mustDate(t, "2026-07-14"), 775); err != nil {
+	if err := db.SetHours(ctx, 1, id, mustDate(t, "2026-07-14"), 775); err != nil {
 		t.Fatalf("seed entry: %v", err)
 	}
 	if _, err := db.CreateUser(ctx, "someone", "a-long-enough-password"); err != nil {
@@ -116,7 +116,7 @@ func TestMigrationsUpDownUpIsClean(t *testing.T) {
 		t.Errorf("got %d employees after down/up, want 0", len(emps))
 	}
 	newID := mustEmployee(t, db, "After", "2026-01-01", "")
-	if err := db.SetHours(ctx, newID, mustDate(t, "2026-07-14"), 800); err != nil {
+	if err := db.SetHours(ctx, 1, newID, mustDate(t, "2026-07-14"), 800); err != nil {
 		t.Errorf("schema not writable after re-up: %v", err)
 	}
 }
@@ -140,13 +140,13 @@ func TestEntryRejectedBeforeStartDate(t *testing.T) {
 	db := testDB(t)
 	id := mustEmployee(t, db, "Joiner", "2026-07-14", "")
 
-	err := db.SetHours(t.Context(), id, mustDate(t, "2026-07-13"), 800)
+	err := db.SetHours(t.Context(), 1, id, mustDate(t, "2026-07-13"), 800)
 	if !errors.Is(err, domain.ErrNotEmployed) {
 		t.Fatalf("SetHours the day before start: got %v, want ErrNotEmployed", err)
 	}
 
 	// And the boundary day itself must be accepted.
-	if err := db.SetHours(t.Context(), id, mustDate(t, "2026-07-14"), 800); err != nil {
+	if err := db.SetHours(t.Context(), 1, id, mustDate(t, "2026-07-14"), 800); err != nil {
 		t.Errorf("SetHours on the start date itself: %v", err)
 	}
 }
@@ -155,12 +155,12 @@ func TestEntryRejectedAfterEndDate(t *testing.T) {
 	db := testDB(t)
 	id := mustEmployee(t, db, "Leaver", "2026-01-01", "2026-07-20")
 
-	err := db.SetHours(t.Context(), id, mustDate(t, "2026-07-21"), 800)
+	err := db.SetHours(t.Context(), 1, id, mustDate(t, "2026-07-21"), 800)
 	if !errors.Is(err, domain.ErrNotEmployed) {
 		t.Fatalf("SetHours the day after end: got %v, want ErrNotEmployed", err)
 	}
 
-	if err := db.SetHours(t.Context(), id, mustDate(t, "2026-07-20"), 800); err != nil {
+	if err := db.SetHours(t.Context(), 1, id, mustDate(t, "2026-07-20"), 800); err != nil {
 		t.Errorf("SetHours on the end date itself: %v", err)
 	}
 }
@@ -171,7 +171,7 @@ func TestSetHoursIsIdempotentAndClears(t *testing.T) {
 	id := mustEmployee(t, db, "Worker", "2026-01-01", "")
 	day := mustDate(t, "2026-07-14")
 
-	if err := db.SetHours(ctx, id, day, 775); err != nil {
+	if err := db.SetHours(ctx, 1, id, day, 775); err != nil {
 		t.Fatalf("SetHours: %v", err)
 	}
 	if got, _ := db.Hours(ctx, id, day); got != 775 {
@@ -179,7 +179,7 @@ func TestSetHoursIsIdempotentAndClears(t *testing.T) {
 	}
 
 	// Overwriting the same cell updates in place rather than inserting again.
-	if err := db.SetHours(ctx, id, day, 800); err != nil {
+	if err := db.SetHours(ctx, 1, id, day, 800); err != nil {
 		t.Fatalf("SetHours overwrite: %v", err)
 	}
 	if got, _ := db.Hours(ctx, id, day); got != 800 {
@@ -187,7 +187,7 @@ func TestSetHoursIsIdempotentAndClears(t *testing.T) {
 	}
 
 	// Zero clears the cell: an absent row, not a stored zero.
-	if err := db.SetHours(ctx, id, day, 0); err != nil {
+	if err := db.SetHours(ctx, 1, id, day, 0); err != nil {
 		t.Fatalf("SetHours zero: %v", err)
 	}
 	entries, err := db.EmployeeEntries(ctx, id, day, day)
@@ -208,9 +208,49 @@ func TestSetHoursRejectsOutOfRange(t *testing.T) {
 	day := mustDate(t, "2026-07-14")
 
 	for _, v := range []domain.Centihours{-1, 2401, 10000} {
-		if err := db.SetHours(t.Context(), id, day, v); !errors.Is(err, domain.ErrHoursRange) {
+		if err := db.SetHours(t.Context(), 1, id, day, v); !errors.Is(err, domain.ErrHoursRange) {
 			t.Errorf("SetHours(%d): got %v, want ErrHoursRange", v, err)
 		}
+	}
+}
+
+// TestSetHoursRejectsAnEmployeeFromAnotherTenant pins the tenant boundary at
+// the store, where it cannot be bypassed: employeeID reaches the handlers in a
+// request body, so authorizing against the caller's own tenant says nothing
+// about which tenant the employee belongs to.
+func TestSetHoursRejectsAnEmployeeFromAnotherTenant(t *testing.T) {
+	db := testDB(t)
+	ctx := t.Context()
+
+	tenantB, err := db.CreateTenant(ctx, "Tenant B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	empB, err := db.CreateEmployee(ctx, domain.Employee{
+		TenantID: tenantB, DisplayName: "B Employee", StartDate: mustDate(t, "2026-01-01"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	day := mustDate(t, "2026-07-14")
+	err = db.SetHours(ctx, 1, empB, day, 800)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("SetHours across tenants: got %v, want ErrNotFound", err)
+	}
+
+	got, err := db.Hours(ctx, empB, day)
+	if err != nil {
+		t.Fatalf("Hours: %v", err)
+	}
+	if got != 0 {
+		t.Errorf("cell written across the tenant boundary: got %v, want 0", got)
+	}
+
+	// The same call from the employee's own tenant still works, so the guard
+	// rejects the boundary rather than the write.
+	if err := db.SetHours(ctx, tenantB, empB, day, 800); err != nil {
+		t.Fatalf("SetHours within the employee's own tenant: %v", err)
 	}
 }
 
@@ -233,7 +273,7 @@ func TestTotalsEqualSumOfEntries(t *testing.T) {
 	for i, day := range july.Days() {
 		for j, emp := range []int64{alice, bob} {
 			v := values[(i+j)%len(values)]
-			if err := db.SetHours(ctx, emp, day, v); err != nil {
+			if err := db.SetHours(ctx, 1, emp, day, v); err != nil {
 				t.Fatalf("SetHours: %v", err)
 			}
 			written[emp][day] = v
@@ -282,7 +322,7 @@ func TestTotalsIgnoreEntriesOutsideTheMonth(t *testing.T) {
 	id := mustEmployee(t, db, "Worker", "2026-01-01", "")
 
 	for _, d := range []string{"2026-06-30", "2026-07-01", "2026-07-31", "2026-08-01"} {
-		if err := db.SetHours(ctx, id, mustDate(t, d), 100); err != nil {
+		if err := db.SetHours(ctx, 1, id, mustDate(t, d), 100); err != nil {
 			t.Fatalf("SetHours(%s): %v", d, err)
 		}
 	}
@@ -356,7 +396,7 @@ func TestDeletingEmployeeCascadesToEntries(t *testing.T) {
 	id := mustEmployee(t, db, "Temp", "2026-01-01", "")
 	day := mustDate(t, "2026-07-14")
 
-	if err := db.SetHours(ctx, id, day, 800); err != nil {
+	if err := db.SetHours(ctx, 1, id, day, 800); err != nil {
 		t.Fatalf("SetHours: %v", err)
 	}
 	if err := db.DeleteEmployee(ctx, id); err != nil {
@@ -425,7 +465,7 @@ func TestEmployeeRangeTotalAndEntries(t *testing.T) {
 		{"2026-07-15", 775},
 		{"2026-08-01", 900},
 	} {
-		if err := db.SetHours(ctx, id, mustDate(t, spec.day), spec.v); err != nil {
+		if err := db.SetHours(ctx, 1, id, mustDate(t, spec.day), spec.v); err != nil {
 			t.Fatalf("SetHours: %v", err)
 		}
 	}

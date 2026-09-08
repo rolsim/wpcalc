@@ -78,13 +78,13 @@ func TestMonthSummaryRendersTotals(t *testing.T) {
 	alice := employee(t, db, "Alice Muster", "2026-01-01", "")
 	bob := employee(t, db, "Bob Beispiel", "2026-01-01", "")
 
-	if err := db.SetHours(ctx, alice, mustDate(t, "2026-07-14"), 775); err != nil {
+	if err := db.SetHours(ctx, 1, alice, mustDate(t, "2026-07-14"), 775); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetHours(ctx, alice, mustDate(t, "2026-07-15"), 800); err != nil {
+	if err := db.SetHours(ctx, 1, alice, mustDate(t, "2026-07-15"), 800); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetHours(ctx, bob, mustDate(t, "2026-07-14"), 425); err != nil {
+	if err := db.SetHours(ctx, 1, bob, mustDate(t, "2026-07-14"), 425); err != nil {
 		t.Fatal(err)
 	}
 
@@ -126,7 +126,7 @@ func TestEmployeeMonthListsEveryEmployedDay(t *testing.T) {
 
 	// Employed for 11 days of the month only.
 	id := employee(t, db, "Teilzeit Person", "2026-07-10", "2026-07-20")
-	if err := db.SetHours(ctx, id, mustDate(t, "2026-07-14"), 775); err != nil {
+	if err := db.SetHours(ctx, 1, id, mustDate(t, "2026-07-14"), 775); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.SetDayComment(ctx, 1, mustDate(t, "2026-07-14"), "Betriebsausflug"); err != nil {
@@ -166,13 +166,13 @@ func TestEmployeeYearSumsTwelveMonths(t *testing.T) {
 	// One 8-hour day in each of three months.
 	var want domain.Centihours
 	for _, day := range []string{"2026-02-10", "2026-06-10", "2026-11-10"} {
-		if err := db.SetHours(ctx, id, mustDate(t, day), 800); err != nil {
+		if err := db.SetHours(ctx, 1, id, mustDate(t, day), 800); err != nil {
 			t.Fatal(err)
 		}
 		want += 800
 	}
 	// A day in the following year must not be counted.
-	if err := db.SetHours(ctx, id, mustDate(t, "2027-01-10"), 800); err != nil {
+	if err := db.SetHours(ctx, 1, id, mustDate(t, "2027-01-10"), 800); err != nil {
 		t.Fatal(err)
 	}
 
@@ -215,7 +215,7 @@ func TestUmlautsSurviveIntoThePDF(t *testing.T) {
 	r.SetCompression(false)
 	ctx := t.Context()
 	id := employee(t, db, "Jürg Müller-Schäfer", "2026-01-01", "")
-	if err := db.SetHours(ctx, id, mustDate(t, "2026-07-14"), 800); err != nil {
+	if err := db.SetHours(ctx, 1, id, mustDate(t, "2026-07-14"), 800); err != nil {
 		t.Fatal(err)
 	}
 

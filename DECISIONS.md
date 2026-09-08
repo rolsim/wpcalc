@@ -320,3 +320,27 @@ currentBuild() reports "unknown" under `go test` while the shipped binary
 carries the revision. Asserting it in a unit test failed for a reason that had
 nothing to do with the code.
 *Reverse:* `cmd/wpcalc/version.go`.
+
+**The tenant boundary is a `store.SetHours` precondition, which is why it takes
+a `tenantID`.** The employee id arrives in a request body, so checking the
+caller's permission against their own active tenant proves nothing about which
+tenant that employee belongs to — the two front ends were authorizing tenant A
+and then writing wherever the id pointed. Putting the check in the handlers
+would have meant the same rule in three places (both front ends and any future
+caller) with three chances to drift, so it went where the employment lock
+already lives, for the same reason: `SetHours` loads the employee anyway, so
+the comparison is free, and no caller can forget it.
+
+A mismatch reads as `ErrNotFound`, not a permission error. Cross-tenant lookups
+answer 404 everywhere else so that existence is not leaked, and both front ends
+already mapped that sentinel correctly — the fix needed no new branch in
+either. The consequence worth knowing: this binds `super_admin` too. Holding
+system scope does not let you reach a tenant-2 employee through a `/tenants/1/`
+route; the route names the tenant and the employee has to be in it. Nothing in
+the UI does that, since the grid only ever offers the active tenant's people.
+*Reverse:* drop the `emp.TenantID != tenantID` check in `SetHours` and the
+parameter with it, and accept that the boundary then holds only as long as
+every caller re-derives it. Three tests pin it — one per layer:
+`TestSetHoursRejectsAnEmployeeFromAnotherTenant`,
+`TestMandantAdminCannotWriteHoursInAnotherTenant`, and
+`TestAPIv1MandantAdminTokenCannotWriteHoursInAnotherTenant`.

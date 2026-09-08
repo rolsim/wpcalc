@@ -13,9 +13,14 @@ import (
 // around, since nothing outside the store needs to hold one.
 
 // Scope says how broad a role or permission is: system is broadest, employee
-// narrowest. It orders the three tiers the same way the migration's
-// scope-consistency triggers do, so Go-side validation and the database's own
-// enforcement can never drift apart.
+// narrowest.
+//
+// The ordering itself is not duplicated here. Access decisions walk the tiers
+// in auth.Identity's Can/CanInTenant/CanSystemWide cascade, and the
+// role-scope-vs-permission-min_scope rule lives in the migration's
+// trg_role_permissions_scope trigger, surfaced as store.ErrRoleScopeTooNarrow.
+// A Go-side comparison helper existed once, went uncalled for exactly that
+// reason, and was removed rather than left to drift.
 type Scope string
 
 const (
@@ -23,21 +28,6 @@ const (
 	ScopeTenant   Scope = "tenant"
 	ScopeEmployee Scope = "employee"
 )
-
-func (s Scope) rank() int {
-	switch s {
-	case ScopeSystem:
-		return 0
-	case ScopeTenant:
-		return 1
-	default:
-		return 2
-	}
-}
-
-// Covers reports whether s is broad enough to satisfy a requirement of scope
-// other — i.e. s is at least as broad as other.
-func (s Scope) Covers(other Scope) bool { return s.rank() <= other.rank() }
 
 // ErrInvalidScope is the sentinel for an unrecognised scope value.
 var ErrInvalidScope = errors.New("invalid scope")

@@ -172,7 +172,7 @@ Out of the box, five roles exist (all fully editable — see below):
 | Role | Scope | Can do |
 |---|---|---|
 | `super_admin` | system | Everything: manage tenants, roles, employees, and users, anywhere. |
-| `mandant_admin` | tenant | Manage one tenant's employees and its users' employee-scope roles. |
+| `mandant_admin` | tenant | Everything within one tenant: read, print and enter hours for **every** employee in it, manage those employee records, and grant its users employee-scope roles. |
 | `viewer` | employee | Read one employee's grid. |
 | `reporter` | employee | Read, and download that employee's PDF reports. |
 | `editor` | employee | Read, print, and enter that employee's hours. |

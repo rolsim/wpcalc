@@ -20,10 +20,20 @@ import (
 // template greys locked cells and the handler checks before writing, but this
 // is the layer that cannot be bypassed by a crafted request, a future second
 // caller, or the seed command.
-func (db *DB) SetHours(ctx context.Context, employeeID int64, d domain.Date, h domain.Centihours) error {
+//
+// The tenant boundary is enforced here for the same reason, and is why
+// tenantID is a parameter rather than something the caller checks for itself:
+// employeeID arrives in a request body, so authorizing against the caller's
+// own tenant proves nothing about who the employee belongs to. A mismatch
+// reads as ErrNotFound, not a permission error — cross-tenant lookups answer
+// 404 everywhere else so that existence is not leaked.
+func (db *DB) SetHours(ctx context.Context, tenantID, employeeID int64, d domain.Date, h domain.Centihours) error {
 	emp, err := db.Employee(ctx, employeeID)
 	if err != nil {
 		return err
+	}
+	if emp.TenantID != tenantID {
+		return fmt.Errorf("store: employee %d: %w", employeeID, ErrNotFound)
 	}
 	if !emp.Employed(d) {
 		return fmt.Errorf("store: %s on %s: %w", emp.DisplayName, d.Display(), domain.ErrNotEmployed)
