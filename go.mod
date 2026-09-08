@@ -1,6 +1,6 @@
 module github.com/rolsim/wpcalc
 
-go 1.26.5
+go 1.27.0
 
 require (
 	github.com/chromedp/chromedp v0.16.0

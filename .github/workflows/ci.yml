@@ -15,12 +15,12 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26.5"
+          go-version: "1.27.0"
 
       - name: Install golangci-lint
         # go install rather than the prebuilt-binary install script: the
         # prebuilt v1.64.8 release was compiled with go1.24, which refuses to
-        # lint a go1.26 module. Building it locally uses the toolchain above.
+        # lint a go1.27 module. Building it locally uses the toolchain above.
         run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 
       - name: make check-all
