@@ -494,6 +494,30 @@ erst parsen könnten.
 
 ## WordPress
 
+### Was die Integration ist
+
+WordPress führt die Logik von wpcalc nie selbst aus. Das Plugin ist ein Proxy:
+Es startet die wpcalc-Binärdatei als **Sidecar**, spricht über einen
+**Unix-Socket** mit ihr und übergibt eine **signierte Aussage darüber, wer der
+aktuelle WordPress-Benutzer ist**. wpcalc antwortet mit demselben HTML, das
+auch der eigenständige Server erzeugen würde, und das Plugin reicht es in der
+Admin-Seite durch.
+
+```
+Browser ──► WordPress (PHP)  ──Unix-Socket──►  wpcalc-Sidecar  ──►  SQLite
+                │                                     ▲
+                │  X-Wpcalc-User / -Roles /           │
+                └─ -Timestamp / -Scope / -Signature ──┘
+                   (HMAC-SHA256, geteiltes Geheimnis)
+```
+
+Die Folge, die man vor allem anderen verstehen sollte: **Es gibt keine zweite
+Anmeldung.** Eine WordPress-Administratorin, die **Arbeitszeiten** öffnet, ist
+für wpcalc bereits authentifiziert — PHP hat ihre Berechtigung geprüft und
+bürgt mit einer Signatur für sie, die wpcalc überprüfen kann.
+
+### Das Plugin installieren
+
 Die Binärdatei enthält das Plugin und kann sich selbst installieren:
 
 ```sh
@@ -501,63 +525,427 @@ wpcalc plugin export /var/www/html/wp-content/plugins
 ```
 
 Das schreibt `wpcalc/wpcalc.php` und `wpcalc/bin/wpcalc` — eine Kopie genau der
-Binärdatei, die den Befehl ausgeführt hat, wodurch beide Teile
-zusammenpassen. Anschliessend **wpcalc** in WordPress aktivieren und im
-Admin-Menü **Arbeitszeiten** öffnen.
+Binärdatei, die den Befehl ausgeführt hat, wodurch beide Teile zusammenpassen.
+Anschliessend **wpcalc** in WordPress aktivieren und im Admin-Menü
+**Arbeitszeiten** öffnen.
 
-Ein bestehendes Plugin-Verzeichnis wird nicht ohne `--force` überschrieben.
-`--php-only` schreibt nur die PHP-Datei, für den Fall, dass der Sidecar
-systemweit installiert ist und der Pfad in den Einstellungen steht.
+- `--force` überschreibt ein bestehendes Plugin-Verzeichnis; ohne diese Option
+  bricht der Export ab, statt es zu überschreiben.
+- `--php-only` schreibt nur die PHP-Datei, für den Fall, dass der Sidecar
+  systemweit installiert ist und sein Pfad in den Einstellungen steht.
 
 Die WordPress-E2E-Tests binden das exportierte Plugin ein, nicht das
 Quellverzeichnis — ein kaputter Export lässt also die Tests scheitern, statt
 unbemerkt zu bleiben.
 
-Das Plugin startet die Binärdatei bei Bedarf als Sidecar, überwacht sie und
-leitet Anfragen mit einer signierten Aussage über den aktuellen
-WordPress-Benutzer weiter. Der Zugriff erfordert die Berechtigung
-`manage_options`; schreibende Anfragen tragen eine WordPress-Nonce.
+Ohne Shell-Zugang packen Sie das exportierte Verzeichnis `wpcalc/` in ein ZIP
+und verwenden **Plugins → Installieren → Plugin hochladen**. PHP's eigener
+ZIP-Entpacker stellt das Unix-Ausführungs-Bit nicht zuverlässig wieder her,
+deshalb setzt das Plugin beim ersten Start selbst `chmod +x` auf die
+Binärdatei — dieser Weg ist vorgesehen und abgedeckt.
 
-Die Laufzeitdateien liegen in `wp-content/uploads/wpcalc/` — Datenbank, Socket,
-PID-Datei und Log. Das Plugin legt dort eine `.htaccess` ab, die den Zugriff
-verweigert; **ignoriert Ihr Server `.htaccess`, sperren Sie dieses Verzeichnis
-selbst**, sonst ist die Datenbank herunterladbar.
+### Laufzeitdateien
 
-**wpcalc → Einstellungen** zeigt, ob der Dienst läuft, ob die Binärdatei
-vorhanden und ausführbar ist, ob `proc_open` und `curl` verfügbar sind, die
-Laufzeitpfade sowie die letzten Zeilen des Logs. Dort lässt sich der Dienst
-auch neu starten und das geteilte Geheimnis neu erzeugen.
+Alles, was dem Sidecar gehört, liegt in `wp-content/uploads/wpcalc/`:
 
-Voraussetzungen: PHP 8.1+, WordPress 6.4+, aktiviertes `proc_open`, die
-`curl`-Erweiterung mit Unix-Socket-Unterstützung. Ist `proc_open` deaktiviert,
-sagt die Admin-Seite das, statt stillschweigend zu scheitern.
+| Datei | Was sie ist |
+|---|---|
+| `wpcalc.db` | die SQLite-Datenbank — **Ihre gesamten Daten** |
+| `wpcalc.sock` | der Unix-Socket, über den das Plugin spricht |
+| `wpcalc.pid` | die Prozess-ID des überwachten Diensts |
+| `wpcalc.log` | das Log des Sidecars, sichtbar in den Einstellungen |
 
-### Der Frontend-Shortcode `[wpcalc]`
+Das Plugin legt dort beim ersten Start eine `.htaccess` (`Require all denied`)
+und eine `index.php` ab. **Ignoriert Ihr Server `.htaccess` — nginx tut das —,
+sperren Sie dieses Verzeichnis selbst.** Sonst ist `wpcalc.db` eine
+herunterladbare URL, und sie enthält jede Stunde und jeden Passwort-Hash.
 
-`[wpcalc]` auf einer beliebigen Seite oder einem Beitrag platziert, zeigt
-einer angemeldeten WordPress-Person *ihre eigenen* Stunden dort an — ganz
-ohne Berechtigung `manage_options` und ohne wp-admin-Zugriff — für
-Mitarbeitende mit einem WordPress-Login, die aber nie das Backend sehen
-sollen.
+Unter nginx:
 
-Es zeigt erst dann etwas an, wenn der WordPress-Benutzername mit einem
-wpcalc-Konto verknüpft ist, das eine mitarbeiterbezogene Rolle hält, via
-`wpcalcctl`:
-
-```sh
-wpcalcctl user add alice
-wpcalcctl user grant alice \\
-  -tenant 8f14e45f-ceea-4c2b-9b1a-1d7f3a6c50e2 \\
-  -employee 3c9a70b1-2d84-4f6e-8a15-b7c2e9d40f83 -role viewer   # oder "editor" für Eingabe
+```nginx
+location ^~ /wp-content/uploads/wpcalc/ { deny all; return 404; }
 ```
 
-Was die Rolle dieses Kontos abdeckt, zeigt der Shortcode an — eine
-Mitarbeiterspalte bei einer mitarbeiterbezogenen Rolle, mehr bei einer
-breiteren — dieselbe RBAC96-Eingrenzung, die das Admin-Raster bereits
-durchsetzt. Eine nicht verknüpfte WordPress-Person weicht auf wpcalcs
-eigenes Login-Formular aus (ein zweites, separates Login), statt eine leere
-Seite zu sehen; dieser Notausgang gilt für noch nicht verknüpfte Konten,
-nicht als vorgesehener Weg.
+### Wie angemeldete WordPress-Benutzer zugeordnet werden
+
+Das ist der Teil, der entscheidet, was jede Person sieht — und er funktioniert
+für die beiden Zugänge unterschiedlich.
+
+#### Die zwei Türen
+
+| | **wp-admin** (`Arbeitszeiten`) | **Shortcode `[wpcalc]`** |
+|---|---|---|
+| Wer hindurchkommt | wer `manage_options` hat | jede angemeldete WordPress-Person |
+| Behaupteter Scope | `admin` | `self` |
+| wpcalc-Konto nötig | **nein** | **ja** — muss verknüpft sein |
+| Resultierender Zugriff | Vollzugriff auf alles | genau das, was die Rollen des verknüpften Kontos gewähren |
+| Wenn nicht verknüpft | entfällt | fällt auf wpcalcs eigenes Anmeldeformular zurück |
+
+**Die Admin-Tür ordnet überhaupt nichts zu.** PHP prüft vor dem Weiterleiten
+`current_user_can('manage_options')`, und wpcalc behandelt das Ergebnis als
+Identität mit Vollzugriff. Jede WordPress-Rolle mit dieser Berechtigung zählt —
+eine eigene Rolle, der `manage_options` erteilt wurde, gilt genauso viel wie
+`administrator`. Der Benutzername wird für Anzeige und Protokollierung
+mitgeführt; die WordPress-Rollenliste ebenfalls, aber wpcalc zieht sie auf
+diesem Weg **nicht** zur Autorisierung heran. Nichts zu konfigurieren, nichts
+zu verknüpfen.
+
+**Die Shortcode-Tür ordnet über den Benutzernamen zu.** Das ist die ganze
+Regel:
+
+> wpcalc sucht ein Konto, dessen `username` dem WordPress-`user_login`
+> entspricht — verglichen **ohne Beachtung von Gross-/Kleinschreibung** und mit
+> abgeschnittenen Leerzeichen. Welche RBAC-Rollen dieses wpcalc-Konto hält, ist
+> genau das, was die Person sieht. Gibt es kein solches Konto — oder existiert
+> es, hält aber gar keine Rolle —, gilt die Anfrage als nicht verknüpft.
+
+Beachten Sie, was *nicht* verwendet wird: Die WordPress-**Rolle** der Person
+(`subscriber`, `editor`, `author`, …) hat keinerlei Einfluss darauf, was sie in
+wpcalc sieht. Die signierten Header führen sie mit, aber nur damit sie nicht
+manipuliert werden kann; die Autorisierung stammt vollständig aus wpcalcs
+eigenen Rollen und Zuweisungen (siehe
+[Mandanten und Rollen](#mandanten-und-rollen)). Eine WordPress-Administratorin,
+die *nicht* verknüpft ist, sieht auf der Shortcode-Seite das
+Rückfall-Anmeldeformular — obwohl dieselbe Person über wp-admin Vollzugriff
+hat.
+
+Und es ist ausdrücklich `user_login` — der Name, den jemand zum Anmelden
+eintippt — nicht der Anzeigename, nicht der Spitzname und nicht die
+E-Mail-Adresse.
+
+#### Jemanden verknüpfen, von Anfang bis Ende
+
+Angenommen, eine Person meldet sich in WordPress als `alice` an und ist die
+Mitarbeiterin «Alice Müller».
+
+Zuerst brauchen Sie die ID der mitarbeitenden Person, eine UUID. Einen Befehl
+`wpcalcctl employee` gibt es nicht — Mitarbeitende werden in der Oberfläche
+verwaltet —, lesen Sie die ID also aus einer dieser Quellen:
+
+- **Bildschirm «Mitarbeitende»**: Der *Bearbeiten*-Link enthält sie als
+  `…&wpcalc_path=%2Femployees%2F<uuid>%2Fedit`.
+- **Die API**, falls Sie ein Token haben:
+  `curl -H "Authorization: Bearer $TOKEN" \`
+  `  https://…/api/v1/tenants/<mandant-uuid>/employees`
+- **Die Datenbank**, auf dem Server:
+  `sqlite3 wpcalc.db "SELECT id, display_name FROM employees;"`
+
+Dann das Konto verknüpfen:
+
+```sh
+# 1. wpcalc-Konto anlegen, dessen Benutzername dem WordPress-user_login entspricht.
+wpcalcctl user add alice
+
+# 2. Ihm eine Rolle auf genau diese mitarbeitende Person erteilen.
+wpcalcctl user grant alice \
+  -tenant 8f14e45f-ceea-4c2b-9b1a-1d7f3a6c50e2 \
+  -employee 3c9a70b1-2d84-4f6e-8a15-b7c2e9d40f83 \
+  -role viewer          # oder «editor», damit sie ihre Stunden selbst erfasst
+```
+
+(Eine mitarbeiterbezogene Zuweisung nennt weiterhin ihren Mandanten — siehe
+[Einrichtung](#einrichtung).)
+
+Setzen Sie nun `[wpcalc]` auf eine beliebige Seite. Alice meldet sich wie
+gewohnt in WordPress an, öffnet diese Seite und sieht ihre eigene Spalte — ohne
+wp-admin, ohne `manage_options`, ohne zweites Passwort.
+
+`user add` fragt nach einem Passwort. Es wird ausschliesslich vom unten
+beschriebenen Rückfall-Anmeldeformular verwendet; wer verknüpft über den
+Shortcode kommt, tippt es nie. Setzen Sie etwas Langes und vergessen Sie es —
+oder geben Sie es heraus, wenn sich die Person zusätzlich direkt bei wpcalc
+anmelden können soll.
+
+Was die Rolle des Kontos abdeckt, ist das, was der Shortcode zeigt — eine
+einzelne Spalte bei einer mitarbeiterbezogenen Rolle, ein ganzer Mandant bei
+einer mandantenweiten — dieselbe RBAC96-Abgrenzung, die auch das Admin-Raster
+durchsetzt.
+
+#### Was passiert, wenn jemand nicht verknüpft ist
+
+Der Shortcode zeigt weder eine leere Seite noch einen Fehler. Er fällt auf
+**wpcalcs eigenes Anmeldeformular** zurück, eingebettet in Ihre Seite: ein
+zweites, getrenntes Kontosystem. Das ist ein Ausweichweg für Konten, die noch
+niemand verknüpft hat, und für Installationen, in denen die wpcalc-Benutzerliste
+bewusst nicht die WordPress-Benutzerliste ist. Es ist nicht der vorgesehene
+Weg — sehen Sie es dort, wo Sie es nicht erwarten, stimmt mit grosser
+Wahrscheinlichkeit der Benutzername nicht überein.
+
+So prüfen Sie eine Zuordnung schnell:
+
+```sh
+wpcalcctl user roles alice   # was alice erreicht; leer heisst faktisch «nicht verknüpft»
+```
+
+Ein Konto ohne Rollen wird genau wie ein fehlendes Konto behandelt, denn das
+Ergebnis wäre dasselbe: nichts Sichtbares.
+
+#### Die Vertrauensgrenze
+
+Der Sidecar glaubt der Aussage des Plugins nur, wenn **beides** zutrifft:
+
+1. **Die Anfrage kam über den Unix-Socket.** Signierte Header, die über einen
+   TCP-Listener eintreffen, werden rundweg abgelehnt, egal wie gültig die
+   Signatur ist — sonst würde ein kurzzeitig offener Port genügen, damit
+   irgendwer im Netz behauptet, Administrator zu sein. Das ist ein eigener,
+   protokollierter Fehlerfall, keine Weiterleitung zur Anmeldung.
+2. **Die Header tragen einen frischen HMAC-SHA256** über `user`, `roles`,
+   `timestamp` und `scope`, mit einem Geheimnis, das Plugin und Sidecar teilen.
+   Der Zeitstempel muss innerhalb von **5 Minuten** um die Uhr des Sidecars
+   liegen, damit ein mitgeschnittener Headersatz nicht unbegrenzt
+   wiederverwendet werden kann.
+
+Der Scope wird mitsigniert. Deshalb lässt sich eine `self`-Anfrage nicht durch
+Ändern eines Headers in eine `admin`-Anfrage verwandeln — die Signatur würde
+nicht mehr stimmen.
+
+Das geteilte Geheimnis wird bei der ersten Verwendung erzeugt (24 zufällige
+Bytes, hexadezimal) und in der WordPress-Option `wpcalc_shared_secret`
+gespeichert. Es wird nie mit einem Standardwert ausgeliefert, denn ein
+ausgelieferter Standardwert wäre auf jeder Installation weltweit derselbe. In
+den Einstellungen können Sie es neu erzeugen; der Sidecar startet dann mit dem
+neuen neu.
+
+### Was die Administration bereitstellen muss
+
+| Voraussetzung | Wozu sie nötig ist | Wo sie sichtbar wird |
+|---|---|---|
+| PHP **8.1+** | Sprachniveau des Plugins | lässt sich darunter nicht aktivieren |
+| WordPress **6.4+** | genutzte Admin-APIs | — |
+| `proc_open()` **aktiviert** | Starten und Überwachen des Sidecars | Zeile in den Einstellungen |
+| **curl** mit Unix-Socket-Unterstützung | jede Anfrage an den Sidecar (curl 7.40+, `CURLOPT_UNIX_SOCKET_PATH`) | Zeile in den Einstellungen |
+| Beschreibbares `wp-content/uploads/` | Datenbank, Socket, PID und Log liegen dort | Zeile in den Einstellungen |
+| Ein **dauerhaftes** Dateisystem | die Datenbank muss Deployments und Neustarts überleben | siehe Grundtypen unten |
+| Erlaubnis für einen **langlebigen Prozess** | der Sidecar überlebt die Anfrage, die ihn startete | siehe Grundtypen unten |
+| Setzbares **Ausführungs-Bit** | die Binärdatei muss startbar sein | meist automatisch erledigt |
+
+`manage_options` ist die Berechtigung, die die Admin-Seiten absichert;
+schreibende Anfragen tragen zusätzlich eine WordPress-Nonce.
+
+**wpcalc → Einstellungen** zeigt den Live-Zustand des meisten davon: ob der
+Dienst antwortet, ob die Binärdatei vorhanden und ausführbar ist, ob
+`proc_open` und `curl` verfügbar sind, die Laufzeitpfade sowie die letzten
+Zeilen des Logs. Dort lässt sich der Dienst auch neu starten und das geteilte
+Geheimnis neu erzeugen. Ist `proc_open` deaktiviert, sagt die Seite das
+deutlich, statt stillschweigend zu scheitern.
+
+### Vorabprüfung: fragen Sie Ihren Hoster, raten Sie nicht
+
+Hosting-Richtlinien unterscheiden sich je nach Anbieter, je nach Tarif und über
+die Zeit, und veröffentlichte Dokumentation ist oft veraltet. Verlassen Sie
+sich deshalb auf keine Tabelle — auch nicht auf die unten stehende —, sondern
+**fragen Sie den Host, auf dem Sie tatsächlich sind.**
+
+Speichern Sie dies als `wpcalc-preflight.php`:
+
+```php
+<?php
+// Ausführen mit:  wp eval-file wpcalc-preflight.php
+// oder nach wp-content/mu-plugins/ legen und eine Admin-Seite einmal laden.
+$out = [];
+$out['php'] = PHP_VERSION . (version_compare(PHP_VERSION, '8.1', '>=') ? ' OK' : ' ZU ALT');
+
+$disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
+$out['proc_open'] = function_exists('proc_open') ? 'OK'
+    : 'FEHLT' . (in_array('proc_open', $disabled, true) ? ' (in disable_functions)' : '');
+
+$cv = function_exists('curl_version') ? curl_version() : null;
+$out['curl'] = $cv ? $cv['version'] : 'FEHLT';
+$out['curl_unix_socket'] = ($cv && defined('CURLOPT_UNIX_SOCKET_PATH')
+    && version_compare($cv['version'], '7.40', '>=')) ? 'OK' : 'FEHLT';
+
+$up  = wp_upload_dir();
+$dir = trailingslashit($up['basedir']) . 'wpcalc';
+if (!is_dir($dir)) { @wp_mkdir_p($dir); }
+$out['uploads_writable'] = is_writable($dir) ? "OK ($dir)" : "NICHT BESCHREIBBAR ($dir)";
+
+// Kann dieser Host eine Datei ausführen, die wir selbst abgelegt haben?
+$probe = $dir . '/probe.sh';
+@file_put_contents($probe, "#!/bin/sh\necho alive\n");
+@chmod($probe, 0755);
+$out['exec_bit'] = is_executable($probe) ? 'OK' : 'AUSFUEHRUNGS-BIT NICHT SETZBAR';
+if (function_exists('proc_open')) {
+    $p = @proc_open([$probe], [1 => ['pipe','w'], 2 => ['pipe','w']], $pipes, $dir);
+    if (is_resource($p)) {
+        $said = trim((string) stream_get_contents($pipes[1]));
+        foreach ($pipes as $pipe) { @fclose($pipe); }
+        proc_close($p);
+        $out['can_spawn'] = ($said === 'alive') ? 'OK' : "UNERWARTETE AUSGABE: $said";
+    } else {
+        $out['can_spawn'] = 'proc_open VERWEIGERT';
+    }
+}
+@unlink($probe);
+
+$out['open_basedir'] = ini_get('open_basedir') ?: '(keines)';
+foreach ($out as $k => $v) { echo str_pad($k, 20) . ": $v\n"; }
+```
+
+So lesen Sie das Ergebnis:
+
+- **Alles `OK`** → das mitgelieferte Sidecar-Modell funktioniert. Normal
+  installieren.
+- **`proc_open FEHLT` oder `can_spawn` verweigert** → das Plugin kann den
+  Sidecar nicht *starten*, aber einen von jemand anderem gestarteten weiterhin
+  *nutzen*. Siehe [Den Sidecar selbst betreiben](#den-sidecar-selbst-betreiben).
+- **`curl_unix_socket FEHLT`** → dafür gibt es im Plugin keinen Ausweg; das
+  Transportmittel selbst fehlt. Betreiben Sie wpcalc stattdessen eigenständig
+  und verlinken Sie darauf.
+- **`uploads_writable NICHT BESCHREIBBAR`** oder ein einschränkendes
+  `open_basedir` → die Datenbank hat unter der aktuellen Konfiguration keinen
+  Platz.
+- **`exec_bit AUSFUEHRUNGS-BIT NICHT SETZBAR`** → typischerweise eine
+  `noexec`-Einhängung auf `wp-content/uploads`. Legen Sie die Binärdatei an
+  einen ausführbaren Ort und tragen Sie den Pfad in den Einstellungen ein.
+
+### Hosting-Grundtypen
+
+Die unten genannten Produkte sind **Beispiele für eine Bauform**, keine
+Kompatibilitätstabelle — Tarife unterscheiden sich, Voreinstellungen ändern
+sich, und jedes davon lässt sich abweichend konfigurieren. Die verlässliche
+Antwort liefert die Vorabprüfung.
+
+**1. Eigener Server oder VPS** — Hetzner, DigitalOcean, Linode, Vultr, AWS
+EC2/Lightsail, eine Maschine im Schrank. Sie haben root, `proc_open` ist aktiv,
+das Dateisystem ist dauerhaft. Alles funktioniert unverändert, und Sie haben
+zusätzlich die Möglichkeit, den Sidecar unter systemd zu betreiben — die
+robustere Anordnung für alles Langlebige.
+
+**2. Klassisches Shared Hosting (cPanel-/Plesk-Linie)** — SiteGround,
+Hostinger, IONOS, Bluehost, HostGator, DreamHost, Namecheap, A2. Das
+Dateisystem ist dauerhaft und `wp-content/uploads` beschreibbar, die Datenseite
+ist also unproblematisch. Die Variable ist PHPs `disable_functions`:
+`proc_open` und `exec` sind in solchen Tarifen häufig standardmässig
+deaktiviert — und ebenso häufig wieder aktivierbar, entweder selbst über den
+**MultiPHP INI Editor** in cPanel oder eine `.user.ini`, oder auf Anfrage beim
+Support. Diese Bitte ist angemessen und wird für eine benannte Funktion auf
+einem bestimmten Konto meist gewährt. Wird sie abgelehnt, haben Sie auch kein
+systemd; dann bleibt praktisch Grundtyp 4.
+
+**3. Managed-WordPress-Plattformen** — WP Engine, Kinsta, Pressable, Flywheel,
+WordPress.com (ab Business, wo Plugins überhaupt erlaubt sind). Diese betreiben
+WordPress in einem kontrollierten Container mit bewusst gehärtetem PHP, und das
+ganze Produktversprechen lautet, dass Sie auf deren Infrastruktur keine
+beliebigen Prozesse ausführen. Rechnen Sie damit, dass langlebige Sidecars
+nicht verfügbar sind und dass das Dateisystem ausserhalb von `uploads/` beim
+Deployment zurückgesetzt wird. Der Support wird das Starten von Prozessen in
+aller Regel nicht freischalten, denn genau dessen Abwesenheit wird verkauft.
+**Kämpfen Sie nicht dagegen an** — betreiben Sie wpcalc eigenständig anderswo
+(Grundtyp 1 ist dafür günstig) und behandeln Sie WordPress als blossen Ort, an
+dem Leute auf einen Link klicken.
+
+**4. Container und PaaS** — Platform.sh, Docker-/Kubernetes-Images, DDEV und
+Lando lokal. Das Dateisystem ist ausserhalb deklarierter Mounts meist flüchtig
+oder nur lesbar, und der PHP-Container ist nicht der Ort für einen zweiten
+Daemon. Naheliegend ist, wpcalc als **eigenen Container/Dienst** zu betreiben
+und den Socket über ein Volume zu teilen — oder im eigenständigen Modus über
+das Netz mit ihm zu sprechen. Was Sie in `uploads/` ablegen, muss auf einem
+deklarierten dauerhaften Mount liegen, sonst ist Ihre Datenbank beim nächsten
+Deployment weg.
+
+### Den Sidecar selbst betreiben
+
+Kann PHP den Sidecar nicht starten, aber weiterhin einen Socket erreichen, dann
+betreiben Sie wpcalc als Systemdienst und lassen das Plugin ihn einfach finden.
+Das funktioniert, weil das Plugin zuerst prüft, ob der Socket **bereits
+antwortet**, bevor es überhaupt etwas zu starten versucht — ein gesunder Socket
+überspringt den `proc_open`-Weg vollständig.
+
+Drei Dinge müssen exakt zusammenpassen:
+
+1. **Der Socket-Pfad.** Das Plugin schaut immer auf
+   `<uploads>/wpcalc/wpcalc.sock`, und das ist nicht konfigurierbar — richten
+   Sie Ihren Dienst genau auf diesen Pfad aus.
+2. **Das geteilte Geheimnis.** Der Sidecar braucht `WPCALC_SECRET` mit dem Wert
+   aus der WordPress-Option `wpcalc_shared_secret`, sonst scheitert jede
+   weitergeleitete Anfrage an der Prüfung.
+3. **Der Datenbankpfad**, damit beide Hälften dieselbe Datei als Daten ansehen.
+
+```sh
+# Das von WordPress erzeugte Geheimnis:
+wp option get wpcalc_shared_secret
+```
+
+```ini
+# /etc/systemd/system/wpcalc.service
+[Unit]
+Description=wpcalc sidecar
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+Environment=WPCALC_SECRET=<Wert aus wp option get>
+Environment=WPCALC_BASE_PATH=https://example.com/wp-admin/admin.php?page=wpcalc
+Environment=WPCALC_LINK_PARAM=wpcalc_path
+ExecStart=/usr/local/bin/wpcalc serve \
+  --socket /var/www/html/wp-content/uploads/wpcalc/wpcalc.sock \
+  --db     /var/www/html/wp-content/uploads/wpcalc/wpcalc.db
+Restart=on-failure
+UMask=0007
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```sh
+sudo systemctl enable --now wpcalc
+```
+
+Der Socket muss für den PHP-Prozess les- und schreibbar sein (oben `www-data` —
+passen Sie das an den Benutzer Ihres PHP-FPM-Pools an). `WPCALC_BASE_PATH` und
+`WPCALC_LINK_PARAM` sorgen dafür, dass Links und Weiterleitungen innerhalb der
+Anwendung wieder auf die WordPress-Admin-Seite zeigen statt auf blosse Pfade;
+der Frontend-Shortcode sendet seinen Basispfad pro Anfrage mit und hängt nicht
+davon ab.
+
+Läuft der Dienst, setzen Sie **wpcalc → Einstellungen → Pfad zur Binärdatei**
+auf dieselbe Binärdatei, damit die dort angezeigte Version zu dem passt, was
+tatsächlich ausliefert.
+
+### Einen noch nicht dokumentierten Hoster angehen
+
+1. **Führen Sie die Vorabprüfung aus.** Sie beantwortet auf der Maschine, auf
+   die es ankommt, die fünf Fragen, auf die sich jeder Host reduzieren lässt:
+   PHP-Version, kann er Prozesse starten, kann er über einen Unix-Socket
+   sprechen, kann er Dateien schreiben und behalten, kann er ein
+   Ausführungs-Bit setzen.
+2. **Ordnen Sie sich anhand der Ausgabe einer von drei Bauformen zu**:
+   mitgelieferter Sidecar (alles OK), fremdverwalteter Sidecar (`proc_open`
+   blockiert, Socket in Ordnung) oder vollständig eigenständig
+   (Socket-Transport fehlt, oder das Dateisystem ist nicht dauerhaft).
+3. **Brauchen Sie `proc_open`, fragen Sie präzise.** Ein Ticket mit «Bitte
+   entfernen Sie `proc_open` für dieses Konto aus `disable_functions`» bekommt
+   ein Ja oder ein Nein. «Mein Plugin geht nicht» bekommt keines. Fragen Sie im
+   selben Zug nach `open_basedir` und nach `noexec` auf dem
+   uploads-Einhängepunkt.
+4. **Prüfen Sie die Dauerhaftigkeit, bevor Sie ihr trauen.** Deployen oder
+   starten Sie einmal neu, mit einem Datensatz in der Datenbank, und
+   kontrollieren Sie, ob er noch da ist. Auf jeder Plattform, die Container neu
+   baut, ist das der Fehler, der echte Daten kostet — und er bleibt still, bis
+   er es nicht mehr ist.
+5. **Bestätigen Sie, dass das Verzeichnis nicht über das Web lesbar ist.** Rufen
+   Sie `https://ihre-seite/wp-content/uploads/wpcalc/wpcalc.db` in einem
+   abgemeldeten Browser auf. Erwartet wird 403 oder 404. Alles andere heisst,
+   dass `.htaccess` ignoriert wird und Sie im Webserver sperren müssen.
+6. **Im Zweifel trennen Sie die Installation.** wpcalc eigenständig auf einem
+   kleinen Server mit einem Reverse-Proxy davor ist ein vollwertiger,
+   unterstützter Betriebsweg — das WordPress-Plugin ist eine Bequemlichkeit,
+   keine Voraussetzung. Nichts in `internal/httpx` weiss, in welchem Modus es
+   läuft.
+
+### Fehlersuche zu WordPress
+
+| Symptom | Wahrscheinliche Ursache |
+|---|---|
+| «proc_open() is disabled on this host» | Grundtyp 2 oder 3; Support fragen oder den Sidecar selbst betreiben |
+| 503 auf der Admin-Seite | Sidecar startet nicht — `wpcalc.log` in den Einstellungen lesen |
+| 502 «service is not responding» | Socket existiert, aber niemand lauscht; veraltete `wpcalc.sock` nach einem Absturz |
+| Shortcode zeigt ein Anmeldeformular | zum WordPress-`user_login` gibt es kein passendes wpcalc-Konto, oder es hält keine Rollen |
+| Shortcode zeigt verknüpften Personen nichts Brauchbares | Konto ist verknüpft, aber seine Rolle gewährt nichts — `wpcalcctl user roles <name>` prüfen |
+| Anfrage mit signierten Headern abgelehnt, laut protokolliert | Header erreichten einen TCP-Listener; der Sidecar muss auf einem Unix-Socket liegen |
+| Lief, hörte nach einem Deployment auf | nicht dauerhaftes Dateisystem — Grundtyp 3 oder 4 |
+| Datenverlust / leeres Raster nach Hoster-Wechsel | `wpcalc.db` wurde nicht mitkopiert; sie ist die gesamte Datenbank |
 
 ## Datenbank und Sicherung
 
