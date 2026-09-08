@@ -213,17 +213,22 @@ login` mit dem gerade von `token create` ausgegebenen Paar):
 wpcalcctl tenant add "Acme Corp"                           # -> Mandanten-Id, z. B. 2
 
 wpcalcctl user add bob
-wpcalcctl user grant bob -tenant 2 -role mandant_admin
+wpcalcctl user grant bob -tenant 8f14e45f-ceea-4c2b-9b1a-1d7f3a6c50e2 -role mandant_admin
 
 wpcalcctl user add carol
-wpcalcctl user grant carol -tenant 2 -employee 5 -role viewer
+wpcalcctl user grant carol \
+  -tenant 8f14e45f-ceea-4c2b-9b1a-1d7f3a6c50e2 \
+  -employee 3c9a70b1-2d84-4f6e-8a15-b7c2e9d40f83 -role viewer
 
 wpcalcctl user roles bob                                   # was bob erreichen kann
-wpcalcctl user revoke carol -tenant 2 -employee 5           # Rolle ändern: erst entziehen, dann neu zuweisen
+# Rolle ändern: erst entziehen, dann neu zuweisen
+wpcalcctl user revoke carol \
+  -tenant 8f14e45f-ceea-4c2b-9b1a-1d7f3a6c50e2 \
+  -employee 3c9a70b1-2d84-4f6e-8a15-b7c2e9d40f83
 ```
 
 Ein Konto hält höchstens eine Rolle pro Geltungsbereichs-**Instanz** —
-`-employee 5` zweimal mit unterschiedlichen Rollen wird abgelehnt; zuerst
+`-employee <id>` zweimal mit unterschiedlichen Rollen wird abgelehnt; zuerst
 entziehen. `-system`, `-tenant ID` allein, oder `-tenant ID -employee ID`
 zusammen verwenden — eine mitarbeiterbezogene Zuweisung braucht weiterhin
 ihren Mandanten, da `/api/v1` mitarbeiterbezogene Rollenzuweisungen unter
@@ -541,7 +546,9 @@ wpcalc-Konto verknüpft ist, das eine mitarbeiterbezogene Rolle hält, via
 
 ```sh
 wpcalcctl user add alice
-wpcalcctl user grant alice -employee 42 -role viewer   # oder "editor" für Eingabe
+wpcalcctl user grant alice \\
+  -tenant 8f14e45f-ceea-4c2b-9b1a-1d7f3a6c50e2 \\
+  -employee 3c9a70b1-2d84-4f6e-8a15-b7c2e9d40f83 -role viewer   # oder "editor" für Eingabe
 ```
 
 Was die Rolle dieses Kontos abdeckt, zeigt der Shortcode an — eine

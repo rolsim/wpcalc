@@ -94,13 +94,15 @@ December to January.
 match the screen.
 
 **Roles.** Create a second, employee-scoped account and grant it a role on
-one of the four sample employees — they already belong to the Default
-tenant (id 1) every fresh database starts with, so no tenant needs creating
-for this:
+one of the four sample employees — they already belong to the Default tenant
+every fresh database starts with, so no tenant needs creating for this. Ids
+are UUIDs, so read one out of the database first:
 
 ```sh
+sqlite3 test.db "SELECT id, display_name FROM employees;"
+
 ./wpcalc user add watcher -lang en --db test.db
-./wpcalc user grant watcher -employee 1 -role viewer --db test.db
+./wpcalc user grant watcher -employee <employee-uuid> -role viewer --db test.db
 ```
 
 Sign in as `watcher`: the "Employees" nav link is gone, `/employees` and the

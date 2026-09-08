@@ -9,10 +9,11 @@ import (
 
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
+	"uuid"
 )
 
 // tenant creates a tenant directly via the store and returns its id.
-func (ts *testServer) tenant(t *testing.T, name string) int64 {
+func (ts *testServer) tenant(t *testing.T, name string) uuid.UUID {
 	t.Helper()
 	id, err := ts.db.CreateTenant(t.Context(), name)
 	if err != nil {
@@ -23,7 +24,7 @@ func (ts *testServer) tenant(t *testing.T, name string) int64 {
 
 // employeeInTenant is ts.employee for an explicit tenant, for multi-tenant
 // tests where the default tenant 1 is not what is being exercised.
-func (ts *testServer) employeeInTenant(t *testing.T, tenantID int64, name, start, end string) int64 {
+func (ts *testServer) employeeInTenant(t *testing.T, tenantID uuid.UUID, name, start, end string) uuid.UUID {
 	t.Helper()
 	e := domain.Employee{TenantID: tenantID, DisplayName: name}
 	d, err := domain.ParseDate(start)
@@ -47,7 +48,7 @@ func (ts *testServer) employeeInTenant(t *testing.T, tenantID int64, name, start
 
 // mandantAdmin builds a mandant-admin identity for one tenant, already
 // active — mirrors what accounts.identityFor resolves for a real account.
-func mandantAdmin(tenantID int64) auth.Identity {
+func mandantAdmin(tenantID uuid.UUID) auth.Identity {
 	return auth.Identity{
 		Username:        "mandant",
 		ActiveTenantID:  &tenantID,
@@ -58,7 +59,7 @@ func mandantAdmin(tenantID int64) auth.Identity {
 
 // employeeScoped builds an identity holding roleID on exactly one employee,
 // active in tenantID (as the session would resolve once auto-selected).
-func employeeScoped(tenantID, employeeID int64, roleID string, permissions []string) auth.Identity {
+func employeeScoped(tenantID, employeeID uuid.UUID, roleID string, permissions []string) auth.Identity {
 	return auth.Identity{
 		Username:        "worker",
 		ActiveTenantID:  &tenantID,
@@ -71,14 +72,14 @@ func TestMandantAdminCannotReachAnotherTenant(t *testing.T) {
 	ts := newTestServer(t, nil) // admin, to set up two tenants
 	tenantB := ts.tenant(t, "Tenant B")
 	empB := ts.employeeInTenant(t, tenantB, "B Employee", "2026-01-01", "")
-	tenantA := int64(1) // the seeded Default tenant
+	tenantA := ts.defaultTenant(t)
 
 	ts.Server.authn = stubAuth{id: mandantAdmin(tenantA)}
 
 	if w := ts.get(t, "/employees"); w.Code != http.StatusOK {
 		t.Errorf("mandant-admin GET /employees (own tenant): status %d, want 200", w.Code)
 	}
-	if w := ts.get(t, "/tenants/2/access"); w.Code != http.StatusForbidden {
+	if w := ts.get(t, "/tenants/"+tenantB.String()+"/access"); w.Code != http.StatusForbidden {
 		t.Errorf("mandant-admin GET /tenants/{other}/access: status %d, want 403", w.Code)
 	}
 	if w := ts.get(t, "/employees/"+itoa(empB)+"/edit"); w.Code != http.StatusNotFound {
@@ -100,7 +101,7 @@ func TestMandantAdminCannotWriteHoursInAnotherTenant(t *testing.T) {
 	ts := newTestServer(t, nil) // admin, to set up the second tenant
 	tenantB := ts.tenant(t, "Tenant B")
 	empB := ts.employeeInTenant(t, tenantB, "B Employee", "2026-01-01", "")
-	tenantA := int64(1) // the seeded Default tenant
+	tenantA := ts.defaultTenant(t)
 
 	ts.Server.authn = stubAuth{id: mandantAdmin(tenantA)}
 
@@ -126,7 +127,7 @@ func TestMandantAdminCannotWriteHoursInAnotherTenant(t *testing.T) {
 func TestViewerCanReadButNotWriteOrPrint(t *testing.T) {
 	ts := newTestServer(t, nil)
 	empID := ts.employee(t, "Anna", "2026-01-01", "")
-	ts.Server.authn = stubAuth{id: employeeScoped(1, empID, "viewer", []string{"read"})}
+	ts.Server.authn = stubAuth{id: employeeScoped(ts.defaultTenant(t), empID, "viewer", []string{"read"})}
 
 	if w := ts.get(t, "/m/2026-07"); w.Code != http.StatusOK {
 		t.Fatalf("viewer GET grid: status %d, want 200", w.Code)
@@ -143,7 +144,7 @@ func TestViewerCanReadButNotWriteOrPrint(t *testing.T) {
 func TestReporterCanPrintButNotWrite(t *testing.T) {
 	ts := newTestServer(t, nil)
 	empID := ts.employee(t, "Anna", "2026-01-01", "")
-	ts.Server.authn = stubAuth{id: employeeScoped(1, empID, "reporter", []string{"read", "print"})}
+	ts.Server.authn = stubAuth{id: employeeScoped(ts.defaultTenant(t), empID, "reporter", []string{"read", "print"})}
 
 	if w := ts.get(t, "/report/employee/"+itoa(empID)+"/month/2026-07.pdf"); w.Code != http.StatusOK {
 		t.Errorf("reporter downloading a report: status %d, want 200", w.Code)
@@ -160,7 +161,7 @@ func TestViewerCannotWriteTheSharedDayComment(t *testing.T) {
 	// tenant-wide write permission (mandant-admin or above) may.
 	ts := newTestServer(t, nil)
 	empID := ts.employee(t, "Anna", "2026-01-01", "")
-	ts.Server.authn = stubAuth{id: employeeScoped(1, empID, "editor", []string{"read", "print", "write"})}
+	ts.Server.authn = stubAuth{id: employeeScoped(ts.defaultTenant(t), empID, "editor", []string{"read", "print", "write"})}
 
 	form := url.Values{"date": {"2026-07-14"}, "comment": {"Betriebsausflug"}}
 	if w := ts.post(t, "/m/2026-07/comment", form, true); w.Code != http.StatusForbidden {
@@ -171,7 +172,7 @@ func TestViewerCannotWriteTheSharedDayComment(t *testing.T) {
 func TestEditorCanWrite(t *testing.T) {
 	ts := newTestServer(t, nil)
 	empID := ts.employee(t, "Anna", "2026-01-01", "")
-	ts.Server.authn = stubAuth{id: employeeScoped(1, empID, "editor", []string{"read", "print", "write"})}
+	ts.Server.authn = stubAuth{id: employeeScoped(ts.defaultTenant(t), empID, "editor", []string{"read", "print", "write"})}
 
 	form := url.Values{"employee_id": {itoa(empID)}, "date": {"2026-07-14"}, "hours": {"7.75"}}
 	if w := ts.post(t, "/m/2026-07/hours", form, true); w.Code != http.StatusOK {
@@ -183,7 +184,7 @@ func TestEmployeeScopedRoleCannotTouchAnotherEmployee(t *testing.T) {
 	ts := newTestServer(t, nil)
 	own := ts.employee(t, "Own", "2026-01-01", "")
 	other := ts.employee(t, "Other", "2026-01-01", "")
-	ts.Server.authn = stubAuth{id: employeeScoped(1, own, "editor", []string{"read", "print", "write"})}
+	ts.Server.authn = stubAuth{id: employeeScoped(ts.defaultTenant(t), own, "editor", []string{"read", "print", "write"})}
 
 	form := url.Values{"employee_id": {itoa(other)}, "date": {"2026-07-14"}, "hours": {"7.75"}}
 	if w := ts.post(t, "/m/2026-07/hours", form, true); w.Code != http.StatusForbidden {
@@ -202,16 +203,16 @@ func TestEmployeeScopedRoleCannotTouchAnotherEmployee(t *testing.T) {
 func TestGridLocksCellsWithoutWritePermission(t *testing.T) {
 	ts := newTestServer(t, nil)
 	own := ts.employee(t, "Own", "2026-01-01", "")
-	ts.Server.authn = stubAuth{id: employeeScoped(1, own, "viewer", []string{"read"})}
+	ts.Server.authn = stubAuth{id: employeeScoped(ts.defaultTenant(t), own, "viewer", []string{"read"})}
 
 	month, err := domain.ParseYearMonth("2026-07")
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := httptest.NewRequest(http.MethodGet, "/m/2026-07", nil)
-	r = r.WithContext(auth.WithIdentity(r.Context(), employeeScoped(1, own, "viewer", []string{"read"})))
+	r = r.WithContext(auth.WithIdentity(r.Context(), employeeScoped(ts.defaultTenant(t), own, "viewer", []string{"read"})))
 
-	v, err := ts.Server.buildGridView(r, 1, month)
+	v, err := ts.Server.buildGridView(r, ts.defaultTenant(t), month)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +232,7 @@ func TestReportIndexNarrowsToPermittedEmployees(t *testing.T) {
 	ts := newTestServer(t, nil)
 	own := ts.employee(t, "Own Person", "2026-01-01", "")
 	ts.employee(t, "Other Person", "2026-01-01", "")
-	ts.Server.authn = stubAuth{id: employeeScoped(1, own, "reporter", []string{"read", "print"})}
+	ts.Server.authn = stubAuth{id: employeeScoped(ts.defaultTenant(t), own, "reporter", []string{"read", "print"})}
 
 	body := ts.get(t, "/reports?m=2026-07").Body.String()
 	if !strings.Contains(body, "Own Person") {
@@ -247,7 +248,8 @@ func TestUnlinkedNonAdminHasNoAccessAtAll(t *testing.T) {
 	// must fail closed, not open.
 	ts := newTestServer(t, nil)
 	empID := ts.employee(t, "Anna", "2026-01-01", "")
-	unlinked := auth.Identity{Username: "nobody", ActiveTenantID: tenantOnePtr()}
+	defaultID := ts.defaultTenant(t)
+	unlinked := auth.Identity{Username: "nobody", ActiveTenantID: &defaultID}
 	ts.Server.authn = stubAuth{id: unlinked}
 
 	if w := ts.get(t, "/employees"); w.Code != http.StatusForbidden {
@@ -293,11 +295,11 @@ func TestTenantChooserShowsWhenMultipleTenantsAccessible(t *testing.T) {
 }
 
 func TestTenantChooserSkippedWithOneAccessibleTenant(t *testing.T) {
-	// mandantAdmin(1) has exactly one accessible tenant and is already
+	// mandantAdmin(ts.defaultTenant(t)) has exactly one accessible tenant and is already
 	// active in it — this is the common case and must never redirect.
 	ts := newTestServer(t, nil)
 	ts.employee(t, "Anna", "2026-01-01", "")
-	ts.Server.authn = stubAuth{id: mandantAdmin(1)}
+	ts.Server.authn = stubAuth{id: mandantAdmin(ts.defaultTenant(t))}
 
 	if w := ts.get(t, "/m/2026-07"); w.Code != http.StatusOK {
 		t.Errorf("status %d, want 200 (no chooser redirect)", w.Code)
@@ -353,7 +355,7 @@ func TestWordPressFullAccessIdentityIsUnrestricted(t *testing.T) {
 func TestNavHidesAdminLinksForNonAdmin(t *testing.T) {
 	ts := newTestServer(t, nil)
 	empID := ts.employee(t, "Anna", "2026-01-01", "")
-	ts.Server.authn = stubAuth{id: employeeScoped(1, empID, "viewer", []string{"read"})}
+	ts.Server.authn = stubAuth{id: employeeScoped(ts.defaultTenant(t), empID, "viewer", []string{"read"})}
 
 	body := ts.get(t, "/m/2026-07").Body.String()
 	if strings.Contains(body, `href="/employees"`) {

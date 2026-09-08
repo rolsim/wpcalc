@@ -9,38 +9,46 @@ import (
 	"time"
 
 	"github.com/rolsim/wpcalc/internal/domain"
+	"uuid"
 )
 
 // fakeUserStore lets the account authenticator be tested without a database.
 type fakeUserStore struct {
 	users        map[string]domain.User
-	userRoles    map[int64][]domain.UserRole
+	userRoles    map[uuid.UUID][]domain.UserRole
 	rolePerms    map[string][]string
-	langs        map[int64]string
+	langs        map[uuid.UUID]string
 	password     string
-	sessions     map[string]int64
+	sessions     map[string]uuid.UUID
 	expiries     map[string]time.Time
-	activeTenant map[string]*int64
+	activeTenant map[string]*uuid.UUID
 	failNext     error
 }
+
+// Fixture ids. Any distinct UUIDs will do — they are named so the assertions
+// below still read as "alice" and "bob" rather than as two hex strings.
+var (
+	aliceID = uuid.NewV4()
+	bobID   = uuid.NewV4()
+)
 
 func newFakeStore() *fakeUserStore {
 	return &fakeUserStore{
 		users: map[string]domain.User{
-			"alice": {ID: 1, Username: "alice"},
-			"bob":   {ID: 2, Username: "bob"},
+			"alice": {ID: aliceID, Username: "alice"},
+			"bob":   {ID: bobID, Username: "bob"},
 		},
-		userRoles: map[int64][]domain.UserRole{
-			1: {{ID: 1, UserID: 1, RoleID: "super_admin"}}, // system-scope: alice is the admin
+		userRoles: map[uuid.UUID][]domain.UserRole{
+			aliceID: {{ID: uuid.NewV4(), UserID: aliceID, RoleID: "super_admin"}}, // system-scope: alice is the admin
 		},
 		rolePerms: map[string][]string{
 			"super_admin": {"manage_tenants", "manage_roles", "manage_employees", "manage_users", "read", "print", "write"},
 		},
 		password:     "correct-horse-battery",
-		sessions:     map[string]int64{},
+		sessions:     map[string]uuid.UUID{},
 		expiries:     map[string]time.Time{},
-		activeTenant: map[string]*int64{},
-		langs:        map[int64]string{},
+		activeTenant: map[string]*uuid.UUID{},
+		langs:        map[uuid.UUID]string{},
 	}
 }
 
@@ -52,7 +60,7 @@ func (f *fakeUserStore) Authenticate(_ context.Context, username, password strin
 	return u, nil
 }
 
-func (f *fakeUserStore) SessionByToken(_ context.Context, token string) (domain.User, *int64, error) {
+func (f *fakeUserStore) SessionByToken(_ context.Context, token string) (domain.User, *uuid.UUID, error) {
 	id, ok := f.sessions[token]
 	if !ok {
 		return domain.User{}, nil, errors.New("no session")
@@ -68,7 +76,7 @@ func (f *fakeUserStore) SessionByToken(_ context.Context, token string) (domain.
 	return domain.User{}, nil, errors.New("orphan session")
 }
 
-func (f *fakeUserStore) CreateSession(_ context.Context, token string, userID int64, expires time.Time) error {
+func (f *fakeUserStore) CreateSession(_ context.Context, token string, userID uuid.UUID, expires time.Time) error {
 	if f.failNext != nil {
 		err := f.failNext
 		f.failNext = nil
@@ -79,7 +87,7 @@ func (f *fakeUserStore) CreateSession(_ context.Context, token string, userID in
 	return nil
 }
 
-func (f *fakeUserStore) SetUserLanguage(_ context.Context, userID int64, lang string) error {
+func (f *fakeUserStore) SetUserLanguage(_ context.Context, userID uuid.UUID, lang string) error {
 	for name, u := range f.users {
 		if u.ID == userID {
 			u.Language = lang
@@ -91,7 +99,7 @@ func (f *fakeUserStore) SetUserLanguage(_ context.Context, userID int64, lang st
 	return errors.New("no such user")
 }
 
-func (f *fakeUserStore) SetActiveTenant(_ context.Context, token string, tenantID *int64) error {
+func (f *fakeUserStore) SetActiveTenant(_ context.Context, token string, tenantID *uuid.UUID) error {
 	if _, ok := f.sessions[token]; !ok {
 		return errors.New("no session")
 	}
@@ -99,7 +107,7 @@ func (f *fakeUserStore) SetActiveTenant(_ context.Context, token string, tenantI
 	return nil
 }
 
-func (f *fakeUserStore) UserRolesForUser(_ context.Context, userID int64) ([]domain.UserRole, error) {
+func (f *fakeUserStore) UserRolesForUser(_ context.Context, userID uuid.UUID) ([]domain.UserRole, error) {
 	return f.userRoles[userID], nil
 }
 
@@ -220,7 +228,7 @@ func TestAccountsPermissionsAreTakenFromTheStoreNotTheCookie(t *testing.T) {
 	}
 
 	// Promote in the store; the same cookie must now report the new access.
-	store.userRoles[2] = []domain.UserRole{{ID: 2, UserID: 2, RoleID: "super_admin"}}
+	store.userRoles[bobID] = []domain.UserRole{{ID: uuid.NewV4(), UserID: bobID, RoleID: "super_admin"}}
 	if id, _ := a.Identify(r); !id.CanSystemWide("manage_tenants") {
 		t.Error("a role change in the store did not reach the identity")
 	}
@@ -244,7 +252,7 @@ func TestAccountsIdentifyRejectsUnknownAndExpiredTokens(t *testing.T) {
 	}
 
 	// Expired.
-	store.sessions["old"] = 1
+	store.sessions["old"] = aliceID
 	store.expiries["old"] = time.Now().Add(-time.Minute)
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.AddCookie(&http.Cookie{Name: CookieName, Value: "old"})
@@ -306,7 +314,7 @@ func TestIdentityCarriesTheStoredLanguage(t *testing.T) {
 	// The preference has to reach the identity, or every handler would need a
 	// second query to find out which language to render in.
 	store := newFakeStore()
-	store.users["alice"] = domain.User{ID: 1, Username: "alice", Language: "en"}
+	store.users["alice"] = domain.User{ID: aliceID, Username: "alice", Language: "en"}
 	a := NewAccounts(store)
 
 	w := httptest.NewRecorder()
@@ -381,7 +389,7 @@ func TestSetActiveTenantPersistsAndReachesIdentity(t *testing.T) {
 		return r
 	}
 
-	tenantID := int64(7)
+	tenantID := uuid.NewV4()
 	if err := a.SetActiveTenant(req(), &tenantID); err != nil {
 		t.Fatalf("SetActiveTenant: %v", err)
 	}
@@ -390,14 +398,14 @@ func TestSetActiveTenantPersistsAndReachesIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	if id.ActiveTenantID == nil || *id.ActiveTenantID != tenantID {
-		t.Errorf("ActiveTenantID = %v, want %d", id.ActiveTenantID, tenantID)
+		t.Errorf("ActiveTenantID = %v, want %s", id.ActiveTenantID, tenantID)
 	}
 }
 
 func TestSetActiveTenantRequiresASession(t *testing.T) {
 	a := NewAccounts(newFakeStore())
 	r := httptest.NewRequest(http.MethodPost, "/tenant", nil)
-	tenantID := int64(1)
+	tenantID := uuid.NewV4()
 	if err := a.SetActiveTenant(r, &tenantID); !errors.Is(err, ErrUnauthenticated) {
 		t.Errorf("SetActiveTenant with no session: %v, want ErrUnauthenticated", err)
 	}

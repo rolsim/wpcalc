@@ -3,18 +3,18 @@ package httpx
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/rolsim/wpcalc/internal/domain"
+	"uuid"
 )
 
 // bearerFor issues a real API token for an existing account — unlike
 // bearer(t, username), which also creates the account and grants it
 // super_admin, this is for tests that already control the account (e.g. a
 // freshly created non-admin user) and just need a token for it.
-func (ts *testServer) bearerFor(t *testing.T, userID int64, name string) string {
+func (ts *testServer) bearerFor(t *testing.T, userID uuid.UUID, name string) string {
 	t.Helper()
 	token, _, _, err := ts.db.CreateAPIToken(t.Context(), userID, name)
 	if err != nil {
@@ -27,11 +27,14 @@ func TestAPIv1UpdateTenantRenames(t *testing.T) {
 	ts := newTestServer(t, nil)
 	token := ts.bearer(t, "api-admin")
 
-	w := ts.apiDo(t, http.MethodPatch, "/api/v1/tenants/1", token, `{"name":"Acme Renamed"}`)
+	// Captured before the rename: defaultTenant finds the tenant by name, and
+	// this test is about changing that name.
+	tenantID := ts.defaultTenant(t)
+	w := ts.apiDo(t, http.MethodPatch, "/api/v1/tenants/"+tenantID.String(), token, `{"name":"Acme Renamed"}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d, want 200: %s", w.Code, w.Body.String())
 	}
-	tenant, err := ts.db.Tenant(t.Context(), 1)
+	tenant, err := ts.db.Tenant(t.Context(), tenantID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +168,7 @@ func TestAPIv1TokenSelfService(t *testing.T) {
 		t.Fatalf("create: status %d: %s", w.Code, w.Body.String())
 	}
 	var created struct {
-		AccessTokenId int64  `json:"accessTokenId"`
+		AccessTokenId string `json:"accessTokenId"`
 		AccessToken   string `json:"accessToken"`
 		RefreshToken  string `json:"refreshToken"`
 		Name          string `json:"name"`
@@ -206,7 +209,7 @@ func TestAPIv1TokenSelfService(t *testing.T) {
 	}
 
 	// bob revokes it himself.
-	revokePath := "/api/v1/tokens/" + strconv.FormatInt(created.AccessTokenId, 10)
+	revokePath := "/api/v1/tokens/" + created.AccessTokenId
 	if w := ts.apiDo(t, http.MethodDelete, revokePath, firstToken, ""); w.Code != http.StatusNoContent {
 		t.Fatalf("revoke: status %d: %s", w.Code, w.Body.String())
 	}
@@ -236,7 +239,7 @@ func TestAPIv1RefreshTokenFlow(t *testing.T) {
 		t.Fatalf("refresh: status %d: %s", w.Code, w.Body.String())
 	}
 	var pair struct {
-		AccessTokenId int64  `json:"accessTokenId"`
+		AccessTokenId string `json:"accessTokenId"`
 		AccessToken   string `json:"accessToken"`
 		RefreshToken  string `json:"refreshToken"`
 		Name          string `json:"name"`
@@ -315,11 +318,11 @@ func TestAPIv1CannotRevokeAnotherAccountsToken(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &tokens); err != nil {
 		t.Fatal(err)
 	}
-	bobsTokenID := int64(tokens[0]["id"].(float64))
+	bobsTokenID := tokens[0]["id"].(string)
 
 	// A system-wide admin still cannot revoke bob's token through the
 	// API — ownership is checked before RevokeAPIToken is ever called.
-	revokePath := "/api/v1/tokens/" + strconv.FormatInt(bobsTokenID, 10)
+	revokePath := "/api/v1/tokens/" + bobsTokenID
 	w = ts.apiDo(t, http.MethodDelete, revokePath, adminToken, "")
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status %d, want 404 (not owned, not merely forbidden): %s", w.Code, w.Body.String())

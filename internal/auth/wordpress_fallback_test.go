@@ -9,15 +9,16 @@ import (
 	"time"
 
 	"github.com/rolsim/wpcalc/internal/domain"
+	"uuid"
 )
 
 // fakeSessionStore backs a fallback Accounts authenticator with an
 // in-memory session, so the composite's cookie path can be exercised without
 // a real database.
 type fakeSessionStore struct {
-	sessions map[string]int64
-	users    map[int64]domain.User
-	roles    map[int64][]domain.UserRole
+	sessions map[string]uuid.UUID
+	users    map[uuid.UUID]domain.User
+	roles    map[uuid.UUID][]domain.UserRole
 	perms    map[string][]string
 }
 
@@ -25,7 +26,7 @@ func (f *fakeSessionStore) Authenticate(context.Context, string, string) (domain
 	return domain.User{}, errors.New("not implemented")
 }
 
-func (f *fakeSessionStore) SessionByToken(_ context.Context, token string) (domain.User, *int64, error) {
+func (f *fakeSessionStore) SessionByToken(_ context.Context, token string) (domain.User, *uuid.UUID, error) {
 	id, ok := f.sessions[token]
 	if !ok {
 		return domain.User{}, nil, errors.New("no such session")
@@ -33,12 +34,14 @@ func (f *fakeSessionStore) SessionByToken(_ context.Context, token string) (doma
 	return f.users[id], nil, nil
 }
 
-func (f *fakeSessionStore) CreateSession(context.Context, string, int64, time.Time) error { return nil }
-func (f *fakeSessionStore) DeleteSession(context.Context, string) error                   { return nil }
-func (f *fakeSessionStore) SetUserLanguage(context.Context, int64, string) error          { return nil }
-func (f *fakeSessionStore) SetActiveTenant(context.Context, string, *int64) error         { return nil }
+func (f *fakeSessionStore) CreateSession(context.Context, string, uuid.UUID, time.Time) error {
+	return nil
+}
+func (f *fakeSessionStore) DeleteSession(context.Context, string) error               { return nil }
+func (f *fakeSessionStore) SetUserLanguage(context.Context, uuid.UUID, string) error  { return nil }
+func (f *fakeSessionStore) SetActiveTenant(context.Context, string, *uuid.UUID) error { return nil }
 
-func (f *fakeSessionStore) UserRolesForUser(_ context.Context, userID int64) ([]domain.UserRole, error) {
+func (f *fakeSessionStore) UserRolesForUser(_ context.Context, userID uuid.UUID) ([]domain.UserRole, error) {
 	return f.roles[userID], nil
 }
 
@@ -68,11 +71,11 @@ func TestFallbackUnusedWhenWordPressResolves(t *testing.T) {
 }
 
 func TestFallbackUsedWhenNoAccountLinked(t *testing.T) {
-	empID := int64(10)
+	empID, bobID := uuid.NewV4(), uuid.NewV4()
 	sessionStore := &fakeSessionStore{
-		sessions: map[string]int64{"tok123": 5},
-		users:    map[int64]domain.User{5: {ID: 5, Username: "localbob"}},
-		roles:    map[int64][]domain.UserRole{5: {{RoleID: "viewer", EmployeeID: &empID}}},
+		sessions: map[string]uuid.UUID{"tok123": bobID},
+		users:    map[uuid.UUID]domain.User{bobID: {ID: bobID, Username: "localbob"}},
+		roles:    map[uuid.UUID][]domain.UserRole{bobID: {{RoleID: "viewer", EmployeeID: &empID}}},
 		perms:    map[string][]string{"viewer": {"read"}},
 	}
 	wp := newWP(t).WithStore(&fakeScopedStore{}) // store configured, but no matching account
@@ -102,7 +105,7 @@ func TestFallbackUsedWhenNoAccountLinked(t *testing.T) {
 	if id.Username != "localbob" {
 		t.Errorf("got %+v, want the local account localbob", id)
 	}
-	if !id.Can("read", empID, 999) {
+	if !id.Can("read", empID, uuid.NewV4()) {
 		t.Error("fallback identity's own role did not carry through")
 	}
 }

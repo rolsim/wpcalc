@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"uuid"
 )
 
 // AccessTokenTTL is how long a bearer token authenticates for after
@@ -27,8 +28,8 @@ const RefreshTokenTTL = 30 * 24 * time.Hour
 // metadata is ever held in memory here — the secret itself is never
 // stored or returned again after creation.
 type APIToken struct {
-	ID         int64
-	UserID     int64
+	ID         uuid.UUID
+	UserID     uuid.UUID
 	Name       string
 	CreatedAt  time.Time
 	ExpiresAt  time.Time
@@ -42,8 +43,8 @@ type APIToken struct {
 // Single-use: UsedAt is set the moment it's exchanged, same trust model as
 // a password reset link.
 type RefreshToken struct {
-	ID        int64
-	UserID    int64
+	ID        uuid.UUID
+	UserID    uuid.UUID
 	Name      string
 	CreatedAt time.Time
 	ExpiresAt time.Time

@@ -344,3 +344,35 @@ every caller re-derives it. Three tests pin it — one per layer:
 `TestSetHoursRejectsAnEmployeeFromAnotherTenant`,
 `TestMandantAdminCannotWriteHoursInAnotherTenant`, and
 `TestAPIv1MandantAdminTokenCannotWriteHoursInAnotherTenant`.
+
+**Surrogate keys are UUIDv4 from the Go 1.27 standard library, not INTEGER
+AUTOINCREMENT.** One sequence is shared by every tenant, so the id handed back
+on a create disclosed the database-wide row count: add an employee, receive id
+47, and you know 46 exist across all tenants — sample it over time and you have
+a competitor's headcount and growth rate. No authorization check can close
+that, because the leak is in the identifier itself rather than in who may read
+what. Sequential ids also make any single missing authorization check
+exploitable as a whole-table sweep instead of one wrong row, which is not
+hypothetical here — see the tenant-boundary entry above.
+
+v4 rather than v7: a v7's 48-bit millisecond prefix puts record creation time
+back into the identifier, which is the class of disclosure the change exists to
+remove, and at the scale of one company's timesheet there is no write
+throughput for v7's index locality to earn. Canonical 36-character TEXT rather
+than BLOB(16): 20 bytes per id buys a database that stays legible in a sqlite3
+shell. The standard library's `uuid` package (Go 1.27, RFC 9562) rather than
+`github.com/google/uuid`, which is also why `/api/v1` types ids as `string`
+with a UUID `pattern` instead of `format: uuid` — the latter makes oapi-codegen
+emit the third-party type and would put it back in the dependency graph of
+`sdk/go` and `wpcalcctl`.
+
+The cost is real and worth naming: `uuid.UUID` implements neither
+`driver.Valuer` nor `sql.Scanner`, so every query site goes through the
+adapters in `internal/store/uuid.go`, and because `Scan` takes `...any` a
+forgotten `scan{}` wrapper compiles cleanly and fails at runtime. Roles and
+permissions were left alone — their ids are semantic slugs, not surrogates.
+*Reverse:* would mean regenerating the schema, the OpenAPI spec and both
+generated clients, and would reintroduce the count disclosure. The schema was
+collapsed to a single `00001_initial.sql` at the same time, since no deployment
+had data worth migrating; that is also why there is no upgrade path from the
+old integer schema — existing databases are deleted and recreated.

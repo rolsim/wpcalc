@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
 )
@@ -197,7 +198,7 @@ func (db *DB) RolePermissionsFor(ctx context.Context, roleIDs []string) (map[str
 // no-op; granting a *different* role there is rejected with
 // ErrRoleAlreadyAssignedDifferently rather than silently ignored — changing
 // it is revoke-then-grant, never two rows disagreeing.
-func (db *DB) GrantUserRole(ctx context.Context, userID int64, tenantID, employeeID *int64, roleID string) error {
+func (db *DB) GrantUserRole(ctx context.Context, userID uuid.UUID, tenantID, employeeID *uuid.UUID, roleID string) error {
 	role, err := db.Role(ctx, roleID)
 	if err != nil {
 		return err
@@ -207,8 +208,8 @@ func (db *DB) GrantUserRole(ctx context.Context, userID int64, tenantID, employe
 	}
 
 	_, err = db.ExecContext(ctx,
-		`INSERT INTO user_roles (user_id, tenant_id, employee_id, role_id) VALUES (?, ?, ?, ?)`,
-		userID, tenantID, employeeID, roleID)
+		`INSERT INTO user_roles (id, user_id, tenant_id, employee_id, role_id) VALUES (?, ?, ?, ?, ?)`,
+		arg(uuid.NewV4()), arg(userID), nullArg(tenantID), nullArg(employeeID), roleID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			existing, lookErr := db.userRoleAtScope(ctx, userID, tenantID, employeeID)
@@ -230,16 +231,16 @@ func (db *DB) GrantUserRole(ctx context.Context, userID int64, tenantID, employe
 
 // userRoleAtScope looks up which role (if any) a user currently holds at
 // exactly one scope instance.
-func (db *DB) userRoleAtScope(ctx context.Context, userID int64, tenantID, employeeID *int64) (string, error) {
+func (db *DB) userRoleAtScope(ctx context.Context, userID uuid.UUID, tenantID, employeeID *uuid.UUID) (string, error) {
 	query := `SELECT role_id FROM user_roles WHERE user_id = ?`
-	args := []any{userID}
+	args := []any{arg(userID)}
 	switch {
 	case tenantID != nil:
 		query += ` AND tenant_id = ?`
-		args = append(args, *tenantID)
+		args = append(args, arg(*tenantID))
 	case employeeID != nil:
 		query += ` AND employee_id = ?`
-		args = append(args, *employeeID)
+		args = append(args, arg(*employeeID))
 	default:
 		query += ` AND tenant_id IS NULL AND employee_id IS NULL`
 	}
@@ -253,16 +254,16 @@ func (db *DB) userRoleAtScope(ctx context.Context, userID int64, tenantID, emplo
 
 // RevokeUserRole removes a user's role assignment at a scope. tenantID and
 // employeeID nil both means the system scope.
-func (db *DB) RevokeUserRole(ctx context.Context, userID int64, tenantID, employeeID *int64) error {
+func (db *DB) RevokeUserRole(ctx context.Context, userID uuid.UUID, tenantID, employeeID *uuid.UUID) error {
 	query := `DELETE FROM user_roles WHERE user_id = ?`
-	args := []any{userID}
+	args := []any{arg(userID)}
 	switch {
 	case tenantID != nil:
 		query += ` AND tenant_id = ?`
-		args = append(args, *tenantID)
+		args = append(args, arg(*tenantID))
 	case employeeID != nil:
 		query += ` AND employee_id = ?`
-		args = append(args, *employeeID)
+		args = append(args, arg(*employeeID))
 	default:
 		query += ` AND tenant_id IS NULL AND employee_id IS NULL`
 	}
@@ -281,9 +282,9 @@ func (db *DB) RevokeUserRole(ctx context.Context, userID int64, tenantID, employ
 }
 
 // UserRolesForUser lists every role a user holds, across every scope.
-func (db *DB) UserRolesForUser(ctx context.Context, userID int64) ([]domain.UserRole, error) {
+func (db *DB) UserRolesForUser(ctx context.Context, userID uuid.UUID) ([]domain.UserRole, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, user_id, tenant_id, employee_id, role_id FROM user_roles WHERE user_id = ?`, userID)
+		`SELECT id, user_id, tenant_id, employee_id, role_id FROM user_roles WHERE user_id = ?`, arg(userID))
 	if err != nil {
 		return nil, fmt.Errorf("store: user roles: %w", err)
 	}
@@ -291,19 +292,10 @@ func (db *DB) UserRolesForUser(ctx context.Context, userID int64) ([]domain.User
 
 	var out []domain.UserRole
 	for rows.Next() {
-		var (
-			ur         domain.UserRole
-			tenantID   sql.NullInt64
-			employeeID sql.NullInt64
-		)
-		if err := rows.Scan(&ur.ID, &ur.UserID, &tenantID, &employeeID, &ur.RoleID); err != nil {
+		var ur domain.UserRole
+		if err := rows.Scan(scan{&ur.ID}, scan{&ur.UserID},
+			scanNull{&ur.TenantID}, scanNull{&ur.EmployeeID}, &ur.RoleID); err != nil {
 			return nil, fmt.Errorf("store: user roles: %w", err)
-		}
-		if tenantID.Valid {
-			ur.TenantID = &tenantID.Int64
-		}
-		if employeeID.Valid {
-			ur.EmployeeID = &employeeID.Int64
 		}
 		out = append(out, ur)
 	}
@@ -334,11 +326,11 @@ func (db *DB) HasSystemAdmin(ctx context.Context) (bool, error) {
 // only its *permissions* determine what it may do once there), otherwise the
 // tenants reached by a tenant-scope role plus the tenants of any
 // employee-scope role's employee.
-func (db *DB) TenantsAccessibleToUser(ctx context.Context, userID int64) ([]domain.Tenant, error) {
+func (db *DB) TenantsAccessibleToUser(ctx context.Context, userID uuid.UUID) ([]domain.Tenant, error) {
 	var systemWide int
 	if err := db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM user_roles WHERE user_id = ? AND tenant_id IS NULL AND employee_id IS NULL`,
-		userID).Scan(&systemWide); err != nil {
+		arg(userID)).Scan(&systemWide); err != nil {
 		return nil, fmt.Errorf("store: accessible tenants: %w", err)
 	}
 	if systemWide > 0 {
@@ -353,7 +345,7 @@ func (db *DB) TenantsAccessibleToUser(ctx context.Context, userID int64) ([]doma
 			SELECT e.tenant_id FROM user_roles ur JOIN employees e ON e.id = ur.employee_id
 			WHERE ur.user_id = ? AND ur.employee_id IS NOT NULL
 		)
-		ORDER BY t.name COLLATE NOCASE, t.id`, userID, userID)
+		ORDER BY t.name COLLATE NOCASE, t.id`, arg(userID), arg(userID))
 	if err != nil {
 		return nil, fmt.Errorf("store: accessible tenants: %w", err)
 	}
@@ -374,9 +366,9 @@ func (db *DB) TenantsAccessibleToUser(ctx context.Context, userID int64) ([]doma
 // display names — the shape the /tenants/{id}/access page and its CLI
 // equivalent list.
 type EmployeeRoleAssignment struct {
-	UserID       int64
+	UserID       uuid.UUID
 	Username     string
-	EmployeeID   int64
+	EmployeeID   uuid.UUID
 	EmployeeName string
 	RoleID       string
 	RoleName     string
@@ -384,7 +376,7 @@ type EmployeeRoleAssignment struct {
 
 // EmployeeRoleAssignmentsForTenant lists every employee-scope role
 // assignment for employees in one tenant.
-func (db *DB) EmployeeRoleAssignmentsForTenant(ctx context.Context, tenantID int64) ([]EmployeeRoleAssignment, error) {
+func (db *DB) EmployeeRoleAssignmentsForTenant(ctx context.Context, tenantID uuid.UUID) ([]EmployeeRoleAssignment, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT u.id, u.username, e.id, e.display_name, r.id, r.name
 		  FROM user_roles ur
@@ -392,7 +384,7 @@ func (db *DB) EmployeeRoleAssignmentsForTenant(ctx context.Context, tenantID int
 		  JOIN employees e ON e.id = ur.employee_id
 		  JOIN roles r ON r.id = ur.role_id
 		 WHERE e.tenant_id = ?
-		 ORDER BY e.display_name COLLATE NOCASE, u.username COLLATE NOCASE`, tenantID)
+		 ORDER BY e.display_name COLLATE NOCASE, u.username COLLATE NOCASE`, arg(tenantID))
 	if err != nil {
 		return nil, fmt.Errorf("store: employee role assignments: %w", err)
 	}
@@ -412,9 +404,9 @@ func (db *DB) EmployeeRoleAssignmentsForTenant(ctx context.Context, tenantID int
 // AdminRoleAssignment is one system- or tenant-scope user_roles row, joined
 // with display names — what the /roles page and its CLI equivalent list.
 type AdminRoleAssignment struct {
-	UserID     int64
+	UserID     uuid.UUID
 	Username   string
-	TenantID   *int64
+	TenantID   *uuid.UUID
 	TenantName string // empty for a system-scope assignment
 	RoleID     string
 	RoleName   string
@@ -439,15 +431,10 @@ func (db *DB) AdminRoleAssignments(ctx context.Context) ([]AdminRoleAssignment, 
 
 	var out []AdminRoleAssignment
 	for rows.Next() {
-		var (
-			a        AdminRoleAssignment
-			tenantID sql.NullInt64
-		)
-		if err := rows.Scan(&a.UserID, &a.Username, &tenantID, &a.TenantName, &a.RoleID, &a.RoleName); err != nil {
+		var a AdminRoleAssignment
+		if err := rows.Scan(scan{&a.UserID}, &a.Username, scanNull{&a.TenantID},
+			&a.TenantName, &a.RoleID, &a.RoleName); err != nil {
 			return nil, fmt.Errorf("store: admin role assignments: %w", err)
-		}
-		if tenantID.Valid {
-			a.TenantID = &tenantID.Int64
 		}
 		out = append(out, a)
 	}

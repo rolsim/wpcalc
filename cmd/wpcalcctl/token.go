@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"strconv"
 	"time"
 
 	wpcalc "github.com/rolsim/wpcalc/sdk/go"
@@ -63,7 +62,7 @@ func tokenCreate(ctx context.Context, sess *wpcalc.Session, name string) error {
 		return apiError("token create", resp.StatusCode(), resp.Body, resp.JSONDefault)
 	}
 	p := resp.JSON201
-	fmt.Printf(`token %d created (%s)
+	fmt.Printf(`token %s created (%s)
 
 access token (expires %s):
   %s
@@ -105,25 +104,24 @@ func tokenList(ctx context.Context, sess *wpcalc.Session) error {
 		if t.LastUsedAt != nil {
 			lastUsed = "last used " + t.LastUsedAt.Format("2006-01-02")
 		}
-		fmt.Printf("%-4d %-20s created %s, %s, %s\n",
+		fmt.Printf("%-36s %-20s created %s, %s, %s\n",
 			t.Id, t.Name, t.CreatedAt.Format("2006-01-02"), lastUsed, status)
 	}
 	return nil
 }
 
 func tokenRevoke(ctx context.Context, sess *wpcalc.Session, idArg string) error {
-	id, err := strconv.ParseInt(idArg, 10, 64)
-	if err != nil {
-		return fmt.Errorf("token revoke: %q is not a valid token id", idArg)
+	if idArg == "" {
+		return errors.New("token revoke: token id is required")
 	}
-	resp, err := sess.RevokeTokenWithResponse(ctx, id)
+	resp, err := sess.RevokeTokenWithResponse(ctx, idArg)
 	if err != nil {
 		return fmt.Errorf("token revoke: %w", err)
 	}
 	if resp.StatusCode() != 204 {
 		return apiError("token revoke", resp.StatusCode(), resp.Body, resp.JSONDefault)
 	}
-	fmt.Printf("token %d revoked\n", id)
+	fmt.Printf("token %s revoked\n", idArg)
 	return nil
 }
 

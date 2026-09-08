@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/rolsim/wpcalc/internal/domain"
+	"uuid"
 )
 
 func TestTenantCRUD(t *testing.T) {
@@ -32,7 +33,7 @@ func TestTenantCRUD(t *testing.T) {
 	if _, err := db.CreateTenant(ctx, "Acme Corporation"); !errors.Is(err, ErrDuplicateTenant) {
 		t.Errorf("duplicate tenant name: got %v, want ErrDuplicateTenant", err)
 	}
-	if _, err := db.Tenant(ctx, 99999); !errors.Is(err, ErrNotFound) {
+	if _, err := db.Tenant(ctx, uuid.NewV4()); !errors.Is(err, ErrNotFound) {
 		t.Errorf("missing tenant: got %v, want ErrNotFound", err)
 	}
 
@@ -111,7 +112,7 @@ func TestUserRoleScopeMustMatchTheRolesOwnScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tenantID := int64(1)
+	tenantID := defaultTenant(t, db)
 	empID := mustEmployee(t, db, "Bob", "2026-01-01", "")
 
 	if err := db.GrantUserRole(ctx, uid, &tenantID, nil, "viewer"); err == nil {
@@ -179,7 +180,7 @@ func TestRevokeUserRole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tenantID := int64(1)
+	tenantID := defaultTenant(t, db)
 
 	if err := db.GrantUserRole(ctx, uid, &tenantID, nil, "mandant_admin"); err != nil {
 		t.Fatal(err)
@@ -311,7 +312,7 @@ func TestEmployeesAndDayCommentsAreScopedByTenant(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	defaultEmployees, err := db.Employees(ctx, 1)
+	defaultEmployees, err := db.Employees(ctx, defaultTenant(t, db))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,13 +335,13 @@ func TestEmployeesAndDayCommentsAreScopedByTenant(t *testing.T) {
 	// the point of day_comments' UNIQUE(tenant_id, work_date) rather than
 	// the old global UNIQUE(work_date).
 	day := mustDate(t, "2026-07-14")
-	if err := db.SetDayComment(ctx, 1, day, "Default's note"); err != nil {
+	if err := db.SetDayComment(ctx, defaultTenant(t, db), day, "Default's note"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.SetDayComment(ctx, tenantB, day, "B's note"); err != nil {
 		t.Fatal(err)
 	}
-	defaultComments, err := db.DayComments(ctx, 1, domain.NewYearMonth(2026, time.July))
+	defaultComments, err := db.DayComments(ctx, defaultTenant(t, db), domain.NewYearMonth(2026, time.July))
 	if err != nil {
 		t.Fatal(err)
 	}

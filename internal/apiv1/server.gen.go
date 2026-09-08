@@ -91,9 +91,9 @@ func (e Scope) Valid() bool {
 type AdminRoleAssignment struct {
 	RoleId     string  `json:"roleId"`
 	RoleName   string  `json:"roleName"`
-	TenantId   *int64  `json:"tenantId,omitempty"`
+	TenantId   *string `json:"tenantId,omitempty"`
 	TenantName *string `json:"tenantName,omitempty"`
-	UserId     int64   `json:"userId"`
+	UserId     string  `json:"userId"`
 	Username   string  `json:"username"`
 }
 
@@ -103,7 +103,7 @@ type ApiToken struct {
 
 	// ExpiresAt Access tokens are short-lived (1 hour) by design — see `POST /tokens/refresh` for renewing one without going back to `wpcalc token create`.
 	ExpiresAt  time.Time  `json:"expiresAt"`
-	Id         int64      `json:"id"`
+	Id         string     `json:"id"`
 	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
 	Name       string     `json:"name"`
 
@@ -123,12 +123,12 @@ type Date = openapi_types.Date
 type Employee struct {
 	// EndDate null means still employed.
 	EndDate *Date  `json:"endDate,omitempty"`
-	Id      int64  `json:"id"`
+	Id      string `json:"id"`
 	Name    string `json:"name"`
 
 	// StartDate Examples: 2026-07-14
-	StartDate Date  `json:"startDate"`
-	TenantId  int64 `json:"tenantId"`
+	StartDate Date   `json:"startDate"`
+	TenantId  string `json:"tenantId"`
 }
 
 // EmployeeCreate defines model for EmployeeCreate.
@@ -142,25 +142,25 @@ type EmployeeCreate struct {
 
 // EmployeeRoleAssignment defines model for EmployeeRoleAssignment.
 type EmployeeRoleAssignment struct {
-	EmployeeId   int64  `json:"employeeId"`
+	EmployeeId   string `json:"employeeId"`
 	EmployeeName string `json:"employeeName"`
 	RoleId       string `json:"roleId"`
 	RoleName     string `json:"roleName"`
-	UserId       int64  `json:"userId"`
+	UserId       string `json:"userId"`
 	Username     string `json:"username"`
 }
 
 // EmployeeRoleGrant defines model for EmployeeRoleGrant.
 type EmployeeRoleGrant struct {
-	EmployeeId int64  `json:"employeeId"`
+	EmployeeId string `json:"employeeId"`
 	RoleId     string `json:"roleId"`
 	Username   string `json:"username"`
 }
 
 // EmployeeRoleRevoke defines model for EmployeeRoleRevoke.
 type EmployeeRoleRevoke struct {
-	EmployeeId int64 `json:"employeeId"`
-	UserId     int64 `json:"userId"`
+	EmployeeId string `json:"employeeId"`
+	UserId     string `json:"userId"`
 }
 
 // EmployeeUpdate defines model for EmployeeUpdate.
@@ -185,7 +185,7 @@ type Error struct {
 
 // GridCell defines model for GridCell.
 type GridCell struct {
-	EmployeeId int64 `json:"employeeId"`
+	EmployeeId string `json:"employeeId"`
 
 	// Hours Decimal hours, `.` separator, e.g. "7.75".
 	Hours string `json:"hours"`
@@ -274,8 +274,8 @@ type RoleGrant struct {
 	RoleId string `json:"roleId"`
 
 	// TenantId Present means tenant scope; absent means system scope.
-	TenantId *int64 `json:"tenantId,omitempty"`
-	Username string `json:"username"`
+	TenantId *string `json:"tenantId,omitempty"`
+	Username string  `json:"username"`
 }
 
 // RolePermissionGrant defines model for RolePermissionGrant.
@@ -286,8 +286,8 @@ type RolePermissionGrant struct {
 // RoleRevoke defines model for RoleRevoke.
 type RoleRevoke struct {
 	// TenantId Present means the tenant-scope grant; absent means the system-scope grant.
-	TenantId *int64 `json:"tenantId,omitempty"`
-	UserId   int64  `json:"userId"`
+	TenantId *string `json:"tenantId,omitempty"`
+	UserId   string  `json:"userId"`
 }
 
 // Scope defines model for Scope.
@@ -305,8 +305,8 @@ type SetCommentRequest struct {
 // SetHoursRequest defines model for SetHoursRequest.
 type SetHoursRequest struct {
 	// Date Examples: 2026-07-14
-	Date       Date  `json:"date"`
-	EmployeeId int64 `json:"employeeId"`
+	Date       Date   `json:"date"`
+	EmployeeId string `json:"employeeId"`
 
 	// Hours Decimal hours, `.` or `,` separator; "0" clears the cell.
 	Hours string `json:"hours"`
@@ -314,7 +314,7 @@ type SetHoursRequest struct {
 
 // Tenant defines model for Tenant.
 type Tenant struct {
-	Id   int64  `json:"id"`
+	Id   string `json:"id"`
 	Name string `json:"name"`
 }
 
@@ -330,7 +330,7 @@ type TokenPair struct {
 	AccessTokenExpiresAt time.Time `json:"accessTokenExpiresAt"`
 
 	// AccessTokenId For later use with `DELETE /tokens/{tokenId}` — the refresh token has no id of its own to name that way.
-	AccessTokenId int64  `json:"accessTokenId"`
+	AccessTokenId string `json:"accessTokenId"`
 	Name          string `json:"name"`
 
 	// RefreshToken Shown here once — store it now; it is not recoverable afterward. Single-use: exchange it at `POST /tokens/refresh` before it expires to get a new pair (including a new refresh token — this one stops working the instant it's exchanged).
@@ -340,7 +340,7 @@ type TokenPair struct {
 
 // User defines model for User.
 type User struct {
-	Id int64 `json:"id"`
+	Id string `json:"id"`
 
 	// Language Empty means "follow the browser" — the same default `wpcalc user add` leaves it at.
 	Language string `json:"language"`
@@ -357,15 +357,15 @@ type UserCreate struct {
 // UserRoleAssignment defines model for UserRoleAssignment.
 type UserRoleAssignment struct {
 	// EmployeeId Present for an employee-scope assignment.
-	EmployeeId *int64 `json:"employeeId,omitempty"`
-	RoleId     string `json:"roleId"`
+	EmployeeId *string `json:"employeeId,omitempty"`
+	RoleId     string  `json:"roleId"`
 
 	// TenantId Present for a tenant-scope assignment.
-	TenantId *int64 `json:"tenantId,omitempty"`
+	TenantId *string `json:"tenantId,omitempty"`
 }
 
 // EmployeeId defines model for EmployeeId.
-type EmployeeId = int64
+type EmployeeId = string
 
 // PermissionId defines model for PermissionId.
 type PermissionId = PermissionKey
@@ -374,7 +374,7 @@ type PermissionId = PermissionKey
 type RoleId = string
 
 // TenantId defines model for TenantId.
-type TenantId = int64
+type TenantId = string
 
 // Username defines model for Username.
 type Username = string
@@ -539,7 +539,7 @@ type ServerInterface interface {
 	RefreshToken(w http.ResponseWriter, r *http.Request)
 	// RevokeToken Revoke one of the caller's own bearer tokens
 	// (DELETE /tokens/{tokenId})
-	RevokeToken(w http.ResponseWriter, r *http.Request, tokenId int64)
+	RevokeToken(w http.ResponseWriter, r *http.Request, tokenId string)
 	// ListUsers List every account
 	// (GET /users)
 	ListUsers(w http.ResponseWriter, r *http.Request)
@@ -802,7 +802,7 @@ func (siw *ServerInterfaceWrapper) GetTenant(w http.ResponseWriter, r *http.Requ
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -828,7 +828,7 @@ func (siw *ServerInterfaceWrapper) UpdateTenant(w http.ResponseWriter, r *http.R
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -854,7 +854,7 @@ func (siw *ServerInterfaceWrapper) ListEmployeeRoleAssignments(w http.ResponseWr
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -880,7 +880,7 @@ func (siw *ServerInterfaceWrapper) GrantEmployeeRole(w http.ResponseWriter, r *h
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -906,7 +906,7 @@ func (siw *ServerInterfaceWrapper) RevokeEmployeeRole(w http.ResponseWriter, r *
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -932,7 +932,7 @@ func (siw *ServerInterfaceWrapper) ListEmployees(w http.ResponseWriter, r *http.
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -958,7 +958,7 @@ func (siw *ServerInterfaceWrapper) CreateEmployee(w http.ResponseWriter, r *http
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -984,7 +984,7 @@ func (siw *ServerInterfaceWrapper) DeleteEmployee(w http.ResponseWriter, r *http
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -993,7 +993,7 @@ func (siw *ServerInterfaceWrapper) DeleteEmployee(w http.ResponseWriter, r *http
 	// ------------- Path parameter "employeeId" -------------
 	var employeeId EmployeeId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "employeeId", r.PathValue("employeeId"), &employeeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "employeeId", r.PathValue("employeeId"), &employeeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "employeeId", Err: err})
 		return
@@ -1019,7 +1019,7 @@ func (siw *ServerInterfaceWrapper) GetEmployee(w http.ResponseWriter, r *http.Re
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -1028,7 +1028,7 @@ func (siw *ServerInterfaceWrapper) GetEmployee(w http.ResponseWriter, r *http.Re
 	// ------------- Path parameter "employeeId" -------------
 	var employeeId EmployeeId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "employeeId", r.PathValue("employeeId"), &employeeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "employeeId", r.PathValue("employeeId"), &employeeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "employeeId", Err: err})
 		return
@@ -1054,7 +1054,7 @@ func (siw *ServerInterfaceWrapper) UpdateEmployee(w http.ResponseWriter, r *http
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -1063,7 +1063,7 @@ func (siw *ServerInterfaceWrapper) UpdateEmployee(w http.ResponseWriter, r *http
 	// ------------- Path parameter "employeeId" -------------
 	var employeeId EmployeeId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "employeeId", r.PathValue("employeeId"), &employeeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "employeeId", r.PathValue("employeeId"), &employeeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "employeeId", Err: err})
 		return
@@ -1089,7 +1089,7 @@ func (siw *ServerInterfaceWrapper) GetEmployeeMonthReport(w http.ResponseWriter,
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -1098,7 +1098,7 @@ func (siw *ServerInterfaceWrapper) GetEmployeeMonthReport(w http.ResponseWriter,
 	// ------------- Path parameter "employeeId" -------------
 	var employeeId EmployeeId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "employeeId", r.PathValue("employeeId"), &employeeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "employeeId", r.PathValue("employeeId"), &employeeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "employeeId", Err: err})
 		return
@@ -1133,7 +1133,7 @@ func (siw *ServerInterfaceWrapper) GetEmployeeYearReport(w http.ResponseWriter, 
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -1142,7 +1142,7 @@ func (siw *ServerInterfaceWrapper) GetEmployeeYearReport(w http.ResponseWriter, 
 	// ------------- Path parameter "employeeId" -------------
 	var employeeId EmployeeId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "employeeId", r.PathValue("employeeId"), &employeeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "employeeId", r.PathValue("employeeId"), &employeeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "employeeId", Err: err})
 		return
@@ -1177,7 +1177,7 @@ func (siw *ServerInterfaceWrapper) GetMonthGrid(w http.ResponseWriter, r *http.R
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -1212,7 +1212,7 @@ func (siw *ServerInterfaceWrapper) SetComment(w http.ResponseWriter, r *http.Req
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -1247,7 +1247,7 @@ func (siw *ServerInterfaceWrapper) SetHours(w http.ResponseWriter, r *http.Reque
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -1282,7 +1282,7 @@ func (siw *ServerInterfaceWrapper) GetTenantMonthReport(w http.ResponseWriter, r
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
 		return
@@ -1371,9 +1371,9 @@ func (siw *ServerInterfaceWrapper) RevokeToken(w http.ResponseWriter, r *http.Re
 	_ = err
 
 	// ------------- Path parameter "tokenId" -------------
-	var tokenId int64
+	var tokenId string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tokenId", r.PathValue("tokenId"), &tokenId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	err = runtime.BindStyledParameterWithOptions("simple", "tokenId", r.PathValue("tokenId"), &tokenId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tokenId", Err: err})
 		return
@@ -2902,7 +2902,7 @@ func (response RefreshTokendefaultJSONResponse) VisitRefreshTokenResponse(w http
 }
 
 type RevokeTokenRequestObject struct {
-	TokenId int64 `json:"tokenId"`
+	TokenId string `json:"tokenId"`
 }
 
 type RevokeTokenResponseObject interface {
@@ -4219,7 +4219,7 @@ func (sh *strictHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // RevokeToken operation middleware
-func (sh *strictHandler) RevokeToken(w http.ResponseWriter, r *http.Request, tokenId int64) {
+func (sh *strictHandler) RevokeToken(w http.ResponseWriter, r *http.Request, tokenId string) {
 	var request RevokeTokenRequestObject
 
 	request.TokenId = tokenId

@@ -18,8 +18,8 @@ func cmdUser(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("user", flag.ContinueOnError)
 	lang := fs.String("lang", "", "interface language: de-CH, en, or empty to follow the browser (user lang)")
 	system := fs.Bool("system", false, "grant/revoke a system-scope role (user grant|revoke)")
-	tenant := fs.Int64("tenant", 0, "grant/revoke a tenant-scope role for this tenant id; also required alongside -employee (user grant|revoke)")
-	employee := fs.Int64("employee", 0, "grant/revoke an employee-scope role for this employee id — needs -tenant too (user grant|revoke)")
+	tenant := fs.String("tenant", "", "grant/revoke a tenant-scope role for this tenant id; also required alongside -employee (user grant|revoke)")
+	employee := fs.String("employee", "", "grant/revoke an employee-scope role for this employee id — needs -tenant too (user grant|revoke)")
 	role := fs.String("role", "", "role id to grant (user grant)")
 	positional, err := parseArgs(fs, args)
 	if err != nil {
@@ -176,7 +176,7 @@ func userList(ctx context.Context, sess *wpcalc.Session) error {
 // -tenant ID (tenant scope), or -tenant ID -employee ID (employee scope —
 // the API nests employee-role-assignments under a tenant, so both are
 // needed together).
-func userGrant(ctx context.Context, sess *wpcalc.Session, username string, system bool, tenant, employee int64, roleID string) error {
+func userGrant(ctx context.Context, sess *wpcalc.Session, username string, system bool, tenant, employee string, roleID string) error {
 	if username == "" {
 		return errors.New("user grant: username is required")
 	}
@@ -184,7 +184,7 @@ func userGrant(ctx context.Context, sess *wpcalc.Session, username string, syste
 		return errors.New("user grant: -role is required")
 	}
 	switch {
-	case system && tenant == 0 && employee == 0:
+	case system && tenant == "" && employee == "":
 		resp, err := sess.GrantRoleWithResponse(ctx, wpcalc.GrantRoleJSONRequestBody{Username: username, RoleId: roleID})
 		if err != nil {
 			return fmt.Errorf("user grant: %w", err)
@@ -192,7 +192,7 @@ func userGrant(ctx context.Context, sess *wpcalc.Session, username string, syste
 		if resp.StatusCode() != 204 {
 			return apiError("user grant", resp.StatusCode(), resp.Body, resp.JSONDefault)
 		}
-	case !system && tenant != 0 && employee == 0:
+	case !system && tenant != "" && employee == "":
 		resp, err := sess.GrantRoleWithResponse(ctx, wpcalc.GrantRoleJSONRequestBody{Username: username, RoleId: roleID, TenantId: &tenant})
 		if err != nil {
 			return fmt.Errorf("user grant: %w", err)
@@ -200,7 +200,7 @@ func userGrant(ctx context.Context, sess *wpcalc.Session, username string, syste
 		if resp.StatusCode() != 204 {
 			return apiError("user grant", resp.StatusCode(), resp.Body, resp.JSONDefault)
 		}
-	case !system && tenant != 0 && employee != 0:
+	case !system && tenant != "" && employee != "":
 		resp, err := sess.GrantEmployeeRoleWithResponse(ctx, tenant, wpcalc.GrantEmployeeRoleJSONRequestBody{
 			Username: username, EmployeeId: employee, RoleId: roleID,
 		})
@@ -217,7 +217,7 @@ func userGrant(ctx context.Context, sess *wpcalc.Session, username string, syste
 	return nil
 }
 
-func userRevoke(ctx context.Context, sess *wpcalc.Session, username string, system bool, tenant, employee int64) error {
+func userRevoke(ctx context.Context, sess *wpcalc.Session, username string, system bool, tenant, employee string) error {
 	if username == "" {
 		return errors.New("user revoke: username is required")
 	}
@@ -227,7 +227,7 @@ func userRevoke(ctx context.Context, sess *wpcalc.Session, username string, syst
 	}
 
 	switch {
-	case system && tenant == 0 && employee == 0:
+	case system && tenant == "" && employee == "":
 		resp, err := sess.RevokeRoleWithResponse(ctx, wpcalc.RevokeRoleJSONRequestBody{UserId: userID})
 		if err != nil {
 			return fmt.Errorf("user revoke: %w", err)
@@ -235,7 +235,7 @@ func userRevoke(ctx context.Context, sess *wpcalc.Session, username string, syst
 		if resp.StatusCode() != 204 {
 			return apiError("user revoke", resp.StatusCode(), resp.Body, resp.JSONDefault)
 		}
-	case !system && tenant != 0 && employee == 0:
+	case !system && tenant != "" && employee == "":
 		resp, err := sess.RevokeRoleWithResponse(ctx, wpcalc.RevokeRoleJSONRequestBody{UserId: userID, TenantId: &tenant})
 		if err != nil {
 			return fmt.Errorf("user revoke: %w", err)
@@ -243,7 +243,7 @@ func userRevoke(ctx context.Context, sess *wpcalc.Session, username string, syst
 		if resp.StatusCode() != 204 {
 			return apiError("user revoke", resp.StatusCode(), resp.Body, resp.JSONDefault)
 		}
-	case !system && tenant != 0 && employee != 0:
+	case !system && tenant != "" && employee != "":
 		resp, err := sess.RevokeEmployeeRoleWithResponse(ctx, tenant, wpcalc.RevokeEmployeeRoleJSONRequestBody{
 			UserId: userID, EmployeeId: employee,
 		})
@@ -265,28 +265,28 @@ func userRevoke(ctx context.Context, sess *wpcalc.Session, username string, syst
 // lookup needed there). Requires manage_users system-wide, the same
 // permission RevokeRole/RevokeEmployeeRole themselves require, so this
 // adds no new access requirement for anyone who could revoke anyway.
-func resolveUserID(ctx context.Context, sess *wpcalc.Session, username string) (int64, error) {
+func resolveUserID(ctx context.Context, sess *wpcalc.Session, username string) (string, error) {
 	resp, err := sess.ListUsersWithResponse(ctx)
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	if resp.JSON200 == nil {
-		return 0, apiError("look up user", resp.StatusCode(), resp.Body, resp.JSONDefault)
+		return "", apiError("look up user", resp.StatusCode(), resp.Body, resp.JSONDefault)
 	}
 	for _, u := range *resp.JSON200 {
 		if u.Username == username {
 			return u.Id, nil
 		}
 	}
-	return 0, fmt.Errorf("no such user %q", username)
+	return "", fmt.Errorf("no such user %q", username)
 }
 
-func grantScopeDescription(system bool, tenant, employee int64) string {
+func grantScopeDescription(system bool, tenant, employee string) string {
 	switch {
-	case employee != 0:
-		return fmt.Sprintf(" (employee %d, tenant %d)", employee, tenant)
-	case tenant != 0:
-		return fmt.Sprintf(" (tenant %d)", tenant)
+	case employee != "":
+		return fmt.Sprintf(" (employee %s, tenant %s)", employee, tenant)
+	case tenant != "":
+		return fmt.Sprintf(" (tenant %s)", tenant)
 	case system:
 		return " (system-wide)"
 	default:
@@ -294,12 +294,12 @@ func grantScopeDescription(system bool, tenant, employee int64) string {
 	}
 }
 
-func roleAssignmentScopeDescription(tenantID, employeeID *int64) string {
+func roleAssignmentScopeDescription(tenantID, employeeID *string) string {
 	switch {
 	case employeeID != nil:
-		return fmt.Sprintf(" (employee %d)", *employeeID)
+		return fmt.Sprintf(" (employee %s)", *employeeID)
 	case tenantID != nil:
-		return fmt.Sprintf(" (tenant %d)", *tenantID)
+		return fmt.Sprintf(" (tenant %s)", *tenantID)
 	default:
 		return " (system-wide)"
 	}

@@ -2,7 +2,6 @@ package apiv1
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
@@ -26,29 +25,29 @@ func (a *API) GetMonthGrid(ctx context.Context, request GetMonthGridRequestObjec
 		return GetMonthGriddefaultJSONResponse{Body: Error{Error: "invalid_month"}, StatusCode: 404}, nil //nolint:nilerr
 	}
 
-	all, err := a.db.EmployeesActiveIn(ctx, request.TenantId, month)
+	all, err := a.db.EmployeesActiveIn(ctx, toID(request.TenantId), month)
 	if err != nil {
 		status, code := mapStoreErr(err)
 		return GetMonthGriddefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
 	employees := make([]domain.Employee, 0, len(all))
 	for _, e := range all {
-		if id.Can(domain.PermRead, e.ID, request.TenantId) {
+		if id.Can(domain.PermRead, e.ID, toID(request.TenantId)) {
 			employees = append(employees, e)
 		}
 	}
 
-	entries, err := a.db.MonthEntries(ctx, request.TenantId, month)
+	entries, err := a.db.MonthEntries(ctx, toID(request.TenantId), month)
 	if err != nil {
 		status, code := mapStoreErr(err)
 		return GetMonthGriddefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
-	comments, err := a.db.DayComments(ctx, request.TenantId, month)
+	comments, err := a.db.DayComments(ctx, toID(request.TenantId), month)
 	if err != nil {
 		status, code := mapStoreErr(err)
 		return GetMonthGriddefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
-	totals, err := a.db.Totals(ctx, request.TenantId, month)
+	totals, err := a.db.Totals(ctx, toID(request.TenantId), month)
 	if err != nil {
 		status, code := mapStoreErr(err)
 		return GetMonthGriddefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
@@ -62,7 +61,7 @@ func (a *API) GetMonthGrid(ctx context.Context, request GetMonthGridRequestObjec
 	}
 	for _, e := range employees {
 		grid.Employees = append(grid.Employees, toAPIEmployee(e))
-		grid.EmployeeTotals[strconv.FormatInt(e.ID, 10)] = totals.PerEmployee[e.ID].Format(decimalSep)
+		grid.EmployeeTotals[e.ID.String()] = totals.PerEmployee[e.ID].Format(decimalSep)
 	}
 	for _, day := range month.Days() {
 		gd := GridDay{
@@ -74,9 +73,9 @@ func (a *API) GetMonthGrid(ctx context.Context, request GetMonthGridRequestObjec
 			gd.Comment = &c
 		}
 		for _, e := range employees {
-			locked := !e.Employed(day) || !id.Can(domain.PermWrite, e.ID, request.TenantId)
+			locked := !e.Employed(day) || !id.Can(domain.PermWrite, e.ID, toID(request.TenantId))
 			gd.Cells = append(gd.Cells, GridCell{
-				EmployeeId: e.ID,
+				EmployeeId: e.ID.String(),
 				Hours:      entries[e.ID][day].Format(decimalSep),
 				Locked:     locked,
 			})
@@ -99,7 +98,7 @@ func (a *API) SetHours(ctx context.Context, request SetHoursRequestObject) (SetH
 	if request.Body == nil {
 		return SetHoursdefaultJSONResponse{Body: Error{Error: codeBadRequest}, StatusCode: 400}, nil
 	}
-	if !id.Can(domain.PermWrite, request.Body.EmployeeId, request.TenantId) {
+	if !id.Can(domain.PermWrite, toID(request.Body.EmployeeId), toID(request.TenantId)) {
 		return SetHoursdefaultJSONResponse{Body: Error{Error: codeForbidden}, StatusCode: 403}, nil
 	}
 
@@ -108,18 +107,18 @@ func (a *API) SetHours(ctx context.Context, request SetHoursRequestObject) (SetH
 		return SetHoursdefaultJSONResponse{Body: Error{Error: "invalid_hours"}, StatusCode: 422}, nil //nolint:nilerr
 	}
 	day := fromAPIDate(request.Body.Date)
-	if err := a.db.SetHours(ctx, request.TenantId, request.Body.EmployeeId, day, hours); err != nil {
+	if err := a.db.SetHours(ctx, toID(request.TenantId), toID(request.Body.EmployeeId), day, hours); err != nil {
 		status, code := mapStoreErr(err)
 		return SetHoursdefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
 
-	totals, err := a.db.Totals(ctx, request.TenantId, month)
+	totals, err := a.db.Totals(ctx, toID(request.TenantId), month)
 	if err != nil {
 		status, code := mapStoreErr(err)
 		return SetHoursdefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
 	return SetHours200JSONResponse{
-		EmployeeTotal: totals.PerEmployee[request.Body.EmployeeId].Format(decimalSep),
+		EmployeeTotal: totals.PerEmployee[toID(request.Body.EmployeeId)].Format(decimalSep),
 		DayTotal:      totals.PerDay[day].Format(decimalSep),
 		GrandTotal:    totals.Grand.Format(decimalSep),
 	}, nil
@@ -139,7 +138,7 @@ func (a *API) SetComment(ctx context.Context, request SetCommentRequestObject) (
 	// The day comment is shared, tenant-wide state — not any one employee's
 	// — so it takes CanInTenant(write), matching the HTML app's
 	// handleSetComment exactly (see internal/httpx/handlers_grid.go).
-	if !id.CanInTenant(domain.PermWrite, request.TenantId) {
+	if !id.CanInTenant(domain.PermWrite, toID(request.TenantId)) {
 		return SetCommentdefaultJSONResponse{Body: Error{Error: codeForbidden}, StatusCode: 403}, nil
 	}
 	comment := ""
@@ -147,7 +146,7 @@ func (a *API) SetComment(ctx context.Context, request SetCommentRequestObject) (
 		comment = *request.Body.Comment
 	}
 	day := fromAPIDate(request.Body.Date)
-	if err := a.db.SetDayComment(ctx, request.TenantId, day, comment); err != nil {
+	if err := a.db.SetDayComment(ctx, toID(request.TenantId), day, comment); err != nil {
 		status, code := mapStoreErr(err)
 		return SetCommentdefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}

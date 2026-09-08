@@ -101,12 +101,15 @@ Zahlen darin müssen mit dem Bildschirm übereinstimmen.
 
 **Rollen.** Legen Sie ein zweites, mitarbeiterbezogenes Konto an und weisen
 Sie ihm eine Rolle für eine der vier Platzhalter-Mitarbeitenden zu — sie
-gehören bereits dem Default-Mandanten (id 1) an, mit dem jede frische
-Datenbank startet, es braucht also keinen eigenen Mandanten dafür:
+gehören bereits dem Default-Mandanten an, mit dem jede frische Datenbank
+startet, es braucht also keinen eigenen Mandanten dafür. Die IDs sind UUIDs,
+lesen Sie also zuerst eine aus der Datenbank:
 
 ```sh
+sqlite3 test.db "SELECT id, display_name FROM employees;"
+
 ./wpcalc user add watcher -lang de-CH --db test.db
-./wpcalc user grant watcher -employee 1 -role viewer --db test.db
+./wpcalc user grant watcher -employee <mitarbeiter-uuid> -role viewer --db test.db
 ```
 
 Melden Sie sich als `watcher` an: Der Menüpunkt «Mitarbeitende» fehlt,

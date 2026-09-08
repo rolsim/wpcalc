@@ -9,11 +9,12 @@ import (
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/store"
+	"uuid"
 )
 
 // gridCell is one crossing point of day and employee.
 type gridCell struct {
-	EmployeeID int64
+	EmployeeID uuid.UUID
 	DateISO    string
 	Hours      domain.Centihours
 	// Locked marks a cell the caller may not write: outside this employee's
@@ -86,7 +87,7 @@ func (s *Server) handleGrid(w http.ResponseWriter, r *http.Request) {
 // entirely, not merely locked — the per-employee visibility RBAC gives each
 // account. Among the rest, a column is locked unless the caller can write
 // that employee's hours (in addition to the existing employment-period lock).
-func (s *Server) buildGridView(r *http.Request, tenantID int64, month domain.YearMonth) (gridView, error) {
+func (s *Server) buildGridView(r *http.Request, tenantID uuid.UUID, month domain.YearMonth) (gridView, error) {
 	ctx := r.Context()
 	id, _ := auth.IdentityFrom(ctx)
 
@@ -183,7 +184,7 @@ func (s *Server) handleSetHours(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	employeeID, err := strconv.ParseInt(r.PostFormValue("employee_id"), 10, 64)
+	employeeID, err := uuid.Parse(r.PostFormValue("employee_id"))
 	if err != nil {
 		s.writeSetResult(w, r, tenantID, month, "", "error.invalid_input", http.StatusBadRequest)
 		return
@@ -280,7 +281,7 @@ type setResult struct {
 	GrandTotal    string `json:"grandTotal,omitempty"`
 }
 
-func (s *Server) writeSetResult(w http.ResponseWriter, r *http.Request, tenantID int64, month domain.YearMonth, value, errKey string, status int) {
+func (s *Server) writeSetResult(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID, month domain.YearMonth, value, errKey string, status int) {
 	if !wantsJSON(r) {
 		target := s.url(r, "/m/%s", month)
 		if errKey != "" {
@@ -297,7 +298,7 @@ func (s *Server) writeSetResult(w http.ResponseWriter, r *http.Request, tenantID
 	} else if totals, err := s.db.Totals(r.Context(), tenantID, month); err == nil {
 		sep := v.DecimalSep()
 		res.GrandTotal = totals.Grand.Format(sep)
-		if id, err := strconv.ParseInt(r.PostFormValue("employee_id"), 10, 64); err == nil {
+		if id, err := uuid.Parse(r.PostFormValue("employee_id")); err == nil {
 			res.EmployeeTotal = totals.PerEmployee[id].Format(sep)
 		}
 		if day, err := domain.ParseDate(r.PostFormValue("date")); err == nil {

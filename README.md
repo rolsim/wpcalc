@@ -148,7 +148,7 @@ has never seen the server's filesystem or database file.
   --access-token wpat_... --refresh-token wprt_...   # from `wpcalc token create`, above
 ./bin/wpcalcctl tenant add "Acme Corp"
 ./bin/wpcalcctl user add bob
-./bin/wpcalcctl user grant bob -tenant 2 -role mandant_admin
+./bin/wpcalcctl user grant bob -tenant 8f14e45f-ceea-4c2b-9b1a-1d7f3a6c50e2 -role mandant_admin
 ```
 
 Credentials are stored (mode `0600`) at
@@ -280,7 +280,9 @@ or over TCP if you also run one):
 
 ```sh
 wpcalcctl user add alice                       # username must match the WP login
-wpcalcctl user grant alice -employee 42 -role viewer   # or "editor" to allow entering hours
+wpcalcctl user grant alice \
+  -tenant 8f14e45f-ceea-4c2b-9b1a-1d7f3a6c50e2 \
+  -employee 3c9a70b1-2d84-4f6e-8a15-b7c2e9d40f83 -role viewer   # or "editor" to allow entering hours
 ```
 
 An employee logged into WordPress as `alice` then sees exactly what that

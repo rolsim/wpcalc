@@ -4,13 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"uuid"
 )
 
 // Employee is someone whose hours the grid tracks, over a bounded employment
 // interval. EndDate nil means still employed.
 type Employee struct {
-	ID          int64
-	TenantID    int64
+	ID          uuid.UUID
+	TenantID    uuid.UUID
 	DisplayName string
 	StartDate   Date
 	EndDate     *Date
@@ -56,7 +57,7 @@ func (e Employee) ActiveIn(m YearMonth) bool {
 
 // Validate checks the invariants the store and handlers both rely on.
 func (e Employee) Validate() error {
-	if e.TenantID == 0 {
+	if e.TenantID == uuid.Nil() {
 		return fmt.Errorf("%w: tenant is required", ErrInvalidEmployee)
 	}
 	if strings.TrimSpace(e.DisplayName) == "" {
@@ -86,7 +87,7 @@ func ActiveEmployees(all []Employee, m YearMonth) []Employee {
 // TimeEntry is one employee's hours on one day. The store holds at most one
 // row per (employee, day); a zero value means the cell was cleared.
 type TimeEntry struct {
-	EmployeeID int64
+	EmployeeID uuid.UUID
 	Date       Date
 	Hours      Centihours
 }

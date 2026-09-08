@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/rolsim/wpcalc/internal/domain"
+	"uuid"
 )
 
 // fakeScopedStore is a minimal in-memory ScopedUserStore for exercising the
 // ScopeSelf identity path without a real database.
 type fakeScopedStore struct {
 	users     map[string]domain.User
-	userRoles map[int64][]domain.UserRole
+	userRoles map[uuid.UUID][]domain.UserRole
 	perms     map[string][]string
 }
 
@@ -25,7 +26,7 @@ func (f *fakeScopedStore) UserByUsername(_ context.Context, username string) (do
 	return u, nil
 }
 
-func (f *fakeScopedStore) UserRolesForUser(_ context.Context, userID int64) ([]domain.UserRole, error) {
+func (f *fakeScopedStore) UserRolesForUser(_ context.Context, userID uuid.UUID) ([]domain.UserRole, error) {
 	return f.userRoles[userID], nil
 }
 
@@ -37,14 +38,17 @@ func (f *fakeScopedStore) RolePermissionsFor(_ context.Context, roleIDs []string
 	return out, nil
 }
 
+// Fixture id for the WordPress-linked account in this file's fakes.
+var wpAliceID = uuid.NewV4()
+
 func TestScopeSelfResolvesLinkedAccount(t *testing.T) {
-	empID := int64(10)
+	empID := uuid.NewV4()
 	store := &fakeScopedStore{
 		users: map[string]domain.User{
-			"alice": {ID: 1, Username: "alice", Language: "de-CH"},
+			"alice": {ID: wpAliceID, Username: "alice", Language: "de-CH"},
 		},
-		userRoles: map[int64][]domain.UserRole{
-			1: {{RoleID: "viewer", EmployeeID: &empID}},
+		userRoles: map[uuid.UUID][]domain.UserRole{
+			wpAliceID: {{RoleID: "viewer", EmployeeID: &empID}},
 		},
 		perms: map[string][]string{"viewer": {"read"}},
 	}
@@ -58,13 +62,13 @@ func TestScopeSelfResolvesLinkedAccount(t *testing.T) {
 	if id.FullAccess {
 		t.Error("ScopeSelf identity must never be FullAccess")
 	}
-	if id.UserID != 1 || id.Username != "alice" {
+	if id.UserID != wpAliceID || id.Username != "alice" {
 		t.Errorf("got %+v, want linked account alice (id 1)", id)
 	}
-	if !id.Can("read", empID, 999) {
+	if !id.Can("read", empID, uuid.NewV4()) {
 		t.Error("linked account's employee-scope role did not carry through")
 	}
-	if id.Can("write", empID, 999) {
+	if id.Can("write", empID, uuid.NewV4()) {
 		t.Error("viewer role must not grant write")
 	}
 }
@@ -81,8 +85,8 @@ func TestScopeSelfWithoutMatchingAccountFails(t *testing.T) {
 
 func TestScopeSelfWithNoRolesFails(t *testing.T) {
 	store := &fakeScopedStore{
-		users:     map[string]domain.User{"bob": {ID: 2, Username: "bob"}},
-		userRoles: map[int64][]domain.UserRole{},
+		users:     map[string]domain.User{"bob": {ID: uuid.NewV4(), Username: "bob"}},
+		userRoles: map[uuid.UUID][]domain.UserRole{},
 	}
 	a := newWP(t).WithStore(store)
 
@@ -107,11 +111,11 @@ func TestScopeSelfWithoutStoreConfiguredFails(t *testing.T) {
 func TestScopeAdminUnaffectedByScopeSelfSupport(t *testing.T) {
 	// Adding store-backed ScopeSelf support must not change ScopeAdmin
 	// behavior for a WordPress authenticator that has one configured.
-	empID := int64(10)
+	empID := uuid.NewV4()
 	store := &fakeScopedStore{
-		users: map[string]domain.User{"alice": {ID: 1, Username: "alice"}},
-		userRoles: map[int64][]domain.UserRole{
-			1: {{RoleID: "viewer", EmployeeID: &empID}},
+		users: map[string]domain.User{"alice": {ID: wpAliceID, Username: "alice"}},
+		userRoles: map[uuid.UUID][]domain.UserRole{
+			wpAliceID: {{RoleID: "viewer", EmployeeID: &empID}},
 		},
 		perms: map[string][]string{"viewer": {"read"}},
 	}
@@ -132,8 +136,8 @@ func TestScopeCannotBeDowngradedByStrippingHeader(t *testing.T) {
 	// vice versa) if the X-Wpcalc-Scope header is edited or removed after
 	// signing — scope is bound into the mac.
 	store := &fakeScopedStore{
-		users:     map[string]domain.User{"alice": {ID: 1, Username: "alice"}},
-		userRoles: map[int64][]domain.UserRole{1: {{RoleID: "viewer"}}},
+		users:     map[string]domain.User{"alice": {ID: wpAliceID, Username: "alice"}},
+		userRoles: map[uuid.UUID][]domain.UserRole{wpAliceID: {{RoleID: "viewer"}}},
 		perms:     map[string][]string{"viewer": {"read"}},
 	}
 	a := newWP(t).WithStore(store)

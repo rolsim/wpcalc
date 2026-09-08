@@ -73,7 +73,7 @@ func (a *API) CreateTenant(ctx context.Context, request CreateTenantRequestObjec
 		status, code := mapStoreErr(err)
 		return CreateTenantdefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
-	return CreateTenant201JSONResponse{Id: tenantID, Name: request.Body.Name}, nil
+	return CreateTenant201JSONResponse{Id: tenantID.String(), Name: request.Body.Name}, nil
 }
 
 func (a *API) GetTenant(ctx context.Context, request GetTenantRequestObject) (GetTenantResponseObject, error) {
@@ -81,7 +81,7 @@ func (a *API) GetTenant(ctx context.Context, request GetTenantRequestObject) (Ge
 	if !ok || !id.CanSystemWide(domain.PermManageTenants) {
 		return GetTenantdefaultJSONResponse{Body: Error{Error: codeForbidden}, StatusCode: 403}, nil
 	}
-	t, err := a.db.Tenant(ctx, request.TenantId)
+	t, err := a.db.Tenant(ctx, toID(request.TenantId))
 	if err != nil {
 		status, code := mapStoreErr(err)
 		return GetTenantdefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
@@ -97,7 +97,7 @@ func (a *API) UpdateTenant(ctx context.Context, request UpdateTenantRequestObjec
 	if request.Body == nil {
 		return UpdateTenantdefaultJSONResponse{Body: Error{Error: codeBadRequest}, StatusCode: 400}, nil
 	}
-	if err := a.db.RenameTenant(ctx, request.TenantId, request.Body.Name); err != nil {
+	if err := a.db.RenameTenant(ctx, toID(request.TenantId), request.Body.Name); err != nil {
 		status, code := mapStoreErr(err)
 		return UpdateTenantdefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}

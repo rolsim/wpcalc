@@ -6,6 +6,7 @@ import (
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/store"
+	"uuid"
 )
 
 func (a *API) ListRoleAssignments(ctx context.Context, _ ListRoleAssignmentsRequestObject) (ListRoleAssignmentsResponseObject, error) {
@@ -38,7 +39,7 @@ func (a *API) GrantRole(ctx context.Context, request GrantRoleRequestObject) (Gr
 		status, code := mapStoreErr(err)
 		return GrantRoledefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
-	if err := a.db.GrantUserRole(ctx, u.ID, request.Body.TenantId, nil, request.Body.RoleId); err != nil {
+	if err := a.db.GrantUserRole(ctx, u.ID, optToID(request.Body.TenantId), nil, request.Body.RoleId); err != nil {
 		status, code := mapStoreErr(err)
 		return GrantRoledefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
@@ -53,7 +54,7 @@ func (a *API) RevokeRole(ctx context.Context, request RevokeRoleRequestObject) (
 	if request.Body == nil {
 		return RevokeRoledefaultJSONResponse{Body: Error{Error: codeBadRequest}, StatusCode: 400}, nil
 	}
-	if err := a.db.RevokeUserRole(ctx, request.Body.UserId, request.Body.TenantId, nil); err != nil {
+	if err := a.db.RevokeUserRole(ctx, toID(request.Body.UserId), optToID(request.Body.TenantId), nil); err != nil {
 		status, code := mapStoreErr(err)
 		return RevokeRoledefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
@@ -62,10 +63,10 @@ func (a *API) RevokeRole(ctx context.Context, request RevokeRoleRequestObject) (
 
 func (a *API) ListEmployeeRoleAssignments(ctx context.Context, request ListEmployeeRoleAssignmentsRequestObject) (ListEmployeeRoleAssignmentsResponseObject, error) {
 	id, ok := auth.IdentityFrom(ctx)
-	if !ok || !id.CanInTenant(domain.PermManageUsers, request.TenantId) {
+	if !ok || !id.CanInTenant(domain.PermManageUsers, toID(request.TenantId)) {
 		return ListEmployeeRoleAssignmentsdefaultJSONResponse{Body: Error{Error: codeForbidden}, StatusCode: 403}, nil
 	}
-	assignments, err := a.db.EmployeeRoleAssignmentsForTenant(ctx, request.TenantId)
+	assignments, err := a.db.EmployeeRoleAssignmentsForTenant(ctx, toID(request.TenantId))
 	if err != nil {
 		status, code := mapStoreErr(err)
 		return ListEmployeeRoleAssignmentsdefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
@@ -79,13 +80,13 @@ func (a *API) ListEmployeeRoleAssignments(ctx context.Context, request ListEmplo
 
 func (a *API) GrantEmployeeRole(ctx context.Context, request GrantEmployeeRoleRequestObject) (GrantEmployeeRoleResponseObject, error) {
 	id, ok := auth.IdentityFrom(ctx)
-	if !ok || !id.CanInTenant(domain.PermManageUsers, request.TenantId) {
+	if !ok || !id.CanInTenant(domain.PermManageUsers, toID(request.TenantId)) {
 		return GrantEmployeeRoledefaultJSONResponse{Body: Error{Error: codeForbidden}, StatusCode: 403}, nil
 	}
 	if request.Body == nil {
 		return GrantEmployeeRoledefaultJSONResponse{Body: Error{Error: codeBadRequest}, StatusCode: 400}, nil
 	}
-	if err := a.checkEmployeeInTenant(ctx, request.Body.EmployeeId, request.TenantId); err != nil {
+	if err := a.checkEmployeeInTenant(ctx, toID(request.Body.EmployeeId), toID(request.TenantId)); err != nil {
 		status, code := mapStoreErr(err)
 		return GrantEmployeeRoledefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
@@ -94,7 +95,7 @@ func (a *API) GrantEmployeeRole(ctx context.Context, request GrantEmployeeRoleRe
 		status, code := mapStoreErr(err)
 		return GrantEmployeeRoledefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
-	employeeID := request.Body.EmployeeId
+	employeeID := toID(request.Body.EmployeeId)
 	if err := a.db.GrantUserRole(ctx, u.ID, nil, &employeeID, request.Body.RoleId); err != nil {
 		status, code := mapStoreErr(err)
 		return GrantEmployeeRoledefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
@@ -104,18 +105,18 @@ func (a *API) GrantEmployeeRole(ctx context.Context, request GrantEmployeeRoleRe
 
 func (a *API) RevokeEmployeeRole(ctx context.Context, request RevokeEmployeeRoleRequestObject) (RevokeEmployeeRoleResponseObject, error) {
 	id, ok := auth.IdentityFrom(ctx)
-	if !ok || !id.CanInTenant(domain.PermManageUsers, request.TenantId) {
+	if !ok || !id.CanInTenant(domain.PermManageUsers, toID(request.TenantId)) {
 		return RevokeEmployeeRoledefaultJSONResponse{Body: Error{Error: codeForbidden}, StatusCode: 403}, nil
 	}
 	if request.Body == nil {
 		return RevokeEmployeeRoledefaultJSONResponse{Body: Error{Error: codeBadRequest}, StatusCode: 400}, nil
 	}
-	if err := a.checkEmployeeInTenant(ctx, request.Body.EmployeeId, request.TenantId); err != nil {
+	if err := a.checkEmployeeInTenant(ctx, toID(request.Body.EmployeeId), toID(request.TenantId)); err != nil {
 		status, code := mapStoreErr(err)
 		return RevokeEmployeeRoledefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
-	employeeID := request.Body.EmployeeId
-	if err := a.db.RevokeUserRole(ctx, request.Body.UserId, nil, &employeeID); err != nil {
+	employeeID := toID(request.Body.EmployeeId)
+	if err := a.db.RevokeUserRole(ctx, toID(request.Body.UserId), nil, &employeeID); err != nil {
 		status, code := mapStoreErr(err)
 		return RevokeEmployeeRoledefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
@@ -126,7 +127,7 @@ func (a *API) RevokeEmployeeRole(ctx context.Context, request RevokeEmployeeRole
 // employee id from a different tenant than the one the caller was
 // authorized against — the tenant isolation boundary, enforced the same
 // way GetEmployee/UpdateEmployee/DeleteEmployee enforce it.
-func (a *API) checkEmployeeInTenant(ctx context.Context, employeeID, tenantID int64) error {
+func (a *API) checkEmployeeInTenant(ctx context.Context, employeeID, tenantID uuid.UUID) error {
 	e, err := a.db.Employee(ctx, employeeID)
 	if err != nil {
 		return err

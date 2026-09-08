@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/rolsim/wpcalc/internal/domain"
+	"uuid"
 )
 
 func TestAPITokenLifecycle(t *testing.T) {
@@ -24,7 +25,7 @@ func TestAPITokenLifecycle(t *testing.T) {
 	if token == "" {
 		t.Fatal("empty token")
 	}
-	if id == 0 {
+	if id == uuid.Nil() {
 		t.Fatal("zero id")
 	}
 	wantExpiry := time.Now().Add(domain.AccessTokenTTL)

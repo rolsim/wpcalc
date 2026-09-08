@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rolsim/wpcalc/internal/store"
+	"uuid"
 )
 
 // cmdToken is deliberately narrow: create is the bootstrap primitive no
@@ -79,8 +80,8 @@ func tokenCreate(ctx context.Context, db *store.DB, username, name string) error
 	return nil
 }
 
-func printTokenPair(label string, accessID int64, accessToken string, accessExpiry time.Time, refreshToken string, refreshExpiry time.Time) {
-	fmt.Printf(`token %d created for %s
+func printTokenPair(label string, accessID uuid.UUID, accessToken string, accessExpiry time.Time, refreshToken string, refreshExpiry time.Time) {
+	fmt.Printf(`token %s created for %s
 
 access token (expires %s):
   %s

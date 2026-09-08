@@ -6,6 +6,7 @@ import (
 
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
+	"uuid"
 )
 
 // accessibleTenants lists the tenants an identity may act in at all — every
@@ -30,7 +31,7 @@ func (s *Server) accessibleTenants(ctx context.Context, id auth.Identity) ([]dom
 // here — the permission checks downstream simply deny what it no longer
 // covers, which is enough: this function only ever narrows what a request
 // can reach, never widens it.
-func (s *Server) resolveActiveTenant(w http.ResponseWriter, r *http.Request) (int64, bool) {
+func (s *Server) resolveActiveTenant(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	id, _ := auth.IdentityFrom(r.Context())
 	if id.ActiveTenantID != nil {
 		return *id.ActiveTenantID, true
@@ -40,13 +41,13 @@ func (s *Server) resolveActiveTenant(w http.ResponseWriter, r *http.Request) (in
 	if err != nil {
 		s.log.Error("resolve active tenant", "error", err)
 		s.renderError(w, r, http.StatusInternalServerError, "error.server")
-		return 0, false
+		return uuid.Nil(), false
 	}
 
 	switch len(tenants) {
 	case 0:
 		s.renderError(w, r, http.StatusForbidden, "error.no_tenant_access")
-		return 0, false
+		return uuid.Nil(), false
 	case 1:
 		// Auto-selected and persisted where possible, so the next request
 		// does not repeat this lookup.
@@ -56,6 +57,6 @@ func (s *Server) resolveActiveTenant(w http.ResponseWriter, r *http.Request) (in
 		return tenants[0].ID, true
 	default:
 		http.Redirect(w, r, s.url(r, "/tenants/choose"), http.StatusSeeOther)
-		return 0, false
+		return uuid.Nil(), false
 	}
 }

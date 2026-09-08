@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
 )
@@ -18,12 +19,12 @@ import (
 // testable without a database and the dependency points one way.
 type UserStore interface {
 	Authenticate(ctx context.Context, username, password string) (domain.User, error)
-	SessionByToken(ctx context.Context, token string) (domain.User, *int64, error)
-	CreateSession(ctx context.Context, token string, userID int64, expires time.Time) error
+	SessionByToken(ctx context.Context, token string) (domain.User, *uuid.UUID, error)
+	CreateSession(ctx context.Context, token string, userID uuid.UUID, expires time.Time) error
 	DeleteSession(ctx context.Context, token string) error
-	SetUserLanguage(ctx context.Context, userID int64, lang string) error
-	SetActiveTenant(ctx context.Context, token string, tenantID *int64) error
-	UserRolesForUser(ctx context.Context, userID int64) ([]domain.UserRole, error)
+	SetUserLanguage(ctx context.Context, userID uuid.UUID, lang string) error
+	SetActiveTenant(ctx context.Context, token string, tenantID *uuid.UUID) error
+	UserRolesForUser(ctx context.Context, userID uuid.UUID) ([]domain.UserRole, error)
 	RolePermissionsFor(ctx context.Context, roleIDs []string) (map[string][]string, error)
 }
 
@@ -48,7 +49,7 @@ type LanguageWriter interface {
 // WordPress-mode identity already has full access to the one dedicated
 // database it runs against (see wordpress.go).
 type TenantWriter interface {
-	SetActiveTenant(r *http.Request, tenantID *int64) error
+	SetActiveTenant(r *http.Request, tenantID *uuid.UUID) error
 }
 
 // CookieName is the standalone session cookie.
@@ -174,7 +175,7 @@ func (a *Accounts) SetLanguage(r *http.Request, lang string) error {
 // SetActiveTenant persists which tenant this request's session has activated
 // — RBAC96 session role-activation, adapted to tenant scoping (see
 // Identity.ActiveTenantID).
-func (a *Accounts) SetActiveTenant(r *http.Request, tenantID *int64) error {
+func (a *Accounts) SetActiveTenant(r *http.Request, tenantID *uuid.UUID) error {
 	c, err := r.Cookie(CookieName)
 	if err != nil || c.Value == "" {
 		return ErrUnauthenticated
@@ -186,7 +187,7 @@ func (a *Accounts) SetActiveTenant(r *http.Request, tenantID *int64) error {
 // permissions) into an Identity. Done fresh on every call — not cached
 // across requests — so a permission revoked mid-session takes effect on the
 // very next request.
-func (a *Accounts) identityFor(ctx context.Context, u domain.User, activeTenantID *int64) (Identity, error) {
+func (a *Accounts) identityFor(ctx context.Context, u domain.User, activeTenantID *uuid.UUID) (Identity, error) {
 	userRoles, err := a.store.UserRolesForUser(ctx, u.ID)
 	if err != nil {
 		return Identity{}, err

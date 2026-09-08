@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"uuid"
 )
 
 // Tenant is one company ("Mandant") whose employees, users, and hours are
@@ -13,7 +14,7 @@ import (
 // multi-tenancy — it is the resource hierarchy that UserRole (see rbac.go)
 // is scoped against.
 type Tenant struct {
-	ID   int64
+	ID   uuid.UUID
 	Name string
 }
 

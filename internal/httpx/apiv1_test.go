@@ -161,7 +161,7 @@ func TestAPIv1EmployeeScopedTokenCannotListTenants(t *testing.T) {
 	}
 
 	// But the viewer can read the grid, restricted to their one employee.
-	w := ts.apiGet(t, "/api/v1/tenants/1/months/2026-07", token)
+	w := ts.apiGet(t, "/api/v1/tenants/"+ts.defaultTenant(t).String()+"/months/2026-07", token)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d, want 200: %s", w.Code, w.Body.String())
 	}
@@ -171,7 +171,7 @@ func TestAPIv1EmployeeScopedTokenCannotListTenants(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &grid); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(grid.Employees) != 1 || int64(grid.Employees[0]["id"].(float64)) != empID {
+	if len(grid.Employees) != 1 || grid.Employees[0]["id"].(string) != empID.String() {
 		t.Fatalf("employees = %v", grid.Employees)
 	}
 }
@@ -394,11 +394,11 @@ func TestAPIv1WriteEndpointsPassResponseValidation(t *testing.T) {
 	if w := ts.apiDo(t, http.MethodPost, "/api/v1/tenants", token, `{"name":"Acme"}`); w.Code != http.StatusCreated {
 		t.Fatalf("create tenant: status %d: %s", w.Code, w.Body.String())
 	}
-	body := `{"employeeId":` + strconv.FormatInt(empID, 10) + `,"date":"2026-07-14","hours":"7.75"}`
-	if w := ts.apiDo(t, http.MethodPut, "/api/v1/tenants/1/months/2026-07/entries", token, body); w.Code != http.StatusOK {
+	body := `{"employeeId":` + strconv.Quote(empID.String()) + `,"date":"2026-07-14","hours":"7.75"}`
+	if w := ts.apiDo(t, http.MethodPut, "/api/v1/tenants/"+ts.defaultTenant(t).String()+"/months/2026-07/entries", token, body); w.Code != http.StatusOK {
 		t.Fatalf("set hours: status %d: %s", w.Code, w.Body.String())
 	}
-	if w := ts.apiDo(t, http.MethodPut, "/api/v1/tenants/1/months/2026-07/comment", token, `{"date":"2026-07-14","comment":"x"}`); w.Code != http.StatusNoContent {
+	if w := ts.apiDo(t, http.MethodPut, "/api/v1/tenants/"+ts.defaultTenant(t).String()+"/months/2026-07/comment", token, `{"date":"2026-07-14","comment":"x"}`); w.Code != http.StatusNoContent {
 		t.Fatalf("set comment: status %d: %s", w.Code, w.Body.String())
 	}
 	if w := ts.apiDo(t, http.MethodPost, "/api/v1/roles", token, `{"id":"auditor","name":"Auditor","scope":"tenant"}`); w.Code != http.StatusCreated {
@@ -413,7 +413,7 @@ func TestAPIv1MandantAdminTokenCannotWriteHoursInAnotherTenant(t *testing.T) {
 	ts := newTestServer(t, nil)
 	tenantB := ts.tenant(t, "Tenant B")
 	empB := ts.employeeInTenant(t, tenantB, "B Employee", "2026-01-01", "")
-	tenantA := int64(1) // the seeded Default tenant
+	tenantA := ts.defaultTenant(t)
 
 	uid, err := ts.db.CreateUserWeak(t.Context(), "mandant-api", "x", true)
 	if err != nil {
@@ -427,8 +427,8 @@ func TestAPIv1MandantAdminTokenCannotWriteHoursInAnotherTenant(t *testing.T) {
 		t.Fatalf("CreateAPIToken: %v", err)
 	}
 
-	body := `{"employeeId":` + itoa(empB) + `,"date":"2026-07-14","hours":"7.75"}`
-	w := ts.apiDo(t, http.MethodPut, "/api/v1/tenants/1/months/2026-07/entries", token, body)
+	body := `{"employeeId":"` + itoa(empB) + `","date":"2026-07-14","hours":"7.75"}`
+	w := ts.apiDo(t, http.MethodPut, "/api/v1/tenants/"+ts.defaultTenant(t).String()+"/months/2026-07/entries", token, body)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status %d, want 404: %s", w.Code, w.Body.String())
 	}

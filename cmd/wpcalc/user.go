@@ -13,6 +13,7 @@ import (
 
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/store"
+	"uuid"
 )
 
 // cmdUser is deliberately narrow: add, grant, and revoke are the two
@@ -31,8 +32,8 @@ func cmdUser(ctx context.Context, args []string) error {
 	weak := fs.Bool("allow-weak-password", false,
 		"accept a password below the minimum length (local development only)")
 	system := fs.Bool("system", false, "grant/revoke a system-scope role (user grant|revoke)")
-	tenant := fs.Int64("tenant", 0, "grant/revoke a tenant-scope role for this tenant id (user grant|revoke)")
-	employee := fs.Int64("employee", 0, "grant/revoke an employee-scope role for this employee id (user grant|revoke)")
+	tenant := fs.String("tenant", "", "grant/revoke a tenant-scope role for this tenant id (user grant|revoke)")
+	employee := fs.String("employee", "", "grant/revoke an employee-scope role for this employee id (user grant|revoke)")
 	role := fs.String("role", "", "role id to grant (user grant)")
 	positional, err := parseArgs(fs, args)
 	if err != nil {
@@ -107,7 +108,7 @@ func normaliseLang(s string) string {
 // --tenant ID, or --employee ID. The scope must match the role's own scope
 // (roles.scope) — enforced by the store, which the database's own trigger
 // enforces again underneath.
-func userGrant(ctx context.Context, db *store.DB, username string, system bool, tenant, employee int64, roleID string) error {
+func userGrant(ctx context.Context, db *store.DB, username string, system bool, tenant, employee string, roleID string) error {
 	if username == "" {
 		return errors.New("user grant: username is required")
 	}
@@ -134,7 +135,7 @@ func userGrant(ctx context.Context, db *store.DB, username string, system bool, 
 }
 
 // userRevoke removes whatever role a user holds at exactly one scope.
-func userRevoke(ctx context.Context, db *store.DB, username string, system bool, tenant, employee int64) error {
+func userRevoke(ctx context.Context, db *store.DB, username string, system bool, tenant, employee string) error {
 	if username == "" {
 		return errors.New("user revoke: username is required")
 	}
@@ -159,35 +160,43 @@ func userRevoke(ctx context.Context, db *store.DB, username string, system bool,
 
 // scopeTarget turns the three mutually exclusive scope flags into the
 // tenant_id/employee_id pair user_roles expects (nil/nil meaning system).
-func scopeTarget(system bool, tenant, employee int64) (tenantID, employeeID *int64, err error) {
+func scopeTarget(system bool, tenant, employee string) (tenantID, employeeID *uuid.UUID, err error) {
 	set := 0
 	if system {
 		set++
 	}
-	if tenant != 0 {
+	if tenant != "" {
 		set++
 	}
-	if employee != 0 {
+	if employee != "" {
 		set++
 	}
 	if set != 1 {
 		return nil, nil, errors.New("exactly one of -system, -tenant, or -employee is required")
 	}
-	if tenant != 0 {
-		return &tenant, nil, nil
+	if tenant != "" {
+		id, err := uuid.Parse(tenant)
+		if err != nil {
+			return nil, nil, fmt.Errorf("-tenant %q is not a uuid: %w", tenant, err)
+		}
+		return &id, nil, nil
 	}
-	if employee != 0 {
-		return nil, &employee, nil
+	if employee != "" {
+		id, err := uuid.Parse(employee)
+		if err != nil {
+			return nil, nil, fmt.Errorf("-employee %q is not a uuid: %w", employee, err)
+		}
+		return nil, &id, nil
 	}
 	return nil, nil, nil
 }
 
-func scopeDescription(tenantID, employeeID *int64) string {
+func scopeDescription(tenantID, employeeID *uuid.UUID) string {
 	switch {
 	case tenantID != nil:
-		return fmt.Sprintf(" (tenant %d)", *tenantID)
+		return fmt.Sprintf(" (tenant %s)", *tenantID)
 	case employeeID != nil:
-		return fmt.Sprintf(" (employee %d)", *employeeID)
+		return fmt.Sprintf(" (employee %s)", *employeeID)
 	default:
 		return " (system-wide)"
 	}

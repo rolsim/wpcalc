@@ -602,7 +602,7 @@ paths:
       - name: tokenId
         in: path
         required: true
-        schema: { type: integer, format: int64, minimum: 1 }
+        schema: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
     delete:
       operationId: revokeToken
       summary: Revoke one of the caller's own bearer tokens
@@ -763,12 +763,12 @@ components:
       name: tenantId
       in: path
       required: true
-      schema: { type: integer, format: int64, minimum: 1 }
+      schema: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
     EmployeeId:
       name: employeeId
       in: path
       required: true
-      schema: { type: integer, format: int64, minimum: 1 }
+      schema: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
     RoleId:
       name: roleId
       in: path
@@ -837,7 +837,7 @@ components:
       type: object
       required: [id, name]
       properties:
-        id: { type: integer, format: int64 }
+        id: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
         name: { type: string }
 
     TenantCreate:
@@ -850,8 +850,8 @@ components:
       type: object
       required: [id, tenantId, name, startDate]
       properties:
-        id: { type: integer, format: int64 }
-        tenantId: { type: integer, format: int64 }
+        id: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
+        tenantId: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
         name: { type: string }
         startDate: { $ref: "#/components/schemas/Date" }
         endDate:
@@ -886,7 +886,7 @@ components:
       type: object
       required: [employeeId, hours, locked]
       properties:
-        employeeId: { type: integer, format: int64 }
+        employeeId: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
         hours:
           type: string
           description: Decimal hours, `.` separator, e.g. "7.75".
@@ -925,7 +925,7 @@ components:
       type: object
       required: [employeeId, date, hours]
       properties:
-        employeeId: { type: integer, format: int64 }
+        employeeId: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
         date: { $ref: "#/components/schemas/Date" }
         hours:
           type: string
@@ -997,9 +997,9 @@ components:
       type: object
       required: [userId, username, employeeId, employeeName, roleId, roleName]
       properties:
-        userId: { type: integer, format: int64 }
+        userId: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
         username: { type: string }
-        employeeId: { type: integer, format: int64 }
+        employeeId: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
         employeeName: { type: string }
         roleId: { type: string }
         roleName: { type: string }
@@ -1009,24 +1009,24 @@ components:
       required: [username, employeeId, roleId]
       properties:
         username: { type: string }
-        employeeId: { type: integer, format: int64 }
+        employeeId: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
         roleId: { type: string }
 
     EmployeeRoleRevoke:
       type: object
       required: [userId, employeeId]
       properties:
-        userId: { type: integer, format: int64 }
-        employeeId: { type: integer, format: int64 }
+        userId: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
+        employeeId: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
 
     AdminRoleAssignment:
       type: object
       required: [userId, username, roleId, roleName]
       properties:
-        userId: { type: integer, format: int64 }
+        userId: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
         username: { type: string }
         tenantId:
-          oneOf: [{ type: integer, format: int64 }, { type: "null" }]
+          oneOf: [{ type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }, { type: "null" }]
         tenantName: { type: string }
         roleId: { type: string }
         roleName: { type: string }
@@ -1038,25 +1038,25 @@ components:
         username: { type: string }
         roleId: { type: string }
         tenantId:
-          type: integer
-          format: int64
+          type: string
+          pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
           description: Present means tenant scope; absent means system scope.
 
     RoleRevoke:
       type: object
       required: [userId]
       properties:
-        userId: { type: integer, format: int64 }
+        userId: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
         tenantId:
-          type: integer
-          format: int64
+          type: string
+          pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
           description: Present means the tenant-scope grant; absent means the system-scope grant.
 
     User:
       type: object
       required: [id, username, language]
       properties:
-        id: { type: integer, format: int64 }
+        id: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
         username: { type: string }
         language:
           type: string
@@ -1092,19 +1092,19 @@ components:
       properties:
         roleId: { type: string }
         tenantId:
-          type: integer
-          format: int64
+          type: string
+          pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
           description: Present for a tenant-scope assignment.
         employeeId:
-          type: integer
-          format: int64
+          type: string
+          pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
           description: Present for an employee-scope assignment.
 
     ApiToken:
       type: object
       required: [id, name, createdAt, expiresAt]
       properties:
-        id: { type: integer, format: int64 }
+        id: { type: string, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
         name: { type: string }
         createdAt: { type: string, format: date-time }
         expiresAt:
@@ -1131,8 +1131,8 @@ components:
       required: [accessTokenId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, name]
       properties:
         accessTokenId:
-          type: integer
-          format: int64
+          type: string
+          pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
           description: For later use with `DELETE /tokens/{tokenId}` — the refresh token has no id of its own to name that way.
         accessToken:
           type: string

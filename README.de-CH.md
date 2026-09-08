@@ -156,7 +156,7 @@ Datenbankdatei des Servers nie gesehen hat.
   --access-token wpat_... --refresh-token wprt_...   # von `wpcalc token create`, oben
 ./bin/wpcalcctl tenant add "Acme Corp"
 ./bin/wpcalcctl user add bob
-./bin/wpcalcctl user grant bob -tenant 2 -role mandant_admin
+./bin/wpcalcctl user grant bob -tenant 8f14e45f-ceea-4c2b-9b1a-1d7f3a6c50e2 -role mandant_admin
 ```
 
 Zugangsdaten werden (Modus `0600`) unter
@@ -299,7 +299,9 @@ TCP, falls zusätzlich einer läuft):
 
 ```sh
 wpcalcctl user add alice                       # Benutzername muss dem WP-Login entsprechen
-wpcalcctl user grant alice -employee 42 -role viewer   # oder "editor" für Stundeneingabe
+wpcalcctl user grant alice \
+  -tenant 8f14e45f-ceea-4c2b-9b1a-1d7f3a6c50e2 \
+  -employee 3c9a70b1-2d84-4f6e-8a15-b7c2e9d40f83 -role viewer   # oder "editor" für Stundeneingabe
 ```
 
 Eine als `alice` in WordPress angemeldete Person sieht dann genau das, was

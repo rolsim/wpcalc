@@ -91,9 +91,9 @@ func (e Scope) Valid() bool {
 type AdminRoleAssignment struct {
 	RoleId     string  `json:"roleId"`
 	RoleName   string  `json:"roleName"`
-	TenantId   *int64  `json:"tenantId,omitempty"`
+	TenantId   *string `json:"tenantId,omitempty"`
 	TenantName *string `json:"tenantName,omitempty"`
-	UserId     int64   `json:"userId"`
+	UserId     string  `json:"userId"`
 	Username   string  `json:"username"`
 }
 
@@ -103,7 +103,7 @@ type ApiToken struct {
 
 	// ExpiresAt Access tokens are short-lived (1 hour) by design — see `POST /tokens/refresh` for renewing one without going back to `wpcalc token create`.
 	ExpiresAt  time.Time  `json:"expiresAt"`
-	Id         int64      `json:"id"`
+	Id         string     `json:"id"`
 	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
 	Name       string     `json:"name"`
 
@@ -123,12 +123,12 @@ type Date = openapi_types.Date
 type Employee struct {
 	// EndDate null means still employed.
 	EndDate *Date  `json:"endDate,omitempty"`
-	Id      int64  `json:"id"`
+	Id      string `json:"id"`
 	Name    string `json:"name"`
 
 	// StartDate Examples: 2026-07-14
-	StartDate Date  `json:"startDate"`
-	TenantId  int64 `json:"tenantId"`
+	StartDate Date   `json:"startDate"`
+	TenantId  string `json:"tenantId"`
 }
 
 // EmployeeCreate defines model for EmployeeCreate.
@@ -142,25 +142,25 @@ type EmployeeCreate struct {
 
 // EmployeeRoleAssignment defines model for EmployeeRoleAssignment.
 type EmployeeRoleAssignment struct {
-	EmployeeId   int64  `json:"employeeId"`
+	EmployeeId   string `json:"employeeId"`
 	EmployeeName string `json:"employeeName"`
 	RoleId       string `json:"roleId"`
 	RoleName     string `json:"roleName"`
-	UserId       int64  `json:"userId"`
+	UserId       string `json:"userId"`
 	Username     string `json:"username"`
 }
 
 // EmployeeRoleGrant defines model for EmployeeRoleGrant.
 type EmployeeRoleGrant struct {
-	EmployeeId int64  `json:"employeeId"`
+	EmployeeId string `json:"employeeId"`
 	RoleId     string `json:"roleId"`
 	Username   string `json:"username"`
 }
 
 // EmployeeRoleRevoke defines model for EmployeeRoleRevoke.
 type EmployeeRoleRevoke struct {
-	EmployeeId int64 `json:"employeeId"`
-	UserId     int64 `json:"userId"`
+	EmployeeId string `json:"employeeId"`
+	UserId     string `json:"userId"`
 }
 
 // EmployeeUpdate defines model for EmployeeUpdate.
@@ -185,7 +185,7 @@ type Error struct {
 
 // GridCell defines model for GridCell.
 type GridCell struct {
-	EmployeeId int64 `json:"employeeId"`
+	EmployeeId string `json:"employeeId"`
 
 	// Hours Decimal hours, `.` separator, e.g. "7.75".
 	Hours string `json:"hours"`
@@ -274,8 +274,8 @@ type RoleGrant struct {
 	RoleId string `json:"roleId"`
 
 	// TenantId Present means tenant scope; absent means system scope.
-	TenantId *int64 `json:"tenantId,omitempty"`
-	Username string `json:"username"`
+	TenantId *string `json:"tenantId,omitempty"`
+	Username string  `json:"username"`
 }
 
 // RolePermissionGrant defines model for RolePermissionGrant.
@@ -286,8 +286,8 @@ type RolePermissionGrant struct {
 // RoleRevoke defines model for RoleRevoke.
 type RoleRevoke struct {
 	// TenantId Present means the tenant-scope grant; absent means the system-scope grant.
-	TenantId *int64 `json:"tenantId,omitempty"`
-	UserId   int64  `json:"userId"`
+	TenantId *string `json:"tenantId,omitempty"`
+	UserId   string  `json:"userId"`
 }
 
 // Scope defines model for Scope.
@@ -305,8 +305,8 @@ type SetCommentRequest struct {
 // SetHoursRequest defines model for SetHoursRequest.
 type SetHoursRequest struct {
 	// Date Examples: 2026-07-14
-	Date       Date  `json:"date"`
-	EmployeeId int64 `json:"employeeId"`
+	Date       Date   `json:"date"`
+	EmployeeId string `json:"employeeId"`
 
 	// Hours Decimal hours, `.` or `,` separator; "0" clears the cell.
 	Hours string `json:"hours"`
@@ -314,7 +314,7 @@ type SetHoursRequest struct {
 
 // Tenant defines model for Tenant.
 type Tenant struct {
-	Id   int64  `json:"id"`
+	Id   string `json:"id"`
 	Name string `json:"name"`
 }
 
@@ -330,7 +330,7 @@ type TokenPair struct {
 	AccessTokenExpiresAt time.Time `json:"accessTokenExpiresAt"`
 
 	// AccessTokenId For later use with `DELETE /tokens/{tokenId}` — the refresh token has no id of its own to name that way.
-	AccessTokenId int64  `json:"accessTokenId"`
+	AccessTokenId string `json:"accessTokenId"`
 	Name          string `json:"name"`
 
 	// RefreshToken Shown here once — store it now; it is not recoverable afterward. Single-use: exchange it at `POST /tokens/refresh` before it expires to get a new pair (including a new refresh token — this one stops working the instant it's exchanged).
@@ -340,7 +340,7 @@ type TokenPair struct {
 
 // User defines model for User.
 type User struct {
-	Id int64 `json:"id"`
+	Id string `json:"id"`
 
 	// Language Empty means "follow the browser" — the same default `wpcalc user add` leaves it at.
 	Language string `json:"language"`
@@ -357,15 +357,15 @@ type UserCreate struct {
 // UserRoleAssignment defines model for UserRoleAssignment.
 type UserRoleAssignment struct {
 	// EmployeeId Present for an employee-scope assignment.
-	EmployeeId *int64 `json:"employeeId,omitempty"`
-	RoleId     string `json:"roleId"`
+	EmployeeId *string `json:"employeeId,omitempty"`
+	RoleId     string  `json:"roleId"`
 
 	// TenantId Present for a tenant-scope assignment.
-	TenantId *int64 `json:"tenantId,omitempty"`
+	TenantId *string `json:"tenantId,omitempty"`
 }
 
 // EmployeeId defines model for EmployeeId.
-type EmployeeId = int64
+type EmployeeId = string
 
 // PermissionId defines model for PermissionId.
 type PermissionId = PermissionKey
@@ -374,7 +374,7 @@ type PermissionId = PermissionKey
 type RoleId = string
 
 // TenantId defines model for TenantId.
-type TenantId = int64
+type TenantId = string
 
 // Username defines model for Username.
 type Username = string
@@ -838,7 +838,7 @@ type ClientInterface interface {
 	// Matches `wpcalc token revoke`, scoped to the caller's own account — `tokenId` naming a token belonging to a different account reads as 404, not 403, so this cannot be used to probe which token ids exist. Access tokens only — a refresh token has no id of its own to name here; revoke every one at once with `DELETE /tokens`.
 	//
 	// Corresponds with DELETE /tokens/{tokenId} (the `RevokeToken` operationId).
-	RevokeToken(ctx context.Context, tokenId int64, reqEditors ...RequestEditorFn) (*http.Response, error)
+	RevokeToken(ctx context.Context, tokenId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListUsers List every account
 	//
@@ -1707,7 +1707,7 @@ func (c *Client) RefreshToken(ctx context.Context, body RefreshTokenJSONRequestB
 // Matches `wpcalc token revoke`, scoped to the caller's own account — `tokenId` naming a token belonging to a different account reads as 404, not 403, so this cannot be used to probe which token ids exist. Access tokens only — a refresh token has no id of its own to name here; revoke every one at once with `DELETE /tokens`.
 //
 // Corresponds with DELETE /tokens/{tokenId} (the `RevokeToken` operationId).
-func (c *Client) RevokeToken(ctx context.Context, tokenId int64, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) RevokeToken(ctx context.Context, tokenId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRevokeTokenRequest(c.Server, tokenId)
 	if err != nil {
 		return nil, err
@@ -2317,7 +2317,7 @@ func NewGetTenantRequest(server string, tenantId TenantId) (*http.Request, error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -2362,7 +2362,7 @@ func NewUpdateTenantRequestWithBody(server string, tenantId TenantId, contentTyp
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -2398,7 +2398,7 @@ func NewListEmployeeRoleAssignmentsRequest(server string, tenantId TenantId) (*h
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -2443,7 +2443,7 @@ func NewGrantEmployeeRoleRequestWithBody(server string, tenantId TenantId, conte
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -2490,7 +2490,7 @@ func NewRevokeEmployeeRoleRequestWithBody(server string, tenantId TenantId, cont
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -2526,7 +2526,7 @@ func NewListEmployeesRequest(server string, tenantId TenantId) (*http.Request, e
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -2571,7 +2571,7 @@ func NewCreateEmployeeRequestWithBody(server string, tenantId TenantId, contentT
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -2607,14 +2607,14 @@ func NewDeleteEmployeeRequest(server string, tenantId TenantId, employeeId Emplo
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "employeeId", employeeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "employeeId", employeeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -2648,14 +2648,14 @@ func NewGetEmployeeRequest(server string, tenantId TenantId, employeeId Employee
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "employeeId", employeeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "employeeId", employeeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -2700,14 +2700,14 @@ func NewUpdateEmployeeRequestWithBody(server string, tenantId TenantId, employee
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "employeeId", employeeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "employeeId", employeeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -2743,14 +2743,14 @@ func NewGetEmployeeMonthReportRequest(server string, tenantId TenantId, employee
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "employeeId", employeeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "employeeId", employeeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -2791,14 +2791,14 @@ func NewGetEmployeeYearReportRequest(server string, tenantId TenantId, employeeI
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "employeeId", employeeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "employeeId", employeeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -2839,7 +2839,7 @@ func NewGetMonthGridRequest(server string, tenantId TenantId, ym YearMonth) (*ht
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -2891,7 +2891,7 @@ func NewSetCommentRequestWithBody(server string, tenantId TenantId, ym YearMonth
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -2945,7 +2945,7 @@ func NewSetHoursRequestWithBody(server string, tenantId TenantId, ym YearMonth, 
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -2988,7 +2988,7 @@ func NewGetTenantMonthReportRequest(server string, tenantId TenantId, ym YearMon
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -3158,12 +3158,12 @@ func NewRefreshTokenRequestWithBody(server string, contentType string, body io.R
 }
 
 // NewRevokeTokenRequest constructs an http.Request for the RevokeToken method
-func NewRevokeTokenRequest(server string, tokenId int64) (*http.Request, error) {
+func NewRevokeTokenRequest(server string, tokenId string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tokenId", tokenId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tokenId", tokenId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -3798,7 +3798,7 @@ type ClientWithResponsesInterface interface {
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with DELETE /tokens/{tokenId} (the `RevokeToken` operationId).
-	RevokeTokenWithResponse(ctx context.Context, tokenId int64, reqEditors ...RequestEditorFn) (*RevokeTokenResponse, error)
+	RevokeTokenWithResponse(ctx context.Context, tokenId string, reqEditors ...RequestEditorFn) (*RevokeTokenResponse, error)
 
 	// ListUsersWithResponse List every account
 	//
@@ -6276,7 +6276,7 @@ func (c *ClientWithResponses) RefreshTokenWithResponse(ctx context.Context, body
 // Returns a wrapper object for the known response body format(s).
 //
 // Corresponds with DELETE /tokens/{tokenId} (the `RevokeToken` operationId).
-func (c *ClientWithResponses) RevokeTokenWithResponse(ctx context.Context, tokenId int64, reqEditors ...RequestEditorFn) (*RevokeTokenResponse, error) {
+func (c *ClientWithResponses) RevokeTokenWithResponse(ctx context.Context, tokenId string, reqEditors ...RequestEditorFn) (*RevokeTokenResponse, error) {
 	rsp, err := c.RevokeToken(ctx, tokenId, reqEditors...)
 	if err != nil {
 		return nil, err

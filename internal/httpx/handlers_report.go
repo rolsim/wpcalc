@@ -12,6 +12,7 @@ import (
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/report"
 	"github.com/rolsim/wpcalc/internal/store"
+	"uuid"
 )
 
 type reportEmployee struct {
@@ -81,8 +82,8 @@ func (s *Server) handleReportIndex(w http.ResponseWriter, r *http.Request) {
 		}
 		v.Employees = append(v.Employees, reportEmployee{
 			Name:       e.DisplayName,
-			MonthURL:   s.url(r, "/report/employee/%d/month/%s.pdf", e.ID, month),
-			YearURL:    s.url(r, "/report/employee/%d/year/%d.pdf", e.ID, month.Year),
+			MonthURL:   s.url(r, "/report/employee/%s/month/%s.pdf", e.ID, month),
+			YearURL:    s.url(r, "/report/employee/%s/year/%d.pdf", e.ID, month.Year),
 			MonthLabel: base.T("report.employee_month"),
 			YearLabel:  base.T("report.employee_year"),
 		})
@@ -146,7 +147,7 @@ func (s *Server) handleReportEmployeeYear(w http.ResponseWriter, r *http.Request
 // deliberately independent of the caller's *active* tenant, so an account
 // holding a role in more than one tenant can still reach a direct report
 // link for any of them without switching first. Renders the failure itself.
-func (s *Server) canPrintEmployee(w http.ResponseWriter, r *http.Request, employeeID int64) bool {
+func (s *Server) canPrintEmployee(w http.ResponseWriter, r *http.Request, employeeID uuid.UUID) bool {
 	emp, err := s.db.Employee(r.Context(), employeeID)
 	if err != nil {
 		s.employeeLookupError(w, r, err)

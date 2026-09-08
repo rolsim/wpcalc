@@ -9,7 +9,7 @@ import (
 )
 
 func toAPIUser(u domain.User) User {
-	return User{Id: u.ID, Username: u.Username, Language: u.Language}
+	return User{Id: u.ID.String(), Username: u.Username, Language: u.Language}
 }
 
 func (a *API) ListUsers(ctx context.Context, _ ListUsersRequestObject) (ListUsersResponseObject, error) {
@@ -42,7 +42,7 @@ func (a *API) CreateUser(ctx context.Context, request CreateUserRequestObject) (
 		status, code := mapStoreErr(err)
 		return CreateUserdefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
-	return CreateUser201JSONResponse{Id: userID, Username: request.Body.Username}, nil
+	return CreateUser201JSONResponse{Id: userID.String(), Username: request.Body.Username}, nil
 }
 
 // canActOnAccount is the "self or manage_users" rule every /users/{username}
@@ -76,7 +76,7 @@ func (a *API) GetUserRoles(ctx context.Context, request GetUserRolesRequestObjec
 	}
 	out := make([]UserRoleAssignment, 0, len(roles))
 	for _, r := range roles {
-		out = append(out, UserRoleAssignment{RoleId: r.RoleID, TenantId: r.TenantID, EmployeeId: r.EmployeeID})
+		out = append(out, UserRoleAssignment{RoleId: r.RoleID, TenantId: optIDString(r.TenantID), EmployeeId: optIDString(r.EmployeeID)})
 	}
 	return GetUserRoles200JSONResponse(out), nil
 }

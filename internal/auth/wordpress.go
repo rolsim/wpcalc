@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
 )
@@ -73,7 +74,7 @@ type WordPress struct {
 // and the dependency points one way.
 type ScopedUserStore interface {
 	UserByUsername(ctx context.Context, username string) (domain.User, error)
-	UserRolesForUser(ctx context.Context, userID int64) ([]domain.UserRole, error)
+	UserRolesForUser(ctx context.Context, userID uuid.UUID) ([]domain.UserRole, error)
 	RolePermissionsFor(ctx context.Context, roleIDs []string) (map[string][]string, error)
 }
 

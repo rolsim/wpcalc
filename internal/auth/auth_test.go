@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rolsim/wpcalc/internal/domain"
+	"uuid"
 )
 
 const testSecret = "a-shared-secret-of-sufficient-length"
@@ -157,8 +158,8 @@ func TestWordPressRequiresStrongSecret(t *testing.T) {
 }
 
 func TestIdentityHelpers(t *testing.T) {
-	tenantID, otherTenantID := int64(1), int64(2)
-	empID, otherEmpID := int64(10), int64(11)
+	tenantID, otherTenantID := uuid.NewV4(), uuid.NewV4()
+	empID, otherEmpID := uuid.NewV4(), uuid.NewV4()
 
 	sysAdmin := Identity{
 		Username:        "root",

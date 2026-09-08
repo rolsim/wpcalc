@@ -3,6 +3,7 @@ package domain
 import (
 	"testing"
 	"time"
+	"uuid"
 )
 
 func date(t *testing.T, s string) Date {
@@ -76,15 +77,18 @@ func TestEmployeeHiddenWhenNoOverlapWithMonth(t *testing.T) {
 
 func TestActiveEmployeesFiltersAndPreservesOrder(t *testing.T) {
 	july := NewYearMonth(2026, time.July)
+	// Named rather than positional: ids no longer sort or read in creation
+	// order, so the assertion has to say which employee it means.
+	a, b, c, d := uuid.NewV4(), uuid.NewV4(), uuid.NewV4(), uuid.NewV4()
 	all := []Employee{
-		{ID: 1, DisplayName: "A", StartDate: date(t, "2020-01-01")},
-		{ID: 2, DisplayName: "B", StartDate: date(t, "2020-01-01"), EndDate: ptrDate(t, "2021-01-01")},
-		{ID: 3, DisplayName: "C", StartDate: date(t, "2026-07-15")},
-		{ID: 4, DisplayName: "D", StartDate: date(t, "2030-01-01")},
+		{ID: a, DisplayName: "A", StartDate: date(t, "2020-01-01")},
+		{ID: b, DisplayName: "B", StartDate: date(t, "2020-01-01"), EndDate: ptrDate(t, "2021-01-01")},
+		{ID: c, DisplayName: "C", StartDate: date(t, "2026-07-15")},
+		{ID: d, DisplayName: "D", StartDate: date(t, "2030-01-01")},
 	}
 	got := ActiveEmployees(all, july)
-	if len(got) != 2 || got[0].ID != 1 || got[1].ID != 3 {
-		t.Fatalf("got %d employees %v, want IDs [1 3]", len(got), got)
+	if len(got) != 2 || got[0].ID != a || got[1].ID != c {
+		t.Fatalf("got %d employees %v, want A and C", len(got), got)
 	}
 }
 
@@ -124,7 +128,7 @@ func TestOpenEndedEmploymentHasNoUpperBound(t *testing.T) {
 }
 
 func TestEmployeeValidate(t *testing.T) {
-	valid := Employee{TenantID: 1, DisplayName: "Fine", StartDate: date(t, "2026-01-01")}
+	valid := Employee{TenantID: uuid.NewV4(), DisplayName: "Fine", StartDate: date(t, "2026-01-01")}
 	if err := valid.Validate(); err != nil {
 		t.Errorf("valid employee rejected: %v", err)
 	}
@@ -134,11 +138,11 @@ func TestEmployeeValidate(t *testing.T) {
 		emp  Employee
 	}{
 		{"no tenant", Employee{DisplayName: "NoTenant", StartDate: date(t, "2026-01-01")}},
-		{"empty name", Employee{TenantID: 1, DisplayName: "", StartDate: date(t, "2026-01-01")}},
-		{"blank name", Employee{TenantID: 1, DisplayName: "   ", StartDate: date(t, "2026-01-01")}},
-		{"no start date", Employee{TenantID: 1, DisplayName: "NoStart"}},
+		{"empty name", Employee{TenantID: uuid.NewV4(), DisplayName: "", StartDate: date(t, "2026-01-01")}},
+		{"blank name", Employee{TenantID: uuid.NewV4(), DisplayName: "   ", StartDate: date(t, "2026-01-01")}},
+		{"no start date", Employee{TenantID: uuid.NewV4(), DisplayName: "NoStart"}},
 		{"end before start", Employee{
-			TenantID:    1,
+			TenantID:    uuid.NewV4(),
 			DisplayName: "Backwards",
 			StartDate:   date(t, "2026-07-01"),
 			EndDate:     ptrDate(t, "2026-06-01"),
@@ -155,7 +159,7 @@ func TestEmployeeValidate(t *testing.T) {
 
 func TestEndDateEqualToStartDateIsOneDayOfEmployment(t *testing.T) {
 	d := date(t, "2026-07-14")
-	e := Employee{TenantID: 1, DisplayName: "SingleDay", StartDate: d, EndDate: &d}
+	e := Employee{TenantID: uuid.NewV4(), DisplayName: "SingleDay", StartDate: d, EndDate: &d}
 	if err := e.Validate(); err != nil {
 		t.Fatalf("single-day employment rejected: %v", err)
 	}

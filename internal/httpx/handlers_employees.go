@@ -3,12 +3,12 @@ package httpx
 import (
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/store"
+	"uuid"
 )
 
 type employeeRow struct {
@@ -29,7 +29,7 @@ type employeeFormView struct {
 	// Form fields are carried as strings so a rejected submission redisplays
 	// exactly what was typed rather than a value silently normalised on the
 	// way through.
-	ID        int64
+	ID        uuid.UUID
 	Name      string
 	StartDate string
 	EndDate   string
@@ -95,14 +95,14 @@ func (s *Server) handleEmployeeCreate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	e, errKey := s.employeeFromForm(r, 0, tenantID)
+	e, errKey := s.employeeFromForm(r, uuid.Nil(), tenantID)
 	if errKey != "" {
-		s.redisplayEmployeeForm(w, r, tenantID, 0, true, errKey)
+		s.redisplayEmployeeForm(w, r, tenantID, uuid.Nil(), true, errKey)
 		return
 	}
 	if _, err := s.db.CreateEmployee(r.Context(), e); err != nil {
 		s.log.Error("create employee", "error", err)
-		s.redisplayEmployeeForm(w, r, tenantID, 0, true, mapEmployeeError(err))
+		s.redisplayEmployeeForm(w, r, tenantID, uuid.Nil(), true, mapEmployeeError(err))
 		return
 	}
 	http.Redirect(w, r, s.url(r, "/employees"), http.StatusSeeOther)
@@ -136,7 +136,7 @@ func (s *Server) handleEmployeeEdit(w http.ResponseWriter, r *http.Request) {
 		ID:        e.ID,
 		Name:      e.DisplayName,
 		StartDate: e.StartDate.String(),
-		ActionURL: s.url(r, "/employees/%d", e.ID),
+		ActionURL: s.url(r, "/employees/%s", e.ID),
 		CancelURL: s.url(r, "/employees"),
 	}
 	if e.EndDate != nil {
@@ -215,15 +215,15 @@ func (s *Server) handleEmployeeDelete(w http.ResponseWriter, r *http.Request) {
 // holds this permission there, rendering the failure itself either way —
 // callers stop and return when ok is false, same shape as
 // resolveActiveTenant.
-func (s *Server) requireTenantPermission(w http.ResponseWriter, r *http.Request, permission string) (int64, bool) {
+func (s *Server) requireTenantPermission(w http.ResponseWriter, r *http.Request, permission string) (uuid.UUID, bool) {
 	tenantID, ok := s.resolveActiveTenant(w, r)
 	if !ok {
-		return 0, false
+		return uuid.Nil(), false
 	}
 	id, _ := auth.IdentityFrom(r.Context())
 	if !id.CanInTenant(permission, tenantID) {
 		s.renderError(w, r, http.StatusForbidden, "error.forbidden")
-		return 0, false
+		return uuid.Nil(), false
 	}
 	return tenantID, true
 }
@@ -231,7 +231,7 @@ func (s *Server) requireTenantPermission(w http.ResponseWriter, r *http.Request,
 // employeeFromForm parses and validates a submission, returning a catalog key
 // on failure rather than an error, because every failure here is a message
 // shown next to the form.
-func (s *Server) employeeFromForm(r *http.Request, id, tenantID int64) (domain.Employee, string) {
+func (s *Server) employeeFromForm(r *http.Request, id, tenantID uuid.UUID) (domain.Employee, string) {
 	if err := parseAnyForm(r); err != nil {
 		return domain.Employee{}, "error.invalid_input"
 	}
@@ -265,9 +265,9 @@ func (s *Server) employeeFromForm(r *http.Request, id, tenantID int64) (domain.E
 
 // redisplayEmployeeForm re-renders the form with the submitted values intact
 // and the failure explained, rather than redirecting and losing the input.
-func (s *Server) redisplayEmployeeForm(w http.ResponseWriter, r *http.Request, tenantID, id int64, isNew bool, errKey string) {
+func (s *Server) redisplayEmployeeForm(w http.ResponseWriter, r *http.Request, tenantID, id uuid.UUID, isNew bool, errKey string) {
 	titleKey := "employee.edit"
-	action := s.url(r, "/employees/%d", id)
+	action := s.url(r, "/employees/%s", id)
 	if isNew {
 		titleKey = "employee.new"
 		action = s.url(r, "/employees")
@@ -308,11 +308,11 @@ func mapEmployeeError(err error) string {
 	}
 }
 
-func (s *Server) employeeIDFromPath(w http.ResponseWriter, r *http.Request) (int64, bool) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil || id <= 0 {
+func (s *Server) employeeIDFromPath(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
 		s.renderError(w, r, http.StatusNotFound, "error.not_found")
-		return 0, false
+		return uuid.Nil(), false
 	}
 	return id, true
 }

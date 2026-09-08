@@ -11,6 +11,7 @@ import (
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/i18n"
+	"uuid"
 )
 
 // pageTemplates are the content templates, each rendered inside base.html.
@@ -55,7 +56,7 @@ type view struct {
 	// TenantID is the active tenant a tenant-scoped page (grid, employees,
 	// reports) was built for. Zero on pages that are not scoped to one
 	// tenant (the tenant list, role management, the chooser itself).
-	TenantID int64
+	TenantID uuid.UUID
 	// AccessibleTenants drives the topbar switcher — populated only when the
 	// account can act in more than one, so the layout hides a switcher that
 	// would otherwise have nothing to switch between.
@@ -72,7 +73,7 @@ type LanguageOption struct {
 
 // TenantOption is one entry in the tenant switcher.
 type TenantOption struct {
-	ID       int64
+	ID       uuid.UUID
 	Name     string
 	Selected bool
 }

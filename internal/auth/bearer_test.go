@@ -8,11 +8,12 @@ import (
 	"testing"
 
 	"github.com/rolsim/wpcalc/internal/domain"
+	"uuid"
 )
 
 type fakeTokenStore struct {
 	tokenToUser map[string]domain.User
-	roles       map[int64][]domain.UserRole
+	roles       map[uuid.UUID][]domain.UserRole
 	perms       map[string][]string
 }
 
@@ -24,7 +25,7 @@ func (f *fakeTokenStore) UserByAPIToken(_ context.Context, token string) (domain
 	return u, nil
 }
 
-func (f *fakeTokenStore) UserRolesForUser(_ context.Context, userID int64) ([]domain.UserRole, error) {
+func (f *fakeTokenStore) UserRolesForUser(_ context.Context, userID uuid.UUID) ([]domain.UserRole, error) {
 	return f.roles[userID], nil
 }
 
@@ -37,9 +38,10 @@ func (f *fakeTokenStore) RolePermissionsFor(_ context.Context, roleIDs []string)
 }
 
 func TestBearerTokensIdentifyResolvesAValidToken(t *testing.T) {
+	userID, empID, tenantID := uuid.NewV4(), uuid.NewV4(), uuid.NewV4()
 	store := &fakeTokenStore{
-		tokenToUser: map[string]domain.User{"wpat_good": {ID: 1, Username: "alice", Language: "en"}},
-		roles:       map[int64][]domain.UserRole{1: {{RoleID: "editor", EmployeeID: new(int64(9))}}},
+		tokenToUser: map[string]domain.User{"wpat_good": {ID: userID, Username: "alice", Language: "en"}},
+		roles:       map[uuid.UUID][]domain.UserRole{userID: {{RoleID: "editor", EmployeeID: &empID}}},
 		perms:       map[string][]string{"editor": {"read", "print", "write"}},
 	}
 	b := NewBearerTokens(store)
@@ -50,13 +52,13 @@ func TestBearerTokensIdentifyResolvesAValidToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Identify: %v", err)
 	}
-	if id.UserID != 1 || id.Username != "alice" {
+	if id.UserID != userID || id.Username != "alice" {
 		t.Fatalf("identity = %+v", id)
 	}
 	if id.ActiveTenantID != nil {
 		t.Fatalf("bearer identity should never carry an active tenant, got %v", id.ActiveTenantID)
 	}
-	if !id.Can(domain.PermWrite, 9, 1) {
+	if !id.Can(domain.PermWrite, empID, tenantID) {
 		t.Fatal("expected the resolved role's permission to apply")
 	}
 }

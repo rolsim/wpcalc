@@ -7,11 +7,12 @@ import (
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/store"
+	"uuid"
 )
 
 func toAPIToken(t domain.APIToken) ApiToken {
 	return ApiToken{
-		Id:         t.ID,
+		Id:         t.ID.String(),
 		Name:       t.Name,
 		CreatedAt:  t.CreatedAt,
 		ExpiresAt:  t.ExpiresAt,
@@ -60,7 +61,7 @@ func (a *API) CreateToken(ctx context.Context, request CreateTokenRequestObject)
 	return CreateToken201JSONResponse(pair), nil
 }
 
-func (a *API) issueTokenPair(ctx context.Context, userID int64, name string) (TokenPair, error) {
+func (a *API) issueTokenPair(ctx context.Context, userID uuid.UUID, name string) (TokenPair, error) {
 	accessToken, accessID, accessExpiry, err := a.db.CreateAPIToken(ctx, userID, name)
 	if err != nil {
 		return TokenPair{}, err
@@ -70,7 +71,7 @@ func (a *API) issueTokenPair(ctx context.Context, userID int64, name string) (To
 		return TokenPair{}, err
 	}
 	return TokenPair{
-		AccessTokenId:         accessID,
+		AccessTokenId:         accessID.String(),
 		AccessToken:           accessToken,
 		AccessTokenExpiresAt:  accessExpiry,
 		RefreshToken:          refreshToken,
@@ -95,7 +96,7 @@ func (a *API) RevokeToken(ctx context.Context, request RevokeTokenRequestObject)
 	}
 	owned := false
 	for _, t := range tokens {
-		if t.ID == request.TokenId {
+		if t.ID == toID(request.TokenId) {
 			owned = true
 			break
 		}
@@ -103,7 +104,7 @@ func (a *API) RevokeToken(ctx context.Context, request RevokeTokenRequestObject)
 	if !owned {
 		return RevokeTokendefaultJSONResponse{Body: Error{Error: codeNotFound}, StatusCode: 404}, nil
 	}
-	if err := a.db.RevokeAPIToken(ctx, request.TokenId); err != nil {
+	if err := a.db.RevokeAPIToken(ctx, toID(request.TokenId)); err != nil {
 		status, code := mapStoreErr(err)
 		return RevokeTokendefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
@@ -144,7 +145,7 @@ func (a *API) RefreshToken(ctx context.Context, request RefreshTokenRequestObjec
 		return RefreshTokendefaultJSONResponse{Body: Error{Error: code}, StatusCode: status}, nil
 	}
 	return RefreshToken201JSONResponse{
-		AccessTokenId:         exchange.AccessTokenID,
+		AccessTokenId:         exchange.AccessTokenID.String(),
 		AccessToken:           exchange.AccessToken,
 		AccessTokenExpiresAt:  exchange.AccessTokenExpiresAt,
 		RefreshToken:          exchange.RefreshToken,

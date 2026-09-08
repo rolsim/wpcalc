@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
 )
@@ -32,13 +33,13 @@ const (
 // leaked database dump does not also leak usable credentials. expiresAt is
 // the actual stored expiry, not just now+TTL recomputed by the caller —
 // one source of truth for what the database will actually enforce.
-func (db *DB) CreateAPIToken(ctx context.Context, userID int64, name string) (token string, id int64, expiresAt time.Time, err error) {
+func (db *DB) CreateAPIToken(ctx context.Context, userID uuid.UUID, name string) (token string, id uuid.UUID, expiresAt time.Time, err error) {
 	if err := domain.ValidAPITokenName(name); err != nil {
-		return "", 0, time.Time{}, err
+		return "", uuid.Nil(), time.Time{}, err
 	}
 	token, err = newOpaqueToken(tokenPrefix)
 	if err != nil {
-		return "", 0, time.Time{}, fmt.Errorf("store: create api token: %w", err)
+		return "", uuid.Nil(), time.Time{}, fmt.Errorf("store: create api token: %w", err)
 	}
 	// Truncated to whole seconds: what's returned here must read back
 	// identically to what SQLite actually stores (formatSQLiteTimestamp
@@ -46,28 +47,25 @@ func (db *DB) CreateAPIToken(ctx context.Context, userID int64, name string) (to
 	// spurious drift.
 	expiresAt = time.Now().Add(domain.AccessTokenTTL).UTC().Truncate(time.Second)
 
-	res, err := db.ExecContext(ctx,
-		`INSERT INTO api_tokens (user_id, name, token_hash, expires_at) VALUES (?, ?, ?, ?)`,
-		userID, name, hashToken(token), formatSQLiteTimestamp(expiresAt))
+	id = uuid.NewV4()
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO api_tokens (id, user_id, name, token_hash, expires_at) VALUES (?, ?, ?, ?, ?)`,
+		arg(id), arg(userID), name, hashToken(token), formatSQLiteTimestamp(expiresAt))
 	if err != nil {
 		if isForeignKeyViolation(err) {
-			return "", 0, time.Time{}, fmt.Errorf("store: create api token: %w", ErrNotFound)
+			return "", uuid.Nil(), time.Time{}, fmt.Errorf("store: create api token: %w", ErrNotFound)
 		}
-		return "", 0, time.Time{}, fmt.Errorf("store: create api token: %w", err)
-	}
-	id, err = res.LastInsertId()
-	if err != nil {
-		return "", 0, time.Time{}, fmt.Errorf("store: create api token: %w", err)
+		return "", uuid.Nil(), time.Time{}, fmt.Errorf("store: create api token: %w", err)
 	}
 	return token, id, expiresAt, nil
 }
 
 // APITokens lists the tokens a user holds, most recent first. token_hash is
 // never selected — this is metadata only, never enough to authenticate.
-func (db *DB) APITokens(ctx context.Context, userID int64) ([]domain.APIToken, error) {
+func (db *DB) APITokens(ctx context.Context, userID uuid.UUID) ([]domain.APIToken, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT id, user_id, name, created_at, expires_at, last_used_at, revoked_at
-		 FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC, id DESC`, userID)
+		 FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC, id DESC`, arg(userID))
 	if err != nil {
 		return nil, fmt.Errorf("store: list api tokens: %w", err)
 	}
@@ -89,7 +87,7 @@ func (db *DB) APITokens(ctx context.Context, userID int64) ([]domain.APIToken, e
 
 // RevokeAPIToken disables a token by id. Revocation is permanent — the row
 // stays (an audit trail of what once had access), only revoked_at is set.
-func (db *DB) RevokeAPIToken(ctx context.Context, id int64) error {
+func (db *DB) RevokeAPIToken(ctx context.Context, id uuid.UUID) error {
 	res, err := db.ExecContext(ctx,
 		`UPDATE api_tokens SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL`, id)
 	if err != nil {
@@ -109,7 +107,7 @@ func (db *DB) RevokeAPIToken(ctx context.Context, id int64) error {
 // holds — a script's equivalent of "log out everywhere". Already-expired
 // or already-revoked rows are left as they are (no error, no-op); this
 // never fails just because there was nothing left to revoke.
-func (db *DB) RevokeAllUserTokens(ctx context.Context, userID int64) error {
+func (db *DB) RevokeAllUserTokens(ctx context.Context, userID uuid.UUID) error {
 	if _, err := db.ExecContext(ctx,
 		`UPDATE api_tokens SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`, userID); err != nil {
 		return fmt.Errorf("store: revoke all api tokens for user %d: %w", userID, err)
@@ -132,13 +130,13 @@ func (db *DB) UserByAPIToken(ctx context.Context, token string) (domain.User, er
 	hash := hashToken(token)
 
 	var u domain.User
-	var tokenID int64
+	var tokenID uuid.UUID
 	err := db.QueryRowContext(ctx,
 		`SELECT u.id, u.username, u.password_hash, u.language, t.id
 		 FROM api_tokens t JOIN users u ON u.id = t.user_id
 		 WHERE t.token_hash = ? AND t.revoked_at IS NULL AND t.expires_at > ?`,
 		hash, formatSQLiteTimestamp(time.Now())).
-		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Language, &tokenID)
+		Scan(scan{&u.ID}, &u.Username, &u.PasswordHash, &u.Language, scan{&tokenID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.User{}, fmt.Errorf("store: api token: %w", ErrNotFound)
 	}
@@ -148,7 +146,7 @@ func (db *DB) UserByAPIToken(ctx context.Context, token string) (domain.User, er
 
 	// Best-effort: a failed touch must not fail the request it is auditing.
 	_, _ = db.ExecContext(ctx,
-		`UPDATE api_tokens SET last_used_at = datetime('now') WHERE id = ?`, tokenID)
+		`UPDATE api_tokens SET last_used_at = datetime('now') WHERE id = ?`, arg(tokenID))
 
 	return u, nil
 }
@@ -157,7 +155,7 @@ func scanAPIToken(rows *sql.Rows) (domain.APIToken, error) {
 	var t domain.APIToken
 	var created, expires string
 	var lastUsed, revoked sql.NullString
-	if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &created, &expires, &lastUsed, &revoked); err != nil {
+	if err := rows.Scan(scan{&t.ID}, scan{&t.UserID}, &t.Name, &created, &expires, &lastUsed, &revoked); err != nil {
 		return domain.APIToken{}, err
 	}
 	createdAt, err := parseSQLiteTimestamp(created)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
 )
@@ -11,7 +12,7 @@ import (
 // TokenStore is the subset of internal/store.DB that BearerTokens needs.
 type TokenStore interface {
 	UserByAPIToken(ctx context.Context, token string) (domain.User, error)
-	UserRolesForUser(ctx context.Context, userID int64) ([]domain.UserRole, error)
+	UserRolesForUser(ctx context.Context, userID uuid.UUID) ([]domain.UserRole, error)
 	RolePermissionsFor(ctx context.Context, roleIDs []string) (map[string][]string, error)
 }
 

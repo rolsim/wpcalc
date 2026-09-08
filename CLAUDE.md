@@ -121,6 +121,30 @@ leaked) — the same argument that already put the employment-interval check
 there. Handlers that reach a row by id re-verify `TenantID` for the same
 reason (`handlers_employees.go`, `apiv1/employees.go`, `apiv1/reports.go`).
 
+**Every surrogate key is a UUIDv4, minted in Go.** `domain` ids are
+`uuid.UUID` from the Go 1.27 standard library (import path `uuid`, RFC 9562) —
+no third-party UUID package. An `INTEGER AUTOINCREMENT` is one counter shared
+by every tenant, so the id returned by a create disclosed how many rows existed
+database-wide: a tenant admin who added an employee and got id 47 learned that
+46 employees existed across all tenants, and sampling that over time yielded a
+competitor's headcount and growth rate. Authorization cannot close that, since
+the leak is in the identifier. Sequential ids also turned any single missing
+check into a whole-table sweep instead of one wrong row.
+
+v4 and not v7 — a v7's millisecond prefix would put record creation time back
+into the id. Stored as canonical 36-character TEXT, not BLOB(16), so the
+database stays readable in a sqlite3 shell. `uuid.UUID` implements neither
+`driver.Valuer` nor `sql.Scanner`, so `internal/store/uuid.go` holds the four
+adapters (`arg`, `nullArg`, `scan`, `scanNull`) and is the only place that
+knows how a UUID is spelled in SQLite — note that `Scan` takes `...any`, so a
+missed `scan{}` wrapper is a *runtime* failure, not a compile error. `/api/v1`
+carries ids as `type: string` with a UUID `pattern` (not `format: uuid`, which
+would make oapi-codegen emit `google/uuid`); `internal/apiv1/ids.go` converts
+at that boundary, and the request-validation middleware rejects a malformed id
+before any handler runs. Roles and permissions keep their semantic slug ids
+(`super_admin`, `manage_tenants`) — those are not surrogates and nothing about
+them is enumerable.
+
 **Hours are integers.** `domain.Centihours` is hundredths of an hour. The
 grid sums the same entries two ways and the PDFs a third; those totals must
 agree exactly, which floats cannot promise. Never sum `.Hours()` — sum
@@ -145,7 +169,7 @@ spawns the binary on a host this project doesn't control, so it has to be one
 static file with no libc dependency — this is also why the SQLite driver is
 the pure-Go `modernc.org/sqlite`, not `mattn/go-sqlite3`.
 
-**Migrations use goose's `Provider` API**, not the package-level one — the
+**The schema is one migration.** `00001_initial.sql` declares the whole database rather than replaying the six incremental migrations it replaces; there is no deployment whose data survives, so upgrading means deleting the database and recreating it. **Migrations use goose's `Provider` API**, not the package-level one — the
 latter keeps dialect/filesystem in process globals, which race as soon as two
 tests migrate two databases at once.
 

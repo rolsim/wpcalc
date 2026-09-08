@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"strconv"
 
 	wpcalc "github.com/rolsim/wpcalc/sdk/go"
 )
@@ -54,7 +53,7 @@ func tenantAdd(ctx context.Context, sess *wpcalc.Session, name string) error {
 	if resp.JSON201 == nil {
 		return apiError("tenant add", resp.StatusCode(), resp.Body, resp.JSONDefault)
 	}
-	fmt.Printf("created tenant %d: %s\n", resp.JSON201.Id, resp.JSON201.Name)
+	fmt.Printf("created tenant %s: %s\n", resp.JSON201.Id, resp.JSON201.Name)
 	return nil
 }
 
@@ -71,26 +70,25 @@ func tenantList(ctx context.Context, sess *wpcalc.Session) error {
 		return nil
 	}
 	for _, t := range *resp.JSON200 {
-		fmt.Printf("%-4d %s\n", t.Id, t.Name)
+		fmt.Printf("%-36s %s\n", t.Id, t.Name)
 	}
 	return nil
 }
 
 func tenantRename(ctx context.Context, sess *wpcalc.Session, idArg, name string) error {
-	id, err := strconv.ParseInt(idArg, 10, 64)
-	if err != nil {
-		return fmt.Errorf("tenant rename: %q is not a valid tenant id", idArg)
+	if idArg == "" {
+		return errors.New("tenant rename: tenant id is required")
 	}
 	if name == "" {
 		return errors.New("tenant rename: name is required")
 	}
-	resp, err := sess.UpdateTenantWithResponse(ctx, id, wpcalc.UpdateTenantJSONRequestBody{Name: name})
+	resp, err := sess.UpdateTenantWithResponse(ctx, idArg, wpcalc.UpdateTenantJSONRequestBody{Name: name})
 	if err != nil {
 		return fmt.Errorf("tenant rename: %w", err)
 	}
 	if resp.JSON200 == nil {
 		return apiError("tenant rename", resp.StatusCode(), resp.Body, resp.JSONDefault)
 	}
-	fmt.Printf("tenant %d renamed to %s\n", resp.JSON200.Id, resp.JSON200.Name)
+	fmt.Printf("tenant %s renamed to %s\n", resp.JSON200.Id, resp.JSON200.Name)
 	return nil
 }

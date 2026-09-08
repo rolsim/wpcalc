@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
 )
@@ -13,22 +14,19 @@ import (
 var ErrNotFound = errors.New("not found")
 
 // CreateEmployee inserts an employee and returns its id.
-func (db *DB) CreateEmployee(ctx context.Context, e domain.Employee) (int64, error) {
+func (db *DB) CreateEmployee(ctx context.Context, e domain.Employee) (uuid.UUID, error) {
 	if err := e.Validate(); err != nil {
-		return 0, err
+		return uuid.Nil(), err
 	}
-	res, err := db.ExecContext(ctx,
-		`INSERT INTO employees (tenant_id, display_name, start_date, end_date) VALUES (?, ?, ?, ?)`,
-		e.TenantID, e.DisplayName, e.StartDate.String(), nullDate(e.EndDate))
+	id := uuid.NewV4()
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO employees (id, tenant_id, display_name, start_date, end_date) VALUES (?, ?, ?, ?, ?)`,
+		arg(id), arg(e.TenantID), e.DisplayName, e.StartDate.String(), nullDate(e.EndDate))
 	if err != nil {
 		if isForeignKeyViolation(err) {
-			return 0, fmt.Errorf("store: create employee: tenant %d: %w", e.TenantID, ErrNotFound)
+			return uuid.Nil(), fmt.Errorf("store: create employee: tenant %s: %w", e.TenantID, ErrNotFound)
 		}
-		return 0, fmt.Errorf("store: create employee: %w", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("store: create employee: %w", err)
+		return uuid.Nil(), fmt.Errorf("store: create employee: %w", err)
 	}
 	return id, nil
 }
@@ -49,32 +47,32 @@ func (db *DB) UpdateEmployee(ctx context.Context, e domain.Employee) error {
 		`UPDATE employees
 		    SET display_name = ?, start_date = ?, end_date = ?, updated_at = datetime('now')
 		  WHERE id = ?`,
-		e.DisplayName, e.StartDate.String(), nullDate(e.EndDate), e.ID)
+		e.DisplayName, e.StartDate.String(), nullDate(e.EndDate), arg(e.ID))
 	if err != nil {
-		return fmt.Errorf("store: update employee %d: %w", e.ID, err)
+		return fmt.Errorf("store: update employee %s: %w", e.ID, err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("store: update employee %d: %w", e.ID, err)
+		return fmt.Errorf("store: update employee %s: %w", e.ID, err)
 	}
 	if n == 0 {
-		return fmt.Errorf("store: update employee %d: %w", e.ID, ErrNotFound)
+		return fmt.Errorf("store: update employee %s: %w", e.ID, ErrNotFound)
 	}
 	return nil
 }
 
 // DeleteEmployee removes an employee and, by cascade, their entries.
-func (db *DB) DeleteEmployee(ctx context.Context, id int64) error {
-	res, err := db.ExecContext(ctx, `DELETE FROM employees WHERE id = ?`, id)
+func (db *DB) DeleteEmployee(ctx context.Context, id uuid.UUID) error {
+	res, err := db.ExecContext(ctx, `DELETE FROM employees WHERE id = ?`, arg(id))
 	if err != nil {
-		return fmt.Errorf("store: delete employee %d: %w", id, err)
+		return fmt.Errorf("store: delete employee %s: %w", id, err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("store: delete employee %d: %w", id, err)
+		return fmt.Errorf("store: delete employee %s: %w", id, err)
 	}
 	if n == 0 {
-		return fmt.Errorf("store: delete employee %d: %w", id, ErrNotFound)
+		return fmt.Errorf("store: delete employee %s: %w", id, ErrNotFound)
 	}
 	return nil
 }
@@ -82,27 +80,27 @@ func (db *DB) DeleteEmployee(ctx context.Context, id int64) error {
 // Employee fetches one employee by id — global, not tenant-scoped, since an
 // id is unique across every tenant. Callers that must not leak across
 // tenants (any HTTP route) check the returned TenantID themselves.
-func (db *DB) Employee(ctx context.Context, id int64) (domain.Employee, error) {
+func (db *DB) Employee(ctx context.Context, id uuid.UUID) (domain.Employee, error) {
 	row := db.QueryRowContext(ctx,
-		`SELECT id, tenant_id, display_name, start_date, end_date FROM employees WHERE id = ?`, id)
+		`SELECT id, tenant_id, display_name, start_date, end_date FROM employees WHERE id = ?`, arg(id))
 	e, err := scanEmployee(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return domain.Employee{}, fmt.Errorf("store: employee %d: %w", id, ErrNotFound)
+		return domain.Employee{}, fmt.Errorf("store: employee %s: %w", id, ErrNotFound)
 	}
 	if err != nil {
-		return domain.Employee{}, fmt.Errorf("store: employee %d: %w", id, err)
+		return domain.Employee{}, fmt.Errorf("store: employee %s: %w", id, err)
 	}
 	return e, nil
 }
 
 // Employees lists every employee in a tenant, ordered for stable display.
-func (db *DB) Employees(ctx context.Context, tenantID int64) ([]domain.Employee, error) {
+func (db *DB) Employees(ctx context.Context, tenantID uuid.UUID) ([]domain.Employee, error) {
 	return db.queryEmployees(ctx,
 		`SELECT id, tenant_id, display_name, start_date, end_date
 		   FROM employees
 		  WHERE tenant_id = ?
 		  ORDER BY display_name COLLATE NOCASE, id`,
-		tenantID)
+		arg(tenantID))
 }
 
 // EmployeesActiveIn lists only those in a tenant whose employment overlaps
@@ -111,7 +109,7 @@ func (db *DB) Employees(ctx context.Context, tenantID int64) ([]domain.Employee,
 // The overlap is computed in SQL rather than by filtering in Go so that a
 // month with two active people out of two hundred former ones reads two rows.
 // It mirrors domain.Employee.ActiveIn exactly, and a test pins them together.
-func (db *DB) EmployeesActiveIn(ctx context.Context, tenantID int64, m domain.YearMonth) ([]domain.Employee, error) {
+func (db *DB) EmployeesActiveIn(ctx context.Context, tenantID uuid.UUID, m domain.YearMonth) ([]domain.Employee, error) {
 	return db.queryEmployees(ctx,
 		`SELECT id, tenant_id, display_name, start_date, end_date
 		   FROM employees
@@ -119,7 +117,7 @@ func (db *DB) EmployeesActiveIn(ctx context.Context, tenantID int64, m domain.Ye
 		    AND start_date <= ?
 		    AND (end_date IS NULL OR end_date >= ?)
 		  ORDER BY display_name COLLATE NOCASE, id`,
-		tenantID, m.Last().String(), m.First().String())
+		arg(tenantID), m.Last().String(), m.First().String())
 }
 
 func (db *DB) queryEmployees(ctx context.Context, query string, args ...any) ([]domain.Employee, error) {
@@ -153,7 +151,7 @@ func scanEmployee(s scanner) (domain.Employee, error) {
 		end     sql.NullString
 		parsErr error
 	)
-	if err := s.Scan(&e.ID, &e.TenantID, &e.DisplayName, &start, &end); err != nil {
+	if err := s.Scan(scan{&e.ID}, scan{&e.TenantID}, &e.DisplayName, &start, &end); err != nil {
 		return domain.Employee{}, err
 	}
 	if e.StartDate, parsErr = domain.ParseDate(start); parsErr != nil {

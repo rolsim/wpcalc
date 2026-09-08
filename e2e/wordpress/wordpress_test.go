@@ -26,7 +26,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -680,7 +679,7 @@ func TestFrontendShortcodeShowsOnlyTheLinkedEmployeesOwnRow(t *testing.T) {
 	// followed redirect's 200.
 	status := postXHR(t, worker, hoursURL, url.Values{
 		"wpcalc_nonce": {nonce},
-		"employee_id":  {strconv.FormatInt(linkedID, 10)},
+		"employee_id":  {linkedID},
 		"date":         {"2026-01-05"},
 		"hours":        {"4.50"},
 	})
@@ -693,7 +692,7 @@ func TestFrontendShortcodeShowsOnlyTheLinkedEmployeesOwnRow(t *testing.T) {
 	// this identity regardless of what the rendered grid happened to show.
 	status = postXHR(t, worker, hoursURL, url.Values{
 		"wpcalc_nonce": {nonce},
-		"employee_id":  {strconv.FormatInt(otherID, 10)},
+		"employee_id":  {otherID},
 		"date":         {"2026-01-05"},
 		"hours":        {"4.50"},
 	})
@@ -814,19 +813,17 @@ func createEmployeeViaAdmin(t *testing.T, admin *http.Client, name string) strin
 // internal/httpx/templates/employees.html. The link is query-parameter
 // mounted (WordPress admin addresses screens by query string), so the path
 // appears URL-encoded rather than literal.
-func employeeIDFromList(t *testing.T, listPage, name string) int64 {
+func employeeIDFromList(t *testing.T, listPage, name string) string {
 	t.Helper()
+	// Ids are UUIDs now, so the pattern matches hex-and-dashes rather than
+	// digits, and the value is carried around as the text it already is.
 	re := regexp.MustCompile(`(?s)<th scope="row">` + regexp.QuoteMeta(name) +
-		`</th>.*?wpcalc_path=%2Femployees%2F(\d+)%2Fedit`)
+		`</th>.*?wpcalc_path=%2Femployees%2F([0-9a-f-]{36})%2Fedit`)
 	m := re.FindStringSubmatch(listPage)
 	if len(m) != 2 {
 		t.Fatalf("could not find an employee id for %q in:\n%s", name, excerpt(listPage))
 	}
-	id, err := strconv.ParseInt(m[1], 10, 64)
-	if err != nil {
-		t.Fatalf("parse employee id %q: %v", m[1], err)
-	}
-	return id
+	return m[1]
 }
 
 // createPage publishes a WordPress page with the given content and returns
@@ -863,11 +860,11 @@ func wpcalcUserAdd(t *testing.T, ctx context.Context, username, password string)
 	}
 }
 
-func wpcalcUserGrant(t *testing.T, ctx context.Context, username, roleID string, employeeID int64) {
+func wpcalcUserGrant(t *testing.T, ctx context.Context, username, roleID, employeeID string) {
 	t.Helper()
 	if out, err := compose(ctx, "exec", "-T", "wordpress",
 		binPathInContainer, "user", "grant", username,
-		"--db", dbPathInContainer, "--role", roleID, "--employee", strconv.FormatInt(employeeID, 10)); err != nil {
+		"--db", dbPathInContainer, "--role", roleID, "--employee", employeeID); err != nil {
 		t.Fatalf("wpcalc user grant %s: %v\n%s", username, err, out)
 	}
 }

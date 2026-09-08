@@ -70,7 +70,7 @@ func superAdminTokens(t *testing.T, db *store.DB) wpcalc.TokenPair {
 		t.Fatalf("CreateRefreshToken: %v", err)
 	}
 	return wpcalc.TokenPair{
-		AccessTokenId:         accessID,
+		AccessTokenId:         accessID.String(),
 		AccessToken:           accessToken,
 		AccessTokenExpiresAt:  accessExpiry,
 		RefreshToken:          refreshToken,

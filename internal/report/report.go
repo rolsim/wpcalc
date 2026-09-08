@@ -17,16 +17,17 @@ import (
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/i18n"
 	"github.com/rolsim/wpcalc/internal/store"
+	"uuid"
 )
 
 // Source is the slice of the store the reports need.
 type Source interface {
-	Employee(ctx context.Context, id int64) (domain.Employee, error)
-	EmployeesActiveIn(ctx context.Context, tenantID int64, m domain.YearMonth) ([]domain.Employee, error)
-	Totals(ctx context.Context, tenantID int64, m domain.YearMonth) (store.MonthTotals, error)
-	EmployeeEntries(ctx context.Context, employeeID int64, from, to domain.Date) ([]domain.TimeEntry, error)
-	EmployeeRangeTotal(ctx context.Context, employeeID int64, from, to domain.Date) (domain.Centihours, error)
-	DayComments(ctx context.Context, tenantID int64, m domain.YearMonth) (map[domain.Date]string, error)
+	Employee(ctx context.Context, id uuid.UUID) (domain.Employee, error)
+	EmployeesActiveIn(ctx context.Context, tenantID uuid.UUID, m domain.YearMonth) ([]domain.Employee, error)
+	Totals(ctx context.Context, tenantID uuid.UUID, m domain.YearMonth) (store.MonthTotals, error)
+	EmployeeEntries(ctx context.Context, employeeID uuid.UUID, from, to domain.Date) ([]domain.TimeEntry, error)
+	EmployeeRangeTotal(ctx context.Context, employeeID uuid.UUID, from, to domain.Date) (domain.Centihours, error)
+	DayComments(ctx context.Context, tenantID uuid.UUID, m domain.YearMonth) (map[domain.Date]string, error)
 }
 
 // Renderer produces the PDFs for one locale.
@@ -187,7 +188,7 @@ func clip(s string, width float64) string {
 
 // MonthSummary lists how many hours each employee booked in the month, for
 // one tenant.
-func (r *Renderer) MonthSummary(ctx context.Context, tenantID int64, m domain.YearMonth, w io.Writer) error {
+func (r *Renderer) MonthSummary(ctx context.Context, tenantID uuid.UUID, m domain.YearMonth, w io.Writer) error {
 	employees, err := r.src.EmployeesActiveIn(ctx, tenantID, m)
 	if err != nil {
 		return err
@@ -223,7 +224,7 @@ func (r *Renderer) MonthSummary(ctx context.Context, tenantID int64, m domain.Ye
 }
 
 // EmployeeMonth is one person's day-by-day timesheet for a month.
-func (r *Renderer) EmployeeMonth(ctx context.Context, employeeID int64, m domain.YearMonth, w io.Writer) error {
+func (r *Renderer) EmployeeMonth(ctx context.Context, employeeID uuid.UUID, m domain.YearMonth, w io.Writer) error {
 	e, err := r.src.Employee(ctx, employeeID)
 	if err != nil {
 		return err
@@ -285,7 +286,7 @@ func (r *Renderer) EmployeeMonth(ctx context.Context, employeeID int64, m domain
 }
 
 // EmployeeYear is one person's month-by-month total for a calendar year.
-func (r *Renderer) EmployeeYear(ctx context.Context, employeeID int64, year int, w io.Writer) error {
+func (r *Renderer) EmployeeYear(ctx context.Context, employeeID uuid.UUID, year int, w io.Writer) error {
 	e, err := r.src.Employee(ctx, employeeID)
 	if err != nil {
 		return err

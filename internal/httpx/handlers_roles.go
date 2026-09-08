@@ -2,11 +2,11 @@ package httpx
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/store"
+	"uuid"
 )
 
 type roleRow struct {
@@ -153,9 +153,9 @@ func (s *Server) handleRoleAssign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var tenantID *int64
+	var tenantID *uuid.UUID
 	if raw := strings.TrimSpace(r.PostFormValue("tenant_id")); raw != "" {
-		id, err := strconv.ParseInt(raw, 10, 64)
+		id, err := uuid.Parse(raw)
 		if err != nil {
 			s.redirectRolesErr(w, r)
 			return
@@ -177,14 +177,14 @@ func (s *Server) handleRoleRevoke(w http.ResponseWriter, r *http.Request) {
 		s.redirectRolesErr(w, r)
 		return
 	}
-	userID, err := strconv.ParseInt(r.PostFormValue("user_id"), 10, 64)
+	userID, err := uuid.Parse(r.PostFormValue("user_id"))
 	if err != nil {
 		s.redirectRolesErr(w, r)
 		return
 	}
-	var tenantID *int64
+	var tenantID *uuid.UUID
 	if raw := strings.TrimSpace(r.PostFormValue("tenant_id")); raw != "" {
-		id, err := strconv.ParseInt(raw, 10, 64)
+		id, err := uuid.Parse(raw)
 		if err != nil {
 			s.redirectRolesErr(w, r)
 			return

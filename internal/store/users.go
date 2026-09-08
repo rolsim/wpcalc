@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"uuid"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -21,7 +22,7 @@ var ErrDuplicateUsername = errors.New("username already exists")
 // The account starts with no access at all: creating it and granting it a
 // role are separate steps (see rbac.go), so there is never a moment where an
 // account exists with an implicit role nobody asked for.
-func (db *DB) CreateUser(ctx context.Context, username, password string) (int64, error) {
+func (db *DB) CreateUser(ctx context.Context, username, password string) (uuid.UUID, error) {
 	return db.CreateUserWeak(ctx, username, password, false)
 }
 
@@ -32,37 +33,34 @@ func (db *DB) CreateUser(ctx context.Context, username, password string) (int64,
 // throwaway credentials. It is a separate, explicitly named entry point rather
 // than a lower global minimum, so that every caller that waives the rule is
 // greppable and no ordinary call site can waive it by accident.
-func (db *DB) CreateUserWeak(ctx context.Context, username, password string, allowWeak bool) (int64, error) {
+func (db *DB) CreateUserWeak(ctx context.Context, username, password string, allowWeak bool) (uuid.UUID, error) {
 	username = strings.TrimSpace(username)
 	if err := domain.ValidUsername(username); err != nil {
-		return 0, err
+		return uuid.Nil(), err
 	}
 	if password == "" {
-		return 0, fmt.Errorf("%w: password is required", domain.ErrInvalidUser)
+		return uuid.Nil(), fmt.Errorf("%w: password is required", domain.ErrInvalidUser)
 	}
 	if !allowWeak {
 		if err := domain.ValidPassword(password); err != nil {
-			return 0, err
+			return uuid.Nil(), err
 		}
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return 0, fmt.Errorf("store: hash password: %w", err)
+		return uuid.Nil(), fmt.Errorf("store: hash password: %w", err)
 	}
 
-	res, err := db.ExecContext(ctx,
-		`INSERT INTO users (username, password_hash) VALUES (?, ?)`,
-		username, string(hash))
+	id := uuid.NewV4()
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)`,
+		arg(id), username, string(hash))
 	if err != nil {
 		if isUniqueViolation(err) {
-			return 0, fmt.Errorf("store: create user %q: %w", username, ErrDuplicateUsername)
+			return uuid.Nil(), fmt.Errorf("store: create user %q: %w", username, ErrDuplicateUsername)
 		}
-		return 0, fmt.Errorf("store: create user: %w", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("store: create user: %w", err)
+		return uuid.Nil(), fmt.Errorf("store: create user: %w", err)
 	}
 	return id, nil
 }
@@ -130,7 +128,7 @@ func (db *DB) SetPasswordWeak(ctx context.Context, username, password string, al
 // caller, which knows which are loaded, and the read path falls back anyway.
 // What is checked is the shape, so a stray path or a whole HTTP header cannot
 // end up in the column.
-func (db *DB) SetUserLanguage(ctx context.Context, userID int64, lang string) error {
+func (db *DB) SetUserLanguage(ctx context.Context, userID uuid.UUID, lang string) error {
 	lang = strings.TrimSpace(lang)
 	if len(lang) > 35 { // BCP 47 tags are well under this
 		return fmt.Errorf("%w: language tag is too long", domain.ErrInvalidUser)
@@ -206,7 +204,7 @@ func (db *DB) Users(ctx context.Context) ([]domain.User, error) {
 	var out []domain.User
 	for rows.Next() {
 		var u domain.User
-		if err := rows.Scan(&u.ID, &u.Username, &u.Language); err != nil {
+		if err := rows.Scan(scan{&u.ID}, &u.Username, &u.Language); err != nil {
 			return nil, fmt.Errorf("store: list users: %w", err)
 		}
 		out = append(out, u)
@@ -227,10 +225,10 @@ func (db *DB) HasUsers(ctx context.Context) (bool, error) {
 }
 
 // CreateSession records a session token.
-func (db *DB) CreateSession(ctx context.Context, token string, userID int64, expires time.Time) error {
+func (db *DB) CreateSession(ctx context.Context, token string, userID uuid.UUID, expires time.Time) error {
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)`,
-		token, userID, expires.UTC().Format(time.RFC3339))
+		token, arg(userID), expires.UTC().Format(time.RFC3339))
 	if err != nil {
 		return fmt.Errorf("store: create session: %w", err)
 	}
@@ -244,18 +242,18 @@ func (db *DB) CreateSession(ctx context.Context, token string, userID int64, exp
 // auth.UserStore (which deliberately avoids importing this package — see its
 // doc comment) can declare a method with an identical signature and have
 // *DB satisfy it structurally.
-func (db *DB) SessionByToken(ctx context.Context, token string) (domain.User, *int64, error) {
+func (db *DB) SessionByToken(ctx context.Context, token string) (domain.User, *uuid.UUID, error) {
 	var (
 		u              domain.User
 		expires        string
-		activeTenantID sql.NullInt64
+		activeTenantID *uuid.UUID
 	)
 	err := db.QueryRowContext(ctx,
 		`SELECT u.id, u.username, u.password_hash, u.language, s.active_tenant_id, s.expires_at
 		   FROM sessions s
 		   JOIN users u ON u.id = s.user_id
 		  WHERE s.token = ?`, token).
-		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Language, &activeTenantID, &expires)
+		Scan(scan{&u.ID}, &u.Username, &u.PasswordHash, &u.Language, scanNull{&activeTenantID}, &expires)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.User{}, nil, ErrNotFound
 	}
@@ -273,20 +271,16 @@ func (db *DB) SessionByToken(ctx context.Context, token string) (domain.User, *i
 		return domain.User{}, nil, ErrNotFound
 	}
 
-	var tenantID *int64
-	if activeTenantID.Valid {
-		tenantID = &activeTenantID.Int64
-	}
-	return u, tenantID, nil
+	return u, activeTenantID, nil
 }
 
 // SetActiveTenant persists which tenant a session has activated — the RBAC96
 // session role-activation step, adapted to tenant scoping: a user assigned
 // roles in several tenants activates only one tenant's roles per session.
 // tenantID nil clears the selection.
-func (db *DB) SetActiveTenant(ctx context.Context, token string, tenantID *int64) error {
+func (db *DB) SetActiveTenant(ctx context.Context, token string, tenantID *uuid.UUID) error {
 	res, err := db.ExecContext(ctx,
-		`UPDATE sessions SET active_tenant_id = ? WHERE token = ?`, tenantID, token)
+		`UPDATE sessions SET active_tenant_id = ? WHERE token = ?`, nullArg(tenantID), token)
 	if err != nil {
 		return fmt.Errorf("store: set active tenant: %w", err)
 	}

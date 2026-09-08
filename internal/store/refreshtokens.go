@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
 )
@@ -16,28 +17,25 @@ import (
 // exists to renew without a trip back through `wpcalc token create`.
 // expiresAt is the actual stored expiry, not just now+TTL recomputed by
 // the caller.
-func (db *DB) CreateRefreshToken(ctx context.Context, userID int64, name string) (token string, id int64, expiresAt time.Time, err error) {
+func (db *DB) CreateRefreshToken(ctx context.Context, userID uuid.UUID, name string) (token string, id uuid.UUID, expiresAt time.Time, err error) {
 	if err := domain.ValidAPITokenName(name); err != nil {
-		return "", 0, time.Time{}, err
+		return "", uuid.Nil(), time.Time{}, err
 	}
 	token, err = newOpaqueToken(refreshTokenPrefix)
 	if err != nil {
-		return "", 0, time.Time{}, fmt.Errorf("store: create refresh token: %w", err)
+		return "", uuid.Nil(), time.Time{}, fmt.Errorf("store: create refresh token: %w", err)
 	}
 	expiresAt = time.Now().Add(domain.RefreshTokenTTL).UTC().Truncate(time.Second)
 
-	res, err := db.ExecContext(ctx,
-		`INSERT INTO refresh_tokens (user_id, name, token_hash, expires_at) VALUES (?, ?, ?, ?)`,
-		userID, name, hashToken(token), formatSQLiteTimestamp(expiresAt))
+	id = uuid.NewV4()
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO refresh_tokens (id, user_id, name, token_hash, expires_at) VALUES (?, ?, ?, ?, ?)`,
+		arg(id), arg(userID), name, hashToken(token), formatSQLiteTimestamp(expiresAt))
 	if err != nil {
 		if isForeignKeyViolation(err) {
-			return "", 0, time.Time{}, fmt.Errorf("store: create refresh token: %w", ErrNotFound)
+			return "", uuid.Nil(), time.Time{}, fmt.Errorf("store: create refresh token: %w", ErrNotFound)
 		}
-		return "", 0, time.Time{}, fmt.Errorf("store: create refresh token: %w", err)
-	}
-	id, err = res.LastInsertId()
-	if err != nil {
-		return "", 0, time.Time{}, fmt.Errorf("store: create refresh token: %w", err)
+		return "", uuid.Nil(), time.Time{}, fmt.Errorf("store: create refresh token: %w", err)
 	}
 	return token, id, expiresAt, nil
 }
@@ -55,7 +53,7 @@ var ErrRefreshTokenUsed = errors.New("refresh token already used")
 // recompute or re-query anything the store already knows precisely.
 type TokenExchange struct {
 	AccessToken           string
-	AccessTokenID         int64
+	AccessTokenID         uuid.UUID
 	AccessTokenExpiresAt  time.Time
 	RefreshToken          string
 	RefreshTokenExpiresAt time.Time
@@ -83,13 +81,13 @@ func (db *DB) ExchangeRefreshToken(ctx context.Context, token string) (TokenExch
 	}
 	defer func() { _ = tx.Rollback() }() // no-op once committed
 
-	var id, userID int64
+	var id, userID uuid.UUID
 	var name string
 	err = tx.QueryRowContext(ctx,
 		`UPDATE refresh_tokens SET used_at = datetime('now')
 		  WHERE token_hash = ? AND revoked_at IS NULL AND used_at IS NULL AND expires_at > ?
 		  RETURNING id, user_id, name`,
-		hash, now).Scan(&id, &userID, &name)
+		hash, now).Scan(scan{&id}, scan{&userID}, &name)
 	if errors.Is(err, sql.ErrNoRows) {
 		// Same open transaction, same (only) pooled connection: querying
 		// through db here instead of tx would block forever waiting for a
@@ -111,14 +109,11 @@ func (db *DB) ExchangeRefreshToken(ctx context.Context, token string) (TokenExch
 		return TokenExchange{}, fmt.Errorf("store: exchange refresh token: %w", err)
 	}
 	result.AccessTokenExpiresAt = time.Now().Add(domain.AccessTokenTTL).UTC().Truncate(time.Second)
-	res, err := tx.ExecContext(ctx,
-		`INSERT INTO api_tokens (user_id, name, token_hash, expires_at) VALUES (?, ?, ?, ?)`,
-		userID, name, hashToken(result.AccessToken), formatSQLiteTimestamp(result.AccessTokenExpiresAt))
-	if err != nil {
-		return TokenExchange{}, fmt.Errorf("store: exchange refresh token: issue access token: %w", err)
-	}
-	result.AccessTokenID, err = res.LastInsertId()
-	if err != nil {
+	result.AccessTokenID = uuid.NewV4()
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO api_tokens (id, user_id, name, token_hash, expires_at) VALUES (?, ?, ?, ?, ?)`,
+		arg(result.AccessTokenID), arg(userID), name, hashToken(result.AccessToken),
+		formatSQLiteTimestamp(result.AccessTokenExpiresAt)); err != nil {
 		return TokenExchange{}, fmt.Errorf("store: exchange refresh token: issue access token: %w", err)
 	}
 
@@ -128,8 +123,9 @@ func (db *DB) ExchangeRefreshToken(ctx context.Context, token string) (TokenExch
 	}
 	result.RefreshTokenExpiresAt = time.Now().Add(domain.RefreshTokenTTL).UTC().Truncate(time.Second)
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO refresh_tokens (user_id, name, token_hash, expires_at) VALUES (?, ?, ?, ?)`,
-		userID, name, hashToken(result.RefreshToken), formatSQLiteTimestamp(result.RefreshTokenExpiresAt)); err != nil {
+		`INSERT INTO refresh_tokens (id, user_id, name, token_hash, expires_at) VALUES (?, ?, ?, ?, ?)`,
+		arg(uuid.NewV4()), arg(userID), name, hashToken(result.RefreshToken),
+		formatSQLiteTimestamp(result.RefreshTokenExpiresAt)); err != nil {
 		return TokenExchange{}, fmt.Errorf("store: exchange refresh token: issue refresh token: %w", err)
 	}
 

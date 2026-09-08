@@ -10,6 +10,7 @@ import (
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/i18n"
 	"github.com/rolsim/wpcalc/internal/store"
+	"uuid"
 )
 
 func newRenderer(t *testing.T) (*Renderer, *store.DB) {
@@ -39,9 +40,9 @@ func mustDate(t *testing.T, s string) domain.Date {
 	return d
 }
 
-func employee(t *testing.T, db *store.DB, name, start, end string) int64 {
+func employee(t *testing.T, db *store.DB, name, start, end string) uuid.UUID {
 	t.Helper()
-	e := domain.Employee{TenantID: 1, DisplayName: name, StartDate: mustDate(t, start)}
+	e := domain.Employee{TenantID: defaultTenant(t, db), DisplayName: name, StartDate: mustDate(t, start)}
 	if end != "" {
 		d := mustDate(t, end)
 		e.EndDate = &d
@@ -78,25 +79,25 @@ func TestMonthSummaryRendersTotals(t *testing.T) {
 	alice := employee(t, db, "Alice Muster", "2026-01-01", "")
 	bob := employee(t, db, "Bob Beispiel", "2026-01-01", "")
 
-	if err := db.SetHours(ctx, 1, alice, mustDate(t, "2026-07-14"), 775); err != nil {
+	if err := db.SetHours(ctx, defaultTenant(t, db), alice, mustDate(t, "2026-07-14"), 775); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetHours(ctx, 1, alice, mustDate(t, "2026-07-15"), 800); err != nil {
+	if err := db.SetHours(ctx, defaultTenant(t, db), alice, mustDate(t, "2026-07-15"), 800); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetHours(ctx, 1, bob, mustDate(t, "2026-07-14"), 425); err != nil {
+	if err := db.SetHours(ctx, defaultTenant(t, db), bob, mustDate(t, "2026-07-14"), 425); err != nil {
 		t.Fatal(err)
 	}
 
 	var buf bytes.Buffer
-	if err := r.MonthSummary(ctx, 1, july, &buf); err != nil {
+	if err := r.MonthSummary(ctx, defaultTenant(t, db), july, &buf); err != nil {
 		t.Fatalf("MonthSummary: %v", err)
 	}
 	assertPDF(t, &buf)
 
 	// The totals the PDF prints must be the ones the store computes, since
 	// the grid prints those same figures on screen.
-	totals, err := db.Totals(ctx, 1, july)
+	totals, err := db.Totals(ctx, defaultTenant(t, db), july)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,9 +112,9 @@ func TestMonthSummaryRendersTotals(t *testing.T) {
 func TestMonthSummaryHandlesEmptyMonth(t *testing.T) {
 	// A month with nobody employed must still produce a valid document rather
 	// than a zero-byte download.
-	r, _ := newRenderer(t)
+	r, db := newRenderer(t)
 	var buf bytes.Buffer
-	if err := r.MonthSummary(t.Context(), 1, domain.NewYearMonth(2030, time.January), &buf); err != nil {
+	if err := r.MonthSummary(t.Context(), defaultTenant(t, db), domain.NewYearMonth(2030, time.January), &buf); err != nil {
 		t.Fatalf("MonthSummary on an empty month: %v", err)
 	}
 	assertPDF(t, &buf)
@@ -126,10 +127,10 @@ func TestEmployeeMonthListsEveryEmployedDay(t *testing.T) {
 
 	// Employed for 11 days of the month only.
 	id := employee(t, db, "Teilzeit Person", "2026-07-10", "2026-07-20")
-	if err := db.SetHours(ctx, 1, id, mustDate(t, "2026-07-14"), 775); err != nil {
+	if err := db.SetHours(ctx, defaultTenant(t, db), id, mustDate(t, "2026-07-14"), 775); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetDayComment(ctx, 1, mustDate(t, "2026-07-14"), "Betriebsausflug"); err != nil {
+	if err := db.SetDayComment(ctx, defaultTenant(t, db), mustDate(t, "2026-07-14"), "Betriebsausflug"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -166,13 +167,13 @@ func TestEmployeeYearSumsTwelveMonths(t *testing.T) {
 	// One 8-hour day in each of three months.
 	var want domain.Centihours
 	for _, day := range []string{"2026-02-10", "2026-06-10", "2026-11-10"} {
-		if err := db.SetHours(ctx, 1, id, mustDate(t, day), 800); err != nil {
+		if err := db.SetHours(ctx, defaultTenant(t, db), id, mustDate(t, day), 800); err != nil {
 			t.Fatal(err)
 		}
 		want += 800
 	}
 	// A day in the following year must not be counted.
-	if err := db.SetHours(ctx, 1, id, mustDate(t, "2027-01-10"), 800); err != nil {
+	if err := db.SetHours(ctx, defaultTenant(t, db), id, mustDate(t, "2027-01-10"), 800); err != nil {
 		t.Fatal(err)
 	}
 
@@ -198,11 +199,11 @@ func TestEmployeeYearSumsTwelveMonths(t *testing.T) {
 func TestReportsRejectUnknownEmployee(t *testing.T) {
 	r, _ := newRenderer(t)
 	var buf bytes.Buffer
-	if err := r.EmployeeMonth(t.Context(), 99999, domain.NewYearMonth(2026, time.July), &buf); err == nil {
+	if err := r.EmployeeMonth(t.Context(), uuid.NewV4(), domain.NewYearMonth(2026, time.July), &buf); err == nil {
 		t.Error("EmployeeMonth for a missing employee returned no error")
 	}
 	buf.Reset()
-	if err := r.EmployeeYear(t.Context(), 99999, 2026, &buf); err == nil {
+	if err := r.EmployeeYear(t.Context(), uuid.NewV4(), 2026, &buf); err == nil {
 		t.Error("EmployeeYear for a missing employee returned no error")
 	}
 }
@@ -215,12 +216,12 @@ func TestUmlautsSurviveIntoThePDF(t *testing.T) {
 	r.SetCompression(false)
 	ctx := t.Context()
 	id := employee(t, db, "Jürg Müller-Schäfer", "2026-01-01", "")
-	if err := db.SetHours(ctx, 1, id, mustDate(t, "2026-07-14"), 800); err != nil {
+	if err := db.SetHours(ctx, defaultTenant(t, db), id, mustDate(t, "2026-07-14"), 800); err != nil {
 		t.Fatal(err)
 	}
 
 	var buf bytes.Buffer
-	if err := r.MonthSummary(ctx, 1, domain.NewYearMonth(2026, time.July), &buf); err != nil {
+	if err := r.MonthSummary(ctx, defaultTenant(t, db), domain.NewYearMonth(2026, time.July), &buf); err != nil {
 		t.Fatal(err)
 	}
 	body := assertPDF(t, &buf)
@@ -259,4 +260,21 @@ func TestClipKeepsColumnsAligned(t *testing.T) {
 	if got := clip("Anna", 40); got != "Anna" {
 		t.Errorf("clip altered short text: %q", got)
 	}
+}
+
+// defaultTenant is the tenant a fresh database is seeded with. Its id is
+// generated by the migration, so it is looked up rather than hardcoded.
+func defaultTenant(t *testing.T, db *store.DB) uuid.UUID {
+	t.Helper()
+	tenants, err := db.Tenants(t.Context())
+	if err != nil {
+		t.Fatalf("Tenants: %v", err)
+	}
+	for _, tn := range tenants {
+		if tn.Name == "Default" {
+			return tn.ID
+		}
+	}
+	t.Fatal(`no tenant named "Default" in a fresh database`)
+	return uuid.Nil()
 }

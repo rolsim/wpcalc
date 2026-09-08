@@ -13,6 +13,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
 )
@@ -40,7 +41,7 @@ type Identity struct {
 	// UserID identifies the account, for store calls keyed by user (e.g.
 	// listing accessible tenants). Zero for a WordPress-mode identity, which
 	// is not tied to a stored account row.
-	UserID int64
+	UserID uuid.UUID
 
 	// UserRoles are this account's user_roles rows (UA in RBAC96).
 	// RolePermissions maps each held RoleID to the permission IDs its
@@ -52,7 +53,7 @@ type Identity struct {
 	// ActiveTenantID is which of the account's several tenant memberships (if
 	// more than one) is active for this session — RBAC96 session
 	// role-activation, adapted to tenant scoping.
-	ActiveTenantID *int64
+	ActiveTenantID *uuid.UUID
 
 	// FullAccess marks an identity that may do anything in this database,
 	// bypassing the UserRoles walk entirely. Set only for WordPress-mode
@@ -83,7 +84,7 @@ func (i Identity) CanSystemWide(permission string) bool {
 
 // CanInTenant reports whether the identity holds this permission for
 // tenantID: a tenant-scope role for it, or CanSystemWide.
-func (i Identity) CanInTenant(permission string, tenantID int64) bool {
+func (i Identity) CanInTenant(permission string, tenantID uuid.UUID) bool {
 	if i.CanSystemWide(permission) {
 		return true
 	}
@@ -100,7 +101,7 @@ func (i Identity) CanInTenant(permission string, tenantID int64) bool {
 // for its tenant. The caller supplies tenantID (already known from the
 // employee record) rather than Identity looking it up, since Identity has no
 // store access of its own.
-func (i Identity) Can(permission string, employeeID, tenantID int64) bool {
+func (i Identity) Can(permission string, employeeID, tenantID uuid.UUID) bool {
 	if i.CanInTenant(permission, tenantID) {
 		return true
 	}

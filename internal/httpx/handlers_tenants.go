@@ -2,11 +2,11 @@ package httpx
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
+	"uuid"
 )
 
 // handleTenantChoose shows the tenant switcher as a full page, for the
@@ -40,7 +40,7 @@ func (s *Server) handleTenantSwitch(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, r, http.StatusBadRequest, "error.invalid_input")
 		return
 	}
-	tenantID, err := strconv.ParseInt(r.PostFormValue("tenant_id"), 10, 64)
+	tenantID, err := uuid.Parse(r.PostFormValue("tenant_id"))
 	if err != nil {
 		s.renderError(w, r, http.StatusBadRequest, "error.invalid_input")
 		return
@@ -127,8 +127,8 @@ type employeeAssignmentRow struct {
 	Username     string
 	EmployeeName string
 	RoleName     string
-	UserID       int64
-	EmployeeID   int64
+	UserID       uuid.UUID
+	EmployeeID   uuid.UUID
 }
 
 // handleTenantAccess is the per-tenant page for granting/revoking
@@ -212,7 +212,7 @@ func (s *Server) handleTenantAccessGrant(w http.ResponseWriter, r *http.Request)
 	}
 
 	username := strings.TrimSpace(r.PostFormValue("username"))
-	employeeID, errE := strconv.ParseInt(r.PostFormValue("employee_id"), 10, 64)
+	employeeID, errE := uuid.Parse(r.PostFormValue("employee_id"))
 	roleID := strings.TrimSpace(r.PostFormValue("role_id"))
 	target, errU := s.db.UserByUsername(r.Context(), username)
 	if errE != nil || errU != nil || roleID == "" {
@@ -228,7 +228,7 @@ func (s *Server) handleTenantAccessGrant(w http.ResponseWriter, r *http.Request)
 		s.redirectTenantAccessErr(w, r, tenantID, "invalid_input")
 		return
 	}
-	http.Redirect(w, r, s.url(r, "/tenants/%d/access", tenantID), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/tenants/%s/access", tenantID), http.StatusSeeOther)
 }
 
 // handleTenantAccessRevoke removes a user's employee-scope role in this
@@ -247,8 +247,8 @@ func (s *Server) handleTenantAccessRevoke(w http.ResponseWriter, r *http.Request
 		s.renderError(w, r, http.StatusBadRequest, "error.invalid_input")
 		return
 	}
-	userID, errU := strconv.ParseInt(r.PostFormValue("user_id"), 10, 64)
-	employeeID, errE := strconv.ParseInt(r.PostFormValue("employee_id"), 10, 64)
+	userID, errU := uuid.Parse(r.PostFormValue("user_id"))
+	employeeID, errE := uuid.Parse(r.PostFormValue("employee_id"))
 	if errU != nil || errE != nil {
 		s.redirectTenantAccessErr(w, r, tenantID, "invalid_input")
 		return
@@ -262,18 +262,18 @@ func (s *Server) handleTenantAccessRevoke(w http.ResponseWriter, r *http.Request
 		s.redirectTenantAccessErr(w, r, tenantID, "not_found")
 		return
 	}
-	http.Redirect(w, r, s.url(r, "/tenants/%d/access", tenantID), http.StatusSeeOther)
+	http.Redirect(w, r, s.url(r, "/tenants/%s/access", tenantID), http.StatusSeeOther)
 }
 
-func (s *Server) redirectTenantAccessErr(w http.ResponseWriter, r *http.Request, tenantID int64, errKey string) {
-	http.Redirect(w, r, s.url(r, "/tenants/%d/access?err=%s", tenantID, errKey), http.StatusSeeOther)
+func (s *Server) redirectTenantAccessErr(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID, errKey string) {
+	http.Redirect(w, r, s.url(r, "/tenants/%s/access?err=%s", tenantID, errKey), http.StatusSeeOther)
 }
 
-func (s *Server) tenantIDFromPath(w http.ResponseWriter, r *http.Request) (int64, bool) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil || id <= 0 {
+func (s *Server) tenantIDFromPath(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
 		s.renderError(w, r, http.StatusNotFound, "error.not_found")
-		return 0, false
+		return uuid.Nil(), false
 	}
 	return id, true
 }

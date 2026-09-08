@@ -51,13 +51,13 @@ func optDomainDate(d *openapi_types.Date) *domain.Date {
 }
 
 func toAPITenant(t domain.Tenant) Tenant {
-	return Tenant{Id: t.ID, Name: t.Name}
+	return Tenant{Id: t.ID.String(), Name: t.Name}
 }
 
 func toAPIEmployee(e domain.Employee) Employee {
 	return Employee{
-		Id:        e.ID,
-		TenantId:  e.TenantID,
+		Id:        e.ID.String(),
+		TenantId:  e.TenantID.String(),
 		Name:      e.DisplayName,
 		StartDate: toAPIDate(e.StartDate),
 		EndDate:   optAPIDate(e.EndDate),
@@ -78,11 +78,11 @@ func toAPIRole(r domain.Role, permissionIDs []string) Role {
 
 func toAPIAdminAssignment(a store.AdminRoleAssignment) AdminRoleAssignment {
 	out := AdminRoleAssignment{
-		UserId:   a.UserID,
+		UserId:   a.UserID.String(),
 		Username: a.Username,
 		RoleId:   a.RoleID,
 		RoleName: a.RoleName,
-		TenantId: a.TenantID,
+		TenantId: optIDString(a.TenantID),
 	}
 	if a.TenantID != nil {
 		name := a.TenantName
@@ -93,9 +93,9 @@ func toAPIAdminAssignment(a store.AdminRoleAssignment) AdminRoleAssignment {
 
 func toAPIEmployeeAssignment(a store.EmployeeRoleAssignment) EmployeeRoleAssignment {
 	return EmployeeRoleAssignment{
-		UserId:       a.UserID,
+		UserId:       a.UserID.String(),
 		Username:     a.Username,
-		EmployeeId:   a.EmployeeID,
+		EmployeeId:   a.EmployeeID.String(),
 		EmployeeName: a.EmployeeName,
 		RoleId:       a.RoleID,
 		RoleName:     a.RoleName,

@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"uuid"
 )
 
 // Package domain's RBAC types follow NIST RBAC96 (Sandhu, Coyne, Feinstein,
@@ -107,10 +108,10 @@ func ValidRoleID(id string) error {
 // set, matching RoleID's own Scope — nil/nil means a system-scope
 // assignment (see ValidUserRoleScope).
 type UserRole struct {
-	ID         int64
-	UserID     int64
-	TenantID   *int64
-	EmployeeID *int64
+	ID         uuid.UUID
+	UserID     uuid.UUID
+	TenantID   *uuid.UUID
+	EmployeeID *uuid.UUID
 	RoleID     string
 }
 
@@ -119,7 +120,7 @@ type UserRole struct {
 // migration's trg_user_roles_scope trigger — so a CLI/HTTP caller gets a
 // clear error instead of a raw SQLite constraint message, with the database
 // trigger as the real, final enforcement.
-func ValidUserRoleScope(scope Scope, tenantID, employeeID *int64) error {
+func ValidUserRoleScope(scope Scope, tenantID, employeeID *uuid.UUID) error {
 	switch {
 	case scope == ScopeSystem && tenantID == nil && employeeID == nil:
 		return nil

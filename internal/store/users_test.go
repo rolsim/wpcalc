@@ -143,7 +143,7 @@ func TestSetActiveTenant(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tenantID := int64(1)
+	tenantID := defaultTenant(t, db)
 	if err := db.SetActiveTenant(ctx, "tok", &tenantID); err != nil {
 		t.Fatalf("SetActiveTenant: %v", err)
 	}

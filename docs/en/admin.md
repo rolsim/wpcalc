@@ -198,19 +198,24 @@ Everything from here on is remote, via `wpcalcctl` (after `wpcalcctl
 login` with the pair `token create` just printed):
 
 ```sh
-wpcalcctl tenant add "Acme Corp"                          # -> tenant id, e.g. 2
+wpcalcctl tenant add "Acme Corp"                # -> a uuid, e.g. 8f14e45f-ceea-4c2b-9b1a-1d7f3a6c50e2
 
 wpcalcctl user add bob
-wpcalcctl user grant bob -tenant 2 -role mandant_admin
+wpcalcctl user grant bob -tenant 8f14e45f-ceea-4c2b-9b1a-1d7f3a6c50e2 -role mandant_admin
 
 wpcalcctl user add carol
-wpcalcctl user grant carol -tenant 2 -employee 5 -role viewer
+wpcalcctl user grant carol \
+  -tenant 8f14e45f-ceea-4c2b-9b1a-1d7f3a6c50e2 \
+  -employee 3c9a70b1-2d84-4f6e-8a15-b7c2e9d40f83 -role viewer
 
 wpcalcctl user roles bob                                  # what bob can reach
-wpcalcctl user revoke carol -tenant 2 -employee 5          # revoke-then-grant to change a role
+# revoke-then-grant to change a role
+wpcalcctl user revoke carol \
+  -tenant 8f14e45f-ceea-4c2b-9b1a-1d7f3a6c50e2 \
+  -employee 3c9a70b1-2d84-4f6e-8a15-b7c2e9d40f83
 ```
 
-A user holds at most one role per scope *instance* — `-employee 5` twice with
+A user holds at most one role per scope *instance* — `-employee <id>` twice with
 different roles is rejected; revoke first. Use `-system`, `-tenant ID`
 alone, or `-tenant ID -employee ID` together — an employee-scope grant
 still needs its tenant named, since `/api/v1` nests employee-role
@@ -504,7 +509,8 @@ account holding an employee-scope role, with `wpcalcctl`:
 
 ```sh
 wpcalcctl user add alice
-wpcalcctl user grant alice -employee 42 -role viewer   # or "editor" to allow entry
+wpcalcctl user grant alice -tenant 8f14e45f-ceea-4c2b-9b1a-1d7f3a6c50e2 \
+  -employee 3c9a70b1-2d84-4f6e-8a15-b7c2e9d40f83 -role viewer   # or "editor" to allow entry
 ```
 
 What that account's role covers is what the shortcode shows — one employee

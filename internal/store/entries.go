@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
 )
@@ -27,13 +28,13 @@ import (
 // own tenant proves nothing about who the employee belongs to. A mismatch
 // reads as ErrNotFound, not a permission error — cross-tenant lookups answer
 // 404 everywhere else so that existence is not leaked.
-func (db *DB) SetHours(ctx context.Context, tenantID, employeeID int64, d domain.Date, h domain.Centihours) error {
+func (db *DB) SetHours(ctx context.Context, tenantID, employeeID uuid.UUID, d domain.Date, h domain.Centihours) error {
 	emp, err := db.Employee(ctx, employeeID)
 	if err != nil {
 		return err
 	}
 	if emp.TenantID != tenantID {
-		return fmt.Errorf("store: employee %d: %w", employeeID, ErrNotFound)
+		return fmt.Errorf("store: employee %s: %w", employeeID, ErrNotFound)
 	}
 	if !emp.Employed(d) {
 		return fmt.Errorf("store: %s on %s: %w", emp.DisplayName, d.Display(), domain.ErrNotEmployed)
@@ -45,7 +46,7 @@ func (db *DB) SetHours(ctx context.Context, tenantID, employeeID int64, d domain
 	if h == 0 {
 		_, err := db.ExecContext(ctx,
 			`DELETE FROM time_entries WHERE employee_id = ? AND work_date = ?`,
-			employeeID, d.String())
+			arg(employeeID), d.String())
 		if err != nil {
 			return fmt.Errorf("store: clear hours: %w", err)
 		}
@@ -53,11 +54,11 @@ func (db *DB) SetHours(ctx context.Context, tenantID, employeeID int64, d domain
 	}
 
 	_, err = db.ExecContext(ctx,
-		`INSERT INTO time_entries (employee_id, work_date, centihours)
-		      VALUES (?, ?, ?)
+		`INSERT INTO time_entries (id, employee_id, work_date, centihours)
+		      VALUES (?, ?, ?, ?)
 		 ON CONFLICT (employee_id, work_date)
 		   DO UPDATE SET centihours = excluded.centihours, updated_at = datetime('now')`,
-		employeeID, d.String(), int64(h))
+		arg(uuid.NewV4()), arg(employeeID), d.String(), int64(h))
 	if err != nil {
 		return fmt.Errorf("store: set hours: %w", err)
 	}
@@ -65,11 +66,11 @@ func (db *DB) SetHours(ctx context.Context, tenantID, employeeID int64, d domain
 }
 
 // Hours reads a single cell. A cleared cell reads as zero, not as an error.
-func (db *DB) Hours(ctx context.Context, employeeID int64, d domain.Date) (domain.Centihours, error) {
+func (db *DB) Hours(ctx context.Context, employeeID uuid.UUID, d domain.Date) (domain.Centihours, error) {
 	var v int64
 	err := db.QueryRowContext(ctx,
 		`SELECT centihours FROM time_entries WHERE employee_id = ? AND work_date = ?`,
-		employeeID, d.String()).Scan(&v)
+		arg(employeeID), d.String()).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, nil
 	}
@@ -87,26 +88,26 @@ func (db *DB) Hours(ctx context.Context, employeeID int64, d domain.Date) (domai
 // comment on why: employees.tenant_id is the one source of truth, joined
 // here rather than duplicated) — leaving this join out would leak every
 // tenant's hours into every other tenant's grid.
-func (db *DB) MonthEntries(ctx context.Context, tenantID int64, m domain.YearMonth) (map[int64]map[domain.Date]domain.Centihours, error) {
+func (db *DB) MonthEntries(ctx context.Context, tenantID uuid.UUID, m domain.YearMonth) (map[uuid.UUID]map[domain.Date]domain.Centihours, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT te.employee_id, te.work_date, te.centihours
 		   FROM time_entries te
 		   JOIN employees e ON e.id = te.employee_id
 		  WHERE e.tenant_id = ? AND te.work_date BETWEEN ? AND ?`,
-		tenantID, m.First().String(), m.Last().String())
+		arg(tenantID), m.First().String(), m.Last().String())
 	if err != nil {
 		return nil, fmt.Errorf("store: month entries: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	out := make(map[int64]map[domain.Date]domain.Centihours)
+	out := make(map[uuid.UUID]map[domain.Date]domain.Centihours)
 	for rows.Next() {
 		var (
-			empID int64
+			empID uuid.UUID
 			day   string
 			v     int64
 		)
-		if err := rows.Scan(&empID, &day, &v); err != nil {
+		if err := rows.Scan(scan{&empID}, &day, &v); err != nil {
 			return nil, fmt.Errorf("store: month entries: %w", err)
 		}
 		d, err := domain.ParseDate(day)
@@ -130,15 +131,15 @@ func (db *DB) MonthEntries(ctx context.Context, tenantID int64, m domain.YearMon
 // than summed in the template. The grand total is derived from the per-day
 // figures so that it cannot disagree with the axis it is printed against.
 type MonthTotals struct {
-	PerEmployee map[int64]domain.Centihours
+	PerEmployee map[uuid.UUID]domain.Centihours
 	PerDay      map[domain.Date]domain.Centihours
 	Grand       domain.Centihours
 }
 
 // Totals computes both accumulators for a month, scoped to one tenant.
-func (db *DB) Totals(ctx context.Context, tenantID int64, m domain.YearMonth) (MonthTotals, error) {
+func (db *DB) Totals(ctx context.Context, tenantID uuid.UUID, m domain.YearMonth) (MonthTotals, error) {
 	t := MonthTotals{
-		PerEmployee: make(map[int64]domain.Centihours),
+		PerEmployee: make(map[uuid.UUID]domain.Centihours),
 		PerDay:      make(map[domain.Date]domain.Centihours),
 	}
 
@@ -148,14 +149,17 @@ func (db *DB) Totals(ctx context.Context, tenantID int64, m domain.YearMonth) (M
 		   JOIN employees e ON e.id = te.employee_id
 		  WHERE e.tenant_id = ? AND te.work_date BETWEEN ? AND ?
 		  GROUP BY te.employee_id`,
-		tenantID, m.First().String(), m.Last().String())
+		arg(tenantID), m.First().String(), m.Last().String())
 	if err != nil {
 		return t, fmt.Errorf("store: totals per employee: %w", err)
 	}
 	defer func() { _ = empRows.Close() }()
 	for empRows.Next() {
-		var id, sum int64
-		if err := empRows.Scan(&id, &sum); err != nil {
+		var (
+			id  uuid.UUID
+			sum int64
+		)
+		if err := empRows.Scan(scan{&id}, &sum); err != nil {
 			return t, fmt.Errorf("store: totals per employee: %w", err)
 		}
 		t.PerEmployee[id] = domain.Centihours(sum)
@@ -170,7 +174,7 @@ func (db *DB) Totals(ctx context.Context, tenantID int64, m domain.YearMonth) (M
 		   JOIN employees e ON e.id = te.employee_id
 		  WHERE e.tenant_id = ? AND te.work_date BETWEEN ? AND ?
 		  GROUP BY te.work_date`,
-		tenantID, m.First().String(), m.Last().String())
+		arg(tenantID), m.First().String(), m.Last().String())
 	if err != nil {
 		return t, fmt.Errorf("store: totals per day: %w", err)
 	}
@@ -199,13 +203,13 @@ func (db *DB) Totals(ctx context.Context, tenantID int64, m domain.YearMonth) (M
 
 // EmployeeRangeTotal sums one employee's hours over an inclusive date range.
 // The reports use it for both the monthly and the yearly figures.
-func (db *DB) EmployeeRangeTotal(ctx context.Context, employeeID int64, from, to domain.Date) (domain.Centihours, error) {
+func (db *DB) EmployeeRangeTotal(ctx context.Context, employeeID uuid.UUID, from, to domain.Date) (domain.Centihours, error) {
 	var sum sql.NullInt64
 	err := db.QueryRowContext(ctx,
 		`SELECT SUM(centihours)
 		   FROM time_entries
 		  WHERE employee_id = ? AND work_date BETWEEN ? AND ?`,
-		employeeID, from.String(), to.String()).Scan(&sum)
+		arg(employeeID), from.String(), to.String()).Scan(&sum)
 	if err != nil {
 		return 0, fmt.Errorf("store: employee range total: %w", err)
 	}
@@ -216,13 +220,13 @@ func (db *DB) EmployeeRangeTotal(ctx context.Context, employeeID int64, from, to
 }
 
 // EmployeeEntries lists one employee's recorded days in a range, in date order.
-func (db *DB) EmployeeEntries(ctx context.Context, employeeID int64, from, to domain.Date) ([]domain.TimeEntry, error) {
+func (db *DB) EmployeeEntries(ctx context.Context, employeeID uuid.UUID, from, to domain.Date) ([]domain.TimeEntry, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT work_date, centihours
 		   FROM time_entries
 		  WHERE employee_id = ? AND work_date BETWEEN ? AND ?
 		  ORDER BY work_date`,
-		employeeID, from.String(), to.String())
+		arg(employeeID), from.String(), to.String())
 	if err != nil {
 		return nil, fmt.Errorf("store: employee entries: %w", err)
 	}
@@ -252,21 +256,21 @@ func (db *DB) EmployeeEntries(ctx context.Context, employeeID int64, from, to do
 // SetDayComment stores the single note for a calendar day within a tenant. An
 // empty or whitespace-only comment removes it, mirroring how clearing an
 // hours cell works.
-func (db *DB) SetDayComment(ctx context.Context, tenantID int64, d domain.Date, comment string) error {
+func (db *DB) SetDayComment(ctx context.Context, tenantID uuid.UUID, d domain.Date, comment string) error {
 	comment = strings.TrimSpace(comment)
 	if comment == "" {
 		if _, err := db.ExecContext(ctx,
-			`DELETE FROM day_comments WHERE tenant_id = ? AND work_date = ?`, tenantID, d.String()); err != nil {
+			`DELETE FROM day_comments WHERE tenant_id = ? AND work_date = ?`, arg(tenantID), d.String()); err != nil {
 			return fmt.Errorf("store: clear day comment: %w", err)
 		}
 		return nil
 	}
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO day_comments (tenant_id, work_date, comment)
-		      VALUES (?, ?, ?)
+		`INSERT INTO day_comments (id, tenant_id, work_date, comment)
+		      VALUES (?, ?, ?, ?)
 		 ON CONFLICT (tenant_id, work_date)
 		   DO UPDATE SET comment = excluded.comment, updated_at = datetime('now')`,
-		tenantID, d.String(), comment)
+		arg(uuid.NewV4()), arg(tenantID), d.String(), comment)
 	if err != nil {
 		return fmt.Errorf("store: set day comment: %w", err)
 	}
@@ -274,10 +278,10 @@ func (db *DB) SetDayComment(ctx context.Context, tenantID int64, d domain.Date, 
 }
 
 // DayComments returns every comment in the month for one tenant, keyed by day.
-func (db *DB) DayComments(ctx context.Context, tenantID int64, m domain.YearMonth) (map[domain.Date]string, error) {
+func (db *DB) DayComments(ctx context.Context, tenantID uuid.UUID, m domain.YearMonth) (map[domain.Date]string, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT work_date, comment FROM day_comments WHERE tenant_id = ? AND work_date BETWEEN ? AND ?`,
-		tenantID, m.First().String(), m.Last().String())
+		arg(tenantID), m.First().String(), m.Last().String())
 	if err != nil {
 		return nil, fmt.Errorf("store: day comments: %w", err)
 	}

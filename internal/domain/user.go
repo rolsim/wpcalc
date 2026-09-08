@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"uuid"
 )
 
 // User is an account that can sign in to the standalone server.
@@ -15,7 +16,7 @@ import (
 // An account's access is entirely derived from its UserRole rows (see
 // rbac.go) — there is no role or employee link on User itself.
 type User struct {
-	ID           int64
+	ID           uuid.UUID
 	Username     string
 	PasswordHash string
 
