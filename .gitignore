@@ -1,5 +1,5 @@
 # Scratch files: anything with `.untracked.` in the name, at any depth.
-*.untracked.*
+*untracked.*
 
 # Exported plugin used by the WordPress e2e
 /e2e/wordpress/.export/
@@ -7,6 +7,9 @@
 # Build output, at any depth: bin/ at the root, and wordpress/wpcalc/bin/
 # where the e2e test compiles the sidecar the plugin ships.
 bin/
+# `go build ./...` run from inside cmd/wpcalcctl drops the binary beside its
+# source, where the bin/ rule above does not reach it.
+/cmd/wpcalcctl/wpcalcctl
 
 # Local databases and runtime artifacts
 *.db
