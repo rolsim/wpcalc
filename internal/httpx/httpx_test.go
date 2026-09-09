@@ -12,12 +12,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/i18n"
 	"github.com/rolsim/wpcalc/internal/store"
-	"uuid"
 )
 
 // stubAuth stands in for a real authenticator so handler tests exercise the

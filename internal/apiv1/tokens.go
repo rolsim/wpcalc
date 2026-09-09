@@ -3,11 +3,11 @@ package apiv1
 import (
 	"context"
 	"errors"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/store"
-	"uuid"
 )
 
 func toAPIToken(t domain.APIToken) ApiToken {

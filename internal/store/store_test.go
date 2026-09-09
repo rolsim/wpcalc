@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
-	"uuid"
 )
 
 // testDB opens a real database in a temp file rather than :memory:.

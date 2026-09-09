@@ -5,11 +5,11 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/store"
-	"uuid"
 )
 
 // gridCell is one crossing point of day and employee.

@@ -27,7 +27,7 @@ import (
 // markdown is printed otherwise. That covers the two cases that matter: a
 // person reading it, and a pipe into a file or another program, where ANSI
 // escapes would be corruption rather than formatting.
-func cmdManual(_ context.Context, args []string) error {
+func cmdManual(ctx context.Context, args []string) error {
 	// Named flags, not fs: io/fs is imported here and shadowing a package with
 	// a local is how a later edit picks the wrong one silently.
 	flags := flag.NewFlagSet("manual", flag.ContinueOnError)
@@ -54,7 +54,7 @@ func cmdManual(_ context.Context, args []string) error {
 		return err
 	}
 
-	return renderManual(md, *raw)
+	return renderManual(ctx, md, *raw)
 }
 
 // readManual loads one manual, falling back to the default language rather
@@ -92,7 +92,7 @@ func readManual(lang, topic string) ([]byte, error) {
 }
 
 // renderManual writes the manual, through glow when that makes sense.
-func renderManual(md []byte, raw bool) error {
+func renderManual(ctx context.Context, md []byte, raw bool) error {
 	if raw || !isTerminal(os.Stdout) {
 		_, err := os.Stdout.Write(md)
 		return err
@@ -110,7 +110,7 @@ func renderManual(md []byte, raw bool) error {
 
 	// "-" reads from stdin, "-p" pages. Paging is what makes a long manual
 	// usable in a terminal, and glow falls back gracefully where it cannot.
-	cmd := exec.Command(glow, "-p", "-")
+	cmd := exec.CommandContext(ctx, glow, "-p", "-")
 	cmd.Stdin = strings.NewReader(string(md))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

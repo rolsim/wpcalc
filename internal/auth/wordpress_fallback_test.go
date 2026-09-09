@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
-	"uuid"
 )
 
 // fakeSessionStore backs a fallback Accounts authenticator with an

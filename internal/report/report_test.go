@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/i18n"
 	"github.com/rolsim/wpcalc/internal/store"
-	"uuid"
 )
 
 func newRenderer(t *testing.T) (*Renderer, *store.DB) {

@@ -4,11 +4,11 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/store"
-	"uuid"
 )
 
 type employeeRow struct {

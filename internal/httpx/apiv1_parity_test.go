@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
-	"uuid"
 )
 
 // bearerFor issues a real API token for an existing account — unlike

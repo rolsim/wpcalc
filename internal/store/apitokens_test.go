@@ -4,9 +4,9 @@ import (
 	"errors"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
-	"uuid"
 )
 
 func TestAPITokenLifecycle(t *testing.T) {

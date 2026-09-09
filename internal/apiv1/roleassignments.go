@@ -2,11 +2,11 @@ package apiv1
 
 import (
 	"context"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/store"
-	"uuid"
 )
 
 func (a *API) ListRoleAssignments(ctx context.Context, _ ListRoleAssignmentsRequestObject) (ListRoleAssignmentsResponseObject, error) {

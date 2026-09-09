@@ -3,10 +3,10 @@ package httpx
 import (
 	"net/http"
 	"strings"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/store"
-	"uuid"
 )
 
 type roleRow struct {

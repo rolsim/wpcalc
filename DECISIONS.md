@@ -376,3 +376,30 @@ generated clients, and would reintroduce the count disclosure. The schema was
 collapsed to a single `00001_initial.sql` at the same time, since no deployment
 had data worth migrating; that is also why there is no upgrade path from the
 old integer schema — existing databases are deleted and recreated.
+
+**golangci-lint is pinned to a version that understands the module's `go`
+directive, and the pin moves with it.** A linter whose bundled `go/analysis`
+predates the language version does not refuse the job — its typecheck fails
+internally and it reports *fabricated* `undefined:` errors for code the
+compiler accepts. After the Go 1.27 bump, v1.64.8 claimed `undefined: goose`
+and `db.QueryRowContext undefined (type *DB has no field or method ...)` while
+`go build` and `go vet` passed, which blocked `v0.3.0-alpha` from publishing:
+`release.yml` re-runs `make check-all` on the tagged commit and will not
+publish a failing one, so the tag sat on origin with no release. The earlier
+comment in both workflows — that a `go install` from source fixes this —
+was wrong: that rebuilds the linter, not the analysis packages pinned in its
+own `go.mod`. The fix was v2.13.2, which also required migrating
+`.golangci.yml` to the v2 schema (`golangci-lint migrate`); config schema and
+binary version are one decision, not two. *Reverse:* nothing depends on the
+version beyond the config schema, but any future `go` directive bump must
+bump this pin in the same commit or CI starts lying again.
+
+Two smaller things fell out of the v2 move, both real rather than cosmetic.
+`goimports` does not know Go 1.27 promoted `uuid` to the standard library, so
+`golangci-lint fmt` parks `"uuid"` in an import group of its own between the
+third-party and local blocks; placing it in the stdlib group by hand also
+satisfies the linter and is what the tree now does. And v2's wider `noctx`
+caught `net.Listen` in `cmd/wpcalc/serve.go` and `exec.Command` in
+`cmd/wpcalc/manual.go` — both had a `context.Context` already in scope at the
+call site and now use `(*net.ListenConfig).Listen` and `exec.CommandContext`,
+so the manual's pager dies with the command instead of outliving it.

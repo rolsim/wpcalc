@@ -18,10 +18,14 @@ jobs:
           go-version: "1.27.0"
 
       - name: Install golangci-lint
-        # go install rather than the prebuilt-binary install script: the
-        # prebuilt v1.64.8 release was compiled with go1.24, which refuses to
-        # lint a go1.27 module. Building it locally uses the toolchain above.
-        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+        # go install rather than the prebuilt-binary install script, so the
+        # linter is built with the toolchain above: a golangci-lint whose
+        # go/analysis predates this module's `go` directive does not fail
+        # loudly, it silently reports fake `undefined:` errors for code that
+        # `go build` and `go vet` compile cleanly. Bumping the go directive
+        # means bumping this pin in the same commit. v2 also requires the v2
+        # `.golangci.yml` schema (`version: "2"`); the two move together.
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
 
       - name: make check-all
         run: make check-all

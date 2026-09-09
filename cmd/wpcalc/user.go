@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"uuid"
 
 	"golang.org/x/term"
 
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/store"
-	"uuid"
 )
 
 // cmdUser is deliberately narrow: add, grant, and revoke are the two

@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/domain"
-	"uuid"
 )
 
 const testSecret = "a-shared-secret-of-sufficient-length"

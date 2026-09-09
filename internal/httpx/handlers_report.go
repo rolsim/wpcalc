@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/report"
 	"github.com/rolsim/wpcalc/internal/store"
-	"uuid"
 )
 
 type reportEmployee struct {

@@ -7,12 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/httpx"
 	"github.com/rolsim/wpcalc/internal/i18n"
 	"github.com/rolsim/wpcalc/internal/store"
-	"uuid"
 )
 
 // testServer spins up a real wpcalc server, the same way sdk/go's own

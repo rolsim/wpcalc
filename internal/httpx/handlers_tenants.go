@@ -3,10 +3,10 @@ package httpx
 import (
 	"net/http"
 	"strings"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
-	"uuid"
 )
 
 // handleTenantChoose shows the tenant switcher as a full page, for the

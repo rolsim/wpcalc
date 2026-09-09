@@ -6,9 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"time"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/store"
-	"uuid"
 )
 
 // cmdToken is deliberately narrow: create is the bootstrap primitive no

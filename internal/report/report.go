@@ -11,13 +11,13 @@ import (
 	"io"
 	"strconv"
 	"time"
+	"uuid"
 
 	"github.com/go-pdf/fpdf"
 
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/i18n"
 	"github.com/rolsim/wpcalc/internal/store"
-	"uuid"
 )
 
 // Source is the slice of the store the reports need.

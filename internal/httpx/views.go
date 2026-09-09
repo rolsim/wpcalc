@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
 	"github.com/rolsim/wpcalc/internal/i18n"
-	"uuid"
 )
 
 // pageTemplates are the content templates, each rendered inside base.html.

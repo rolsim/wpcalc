@@ -71,7 +71,7 @@ func cmdServe(ctx context.Context, args []string) error {
 		return err
 	}
 
-	ln, err := listen(*addr, *socket)
+	ln, err := listen(ctx, *addr, *socket)
 	if err != nil {
 		return err
 	}
@@ -158,9 +158,10 @@ func buildAuthenticator(ctx context.Context, db *store.DB, isSocket, secureCooki
 }
 
 // listen binds the requested listener.
-func listen(addr, socket string) (net.Listener, error) {
+func listen(ctx context.Context, addr, socket string) (net.Listener, error) {
+	var lc net.ListenConfig
 	if addr != "" {
-		ln, err := net.Listen("tcp", addr)
+		ln, err := lc.Listen(ctx, "tcp", addr)
 		if err != nil {
 			return nil, fmt.Errorf("serve: listen on %s: %w", addr, err)
 		}
@@ -178,7 +179,7 @@ func listen(addr, socket string) (net.Listener, error) {
 		return nil, fmt.Errorf("serve: remove stale socket: %w", err)
 	}
 
-	ln, err := net.Listen("unix", socket)
+	ln, err := lc.Listen(ctx, "unix", socket)
 	if err != nil {
 		return nil, fmt.Errorf("serve: listen on %s: %w", socket, err)
 	}

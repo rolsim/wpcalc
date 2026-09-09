@@ -3,10 +3,10 @@ package httpx
 import (
 	"context"
 	"net/http"
+	"uuid"
 
 	"github.com/rolsim/wpcalc/internal/auth"
 	"github.com/rolsim/wpcalc/internal/domain"
-	"uuid"
 )
 
 // accessibleTenants lists the tenants an identity may act in at all — every
